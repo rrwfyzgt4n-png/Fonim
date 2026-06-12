@@ -17,6 +17,7 @@ struct GenerationTickerState: Equatable {
     var message: String
     var voice: String?
     var cfgScale: String?
+    var ddpmInferenceSteps: Int?
 
     static let idle = GenerationTickerState(
         phase: .idle,
@@ -25,10 +26,11 @@ struct GenerationTickerState: Equatable {
         elapsedSeconds: 0,
         message: "Ready",
         voice: nil,
-        cfgScale: nil
+        cfgScale: nil,
+        ddpmInferenceSteps: nil
     )
 
-    static func started(voice: String, cfgScale: String) -> GenerationTickerState {
+    static func started(voice: String, cfgScale: String, ddpmInferenceSteps: Int) -> GenerationTickerState {
         GenerationTickerState(
             phase: .running,
             progress: nil,
@@ -36,7 +38,8 @@ struct GenerationTickerState: Equatable {
             elapsedSeconds: 0,
             message: "Starting Docker generation...",
             voice: voice,
-            cfgScale: cfgScale
+            cfgScale: cfgScale,
+            ddpmInferenceSteps: ddpmInferenceSteps
         )
     }
 
@@ -56,6 +59,12 @@ struct GenerationTickerState: Equatable {
             copy.finalSummary = summary
             if let speakerNames = summary.speakerNames {
                 copy.voice = speakerNames
+            }
+            if let cfgScale = summary.cfgScale {
+                copy.cfgScale = cfgScale
+            }
+            if let ddpmInferenceSteps = summary.ddpmInferenceSteps {
+                copy.ddpmInferenceSteps = ddpmInferenceSteps
             }
         }
         return copy
@@ -97,7 +106,7 @@ struct GenerationTickerState: Equatable {
             "Text tokens: \(textTokensText)",
             "Speech tokens: \(speechTokensText)",
             "Current step: \(currentStepText)",
-            "DDPM steps: --",
+            "DDPM steps: \(ddpmStepsText)",
             "Generation time: \(generationTimeText)",
             "Audio duration: \(audioDurationText)",
             "RTF: \(rtfText)",
@@ -169,6 +178,13 @@ struct GenerationTickerState: Equatable {
     private var currentStepText: String {
         guard let progress else { return "--" }
         return "\(progress.currentStep) / \(progress.maxSteps)"
+    }
+
+    private var ddpmStepsText: String {
+        if let value = ddpmInferenceSteps ?? finalSummary?.ddpmInferenceSteps {
+            return "\(value)"
+        }
+        return "--"
     }
 
     private var generationTimeText: String {
