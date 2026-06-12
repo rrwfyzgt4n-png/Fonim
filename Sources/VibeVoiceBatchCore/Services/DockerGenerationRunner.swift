@@ -99,7 +99,8 @@ public final class DockerGenerationRunner {
         let docker = DockerCommandBuilder.make(
             sessionID: "cancel",
             voice: AppDefaults.defaultVoice,
-            cfgScale: AppDefaults.defaultCFGScale
+            cfgScale: AppDefaults.defaultCFGScale,
+            ddpmInferenceSteps: AppDefaults.defaultDDPMInferenceSteps
         ).executable
 
         let stopProcess = Process()
