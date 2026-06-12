@@ -53,9 +53,6 @@ struct SessionDetailView: View {
                         MetricLabel(title: "Generation", value: SessionFormatters.duration(record.metadata.generationTimeSeconds))
                         MetricLabel(title: "Audio", value: SessionFormatters.duration(record.metadata.audioDurationSeconds))
                         MetricLabel(title: "RTF", value: SessionFormatters.rtf(record.metadata.rtf))
-                        if store.activeSessionID == record.id {
-                            MetricLabel(title: "Elapsed", value: store.elapsedTenSecondCounter)
-                        }
                     }
                 }
 
@@ -71,7 +68,10 @@ struct SessionDetailView: View {
                     Button {
                         store.playWAV(record)
                     } label: {
-                        Label("Play WAV", systemImage: "play.circle")
+                        Label(
+                            store.isPlaying(record) ? "Stop WAV" : "Play WAV",
+                            systemImage: store.isPlaying(record) ? "stop.circle" : "play.circle"
+                        )
                     }
                     .disabled(record.outputURL == nil)
 

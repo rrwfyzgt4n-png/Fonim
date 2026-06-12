@@ -18,7 +18,7 @@ struct EditorView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                        .frame(width: 220)
+                    .frame(width: 220)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -55,6 +55,8 @@ struct EditorView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(.quaternary)
             }
+
+            GenerationTickerView()
         }
         .padding()
         .navigationTitle(store.hasUnsavedEditorText ? "Unsaved Text" : "New Session")
@@ -65,26 +67,63 @@ private struct GenerateControl: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(store.isGenerating ? store.elapsedTenSecondCounter : "0s")
-                .font(.title3.monospacedDigit().weight(.semibold))
-                .foregroundStyle(store.isGenerating ? .blue : .secondary)
-                .frame(minWidth: 48, alignment: .trailing)
-
-            Button {
-                store.generate()
-            } label: {
-                Label("Generate WAV", systemImage: "waveform.circle.fill")
-                    .labelStyle(.iconOnly)
-                    .font(.title2)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(!store.canGenerate)
-            .help("Generate WAV")
+        Button {
+            store.generate()
+        } label: {
+            Label("Generate WAV", systemImage: "waveform.circle.fill")
+                .labelStyle(.iconOnly)
+                .font(.title2)
         }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .frame(width: 44, height: 34)
+        .disabled(!store.canGenerate)
+        .help("Generate WAV")
         .padding(.leading, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Generate WAV, elapsed \(store.elapsedTenSecondCounter)")
+        .accessibilityLabel("Generate WAV")
+    }
+}
+
+private struct GenerationTickerView: View {
+    @EnvironmentObject private var store: AppStore
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(indicatorColor)
+                .frame(width: 7, height: 7)
+
+            Text(store.generationTicker.displayLine)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .foregroundStyle(textColor)
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 5))
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(textColor.opacity(store.generationTicker.isActive ? 0.55 : 0.25), lineWidth: 1)
+        }
+        .accessibilityLabel(store.generationTicker.displayLine)
+    }
+
+    private var indicatorColor: Color {
+        if store.generationTicker.isProblem {
+            return .orange
+        }
+        return store.generationTicker.isActive ? .green : .gray
+    }
+
+    private var textColor: Color {
+        if store.generationTicker.isProblem {
+            return Color(red: 1.0, green: 0.45, blue: 0.30)
+        }
+        if store.generationTicker.isActive {
+            return Color(red: 0.62, green: 1.0, blue: 0.58)
+        }
+        return Color(red: 0.70, green: 0.78, blue: 0.68)
     }
 }
