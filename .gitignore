@@ -1,0 +1,13 @@
+.build/
+dist/
+.swiftpm/
+.DS_Store
+
+# Local Docker/runtime state
+DockerDesktop/
+hf-cache/
+outputs/
+history/
+recovered/
+input.txt
+batch_gui.py
