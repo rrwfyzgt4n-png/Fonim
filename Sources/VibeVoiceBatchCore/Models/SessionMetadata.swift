@@ -7,6 +7,7 @@ public struct SessionMetadata: Codable, Equatable, Identifiable {
     public var status: SessionStatus
     public var voice: String
     public var cfgScale: String
+    public var ddpmInferenceSteps: Int?
     public var dockerImage: String
     public var dockerCommand: String
     public var inputWordCount: Int
@@ -25,6 +26,7 @@ public struct SessionMetadata: Codable, Equatable, Identifiable {
         status: SessionStatus,
         voice: String,
         cfgScale: String,
+        ddpmInferenceSteps: Int? = nil,
         dockerImage: String = AppDefaults.dockerImage,
         dockerCommand: String,
         inputWordCount: Int,
@@ -40,6 +42,7 @@ public struct SessionMetadata: Codable, Equatable, Identifiable {
         self.status = status
         self.voice = voice
         self.cfgScale = cfgScale
+        self.ddpmInferenceSteps = ddpmInferenceSteps
         self.dockerImage = dockerImage
         self.dockerCommand = dockerCommand
         self.inputWordCount = inputWordCount
@@ -57,6 +60,7 @@ public struct SessionMetadata: Codable, Equatable, Identifiable {
         case status
         case voice
         case cfgScale = "cfg_scale"
+        case ddpmInferenceSteps = "ddpm_inference_steps"
         case dockerImage = "docker_image"
         case dockerCommand = "docker_command"
         case inputWordCount = "input_word_count"
