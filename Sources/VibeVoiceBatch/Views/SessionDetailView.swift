@@ -42,6 +42,7 @@ struct SessionDetailView: View {
                         StatusBadge(status: record.metadata.status)
                         Text(record.metadata.voice)
                         Text("cfg \(record.metadata.cfgScale)")
+                        Text("steps \(stepsText)")
                     }
                     .font(.callout)
 
@@ -83,6 +84,10 @@ struct SessionDetailView: View {
                 }
             }
         }
+    }
+
+    private var stepsText: String {
+        record.metadata.ddpmInferenceSteps.map(String.init) ?? "--"
     }
 
     private var textPane: some View {
