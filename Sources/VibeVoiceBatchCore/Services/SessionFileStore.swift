@@ -63,7 +63,13 @@ public final class SessionFileStore {
         )
     }
 
-    public func createDraft(text: String, voice: String, cfgScale: String, now: Date = Date()) throws -> SessionRecord {
+    public func createDraft(
+        text: String,
+        voice: String,
+        cfgScale: String,
+        ddpmInferenceSteps: Int = AppDefaults.defaultDDPMInferenceSteps,
+        now: Date = Date()
+    ) throws -> SessionRecord {
         try ensureBaseDirectories()
         let sessionID = try makeUniqueSessionID(voice: voice, cfgScale: cfgScale, date: now)
         let folder = projectRoot.historyDirectory.appendingPathComponent(sessionID, isDirectory: true)
@@ -79,6 +85,7 @@ public final class SessionFileStore {
             status: .draft,
             voice: voice,
             cfgScale: cfgScale,
+            ddpmInferenceSteps: ddpmInferenceSteps,
             dockerCommand: "",
             inputWordCount: TextMetrics.wordCount(in: text),
             inputCharacterCount: text.count
@@ -87,7 +94,13 @@ public final class SessionFileStore {
         return try loadRecord(folderURL: folder)
     }
 
-    public func createGenerationSession(text: String, voice: String, cfgScale: String, now: Date = Date()) throws -> GenerationWorkspace {
+    public func createGenerationSession(
+        text: String,
+        voice: String,
+        cfgScale: String,
+        ddpmInferenceSteps: Int = AppDefaults.defaultDDPMInferenceSteps,
+        now: Date = Date()
+    ) throws -> GenerationWorkspace {
         try ensureBaseDirectories()
         let sessionID = try makeUniqueSessionID(voice: voice, cfgScale: cfgScale, date: now)
         let folder = projectRoot.historyDirectory.appendingPathComponent(sessionID, isDirectory: true)
@@ -97,6 +110,7 @@ public final class SessionFileStore {
             sessionID: sessionID,
             voice: voice,
             cfgScale: cfgScale,
+            ddpmInferenceSteps: ddpmInferenceSteps,
             projectRoot: projectRoot
         )
 
@@ -109,6 +123,7 @@ public final class SessionFileStore {
             status: .running,
             voice: voice,
             cfgScale: cfgScale,
+            ddpmInferenceSteps: ddpmInferenceSteps,
             dockerCommand: command.displayCommand,
             inputWordCount: TextMetrics.wordCount(in: text),
             inputCharacterCount: text.count

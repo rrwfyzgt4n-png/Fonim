@@ -10,6 +10,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkMoveGeneratedWAVToSessionUsesOutputWAV()
         try checkReadsPCMDuration()
         try checkParsesLiveProgressAndFinalSummary()
+        try checkDockerCommandIncludesDDPMControls()
         print("VibeVoiceBatchCoreChecks passed")
     }
 
@@ -92,6 +93,8 @@ struct VibeVoiceBatchCoreChecks {
         Input file: /app/input.txt
         Output file: /app/outputs/input_generated.wav
         Speaker names: en-mike_man
+        CFG scale: 1.8
+        DDPM inference steps: 8
         Prefilling text tokens: 389
         Generated speech tokens: 930
         Total tokens: 1467
@@ -105,12 +108,29 @@ struct VibeVoiceBatchCoreChecks {
         precondition(summary.inputFile == "/app/input.txt")
         precondition(summary.outputFile == "/app/outputs/input_generated.wav")
         precondition(summary.speakerNames == "en-mike_man")
+        precondition(summary.cfgScale == "1.8")
+        precondition(summary.ddpmInferenceSteps == 8)
         precondition(summary.prefilledTextTokens == 389)
         precondition(summary.generatedSpeechTokens == 930)
         precondition(summary.totalTokens == 1467)
         precondition(summary.generationTimeSeconds == 329.40)
         precondition(summary.audioDurationSeconds == 123.47)
         precondition(summary.rtf == 2.67)
+    }
+
+    private static func checkDockerCommandIncludesDDPMControls() throws {
+        try withStore { root, _ in
+            let command = DockerCommandBuilder.make(
+                sessionID: "session",
+                voice: "en-carter_man",
+                cfgScale: "1.8",
+                ddpmInferenceSteps: 8,
+                projectRoot: root
+            )
+            precondition(command.arguments.contains("--ddpm_inference_steps"))
+            precondition(command.arguments.contains("8"))
+            precondition(command.displayCommand.contains("docker_overrides/realtime_model_inference_from_file.py:/app/demo/realtime_model_inference_from_file.py:ro"))
+        }
     }
 
     private static func withStore<T>(_ body: (URL, SessionFileStore) throws -> T) throws -> T {

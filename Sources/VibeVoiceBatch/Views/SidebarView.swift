@@ -84,7 +84,7 @@ private struct HistoryRow: View {
                 StatusBadge(status: record.metadata.status)
             }
 
-            Text("\(record.metadata.voice)  cfg \(record.metadata.cfgScale)  \(record.metadata.inputWordCount) words")
+            Text("\(record.metadata.voice)  cfg \(record.metadata.cfgScale)  steps \(stepsText)  \(record.metadata.inputWordCount) words")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -95,6 +95,10 @@ private struct HistoryRow: View {
                 .lineLimit(1)
         }
         .padding(.vertical, 5)
+    }
+
+    private var stepsText: String {
+        record.metadata.ddpmInferenceSteps.map(String.init) ?? "--"
     }
 }
 

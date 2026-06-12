@@ -6,6 +6,9 @@ public enum AppDefaults {
     public static let modelPath = "microsoft/VibeVoice-Realtime-0.5B"
     public static let defaultVoice = "en-carter_man"
     public static let defaultCFGScale = "1.8"
+    public static let defaultDDPMInferenceSteps = 5
+    public static let availableCFGScales = (26...60).map { cfgScaleLabel(Double($0) / 20.0) }
+    public static let availableDDPMInferenceSteps = Array(5...20)
     public static let availableVoices = [
         "de-spk0_man",
         "de-spk1_woman",
@@ -33,6 +36,17 @@ public enum AppDefaults {
         "sp-spk0_woman",
         "sp-spk1_man"
     ]
+
+    private static func cfgScaleLabel(_ value: Double) -> String {
+        let raw = String(format: "%.2f", value)
+        if raw.hasSuffix("00") {
+            return String(raw.dropLast(3))
+        }
+        if raw.hasSuffix("0") {
+            return String(raw.dropLast())
+        }
+        return raw
+    }
 }
 
 public extension URL {
@@ -40,6 +54,8 @@ public extension URL {
     var outputsDirectory: URL { appendingPathComponent("outputs", isDirectory: true) }
     var recoveredDirectory: URL { appendingPathComponent("recovered", isDirectory: true) }
     var hfCacheDirectory: URL { appendingPathComponent("hf-cache", isDirectory: true) }
+    var dockerOverridesDirectory: URL { appendingPathComponent("docker_overrides", isDirectory: true) }
+    var inferenceScriptOverrideFile: URL { dockerOverridesDirectory.appendingPathComponent("realtime_model_inference_from_file.py", isDirectory: false) }
     var stagingInputFile: URL { appendingPathComponent("input.txt", isDirectory: false) }
     var generatedWAVFile: URL { outputsDirectory.appendingPathComponent("input_generated.wav", isDirectory: false) }
 }
