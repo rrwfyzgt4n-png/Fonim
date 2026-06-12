@@ -11,6 +11,8 @@ final class AppStore: ObservableObject {
     @Published var hasUnsavedEditorText = false
     @Published private(set) var isGenerating = false
     @Published private(set) var elapsedSeconds: TimeInterval = 0
+    @Published private(set) var activeSessionID: String?
+    @Published var pendingScrollSessionID: String?
     @Published var statusMessage = "Ready"
     @Published var alertMessage: String?
     @Published private var liveLogBySessionID: [String: String] = [:]
@@ -18,7 +20,6 @@ final class AppStore: ObservableObject {
     private let fileStore = SessionFileStore()
     private let runner = DockerGenerationRunner()
     private var activeTask: Task<Void, Never>?
-    private var activeSessionID: String?
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
 
@@ -33,6 +34,10 @@ final class AppStore: ObservableObject {
 
     var canSaveDraft: Bool {
         !isGenerating && !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var elapsedTenSecondCounter: String {
+        "\(Int(elapsedSeconds / 10) * 10)s"
     }
 
     func refreshHistory() {
@@ -76,6 +81,7 @@ final class AppStore: ObservableObject {
             refreshHistory()
             if selectAfterSave {
                 selectedSessionID = record.id
+                pendingScrollSessionID = record.id
             }
             statusMessage = "\(messagePrefix): \(record.id)"
             return record
@@ -125,6 +131,7 @@ final class AppStore: ObservableObject {
             liveLogBySessionID[workspace.record.id] = initialLog
             try fileStore.replaceLog(initialLog, in: workspace.record.folderURL)
             refreshHistory()
+            pendingScrollSessionID = workspace.record.id
             startElapsedTimer()
 
             let fileStore = self.fileStore
@@ -174,6 +181,19 @@ final class AppStore: ObservableObject {
         statusMessage = "Duplicated \(record.id) as new unsaved text"
     }
 
+    func archiveDeleteSession(_ record: SessionRecord) {
+        do {
+            let destination = try fileStore.archiveDeletedSession(record)
+            if selectedSessionID == record.id {
+                selectedSessionID = nil
+            }
+            refreshHistory()
+            statusMessage = "Moved deleted session to \(destination.lastPathComponent)"
+        } catch {
+            alertMessage = "Could not delete session: \(error.localizedDescription)"
+        }
+    }
+
     func openSessionFolder(_ record: SessionRecord) {
         NSWorkspace.shared.open(record.folderURL)
     }
@@ -185,6 +205,10 @@ final class AppStore: ObservableObject {
 
     func logText(for record: SessionRecord) -> String {
         liveLogBySessionID[record.id] ?? record.logText
+    }
+
+    func clearPendingScrollRequest() {
+        pendingScrollSessionID = nil
     }
 
     private func appendLiveLog(_ chunk: String, sessionID: String) {
@@ -248,6 +272,7 @@ final class AppStore: ObservableObject {
                 self.stopElapsedTimer()
                 self.refreshHistory()
                 self.selectedSessionID = workspace.record.id
+                self.pendingScrollSessionID = workspace.record.id
                 self.statusMessage = metadata.status.displayName
             }
         }

@@ -11,8 +11,13 @@ struct EditorView: View {
                     Text("Voice")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("Voice", text: $store.selectedVoice)
-                        .textFieldStyle(.roundedBorder)
+                    Picker("Voice", selection: $store.selectedVoice) {
+                        ForEach(AppDefaults.availableVoices, id: \.self) { voice in
+                            Text(voice).tag(voice)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                         .frame(width: 220)
                 }
 
@@ -35,16 +40,7 @@ struct EditorView: View {
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(store.statusMessage)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    if store.isGenerating {
-                        Text("Elapsed \(SessionFormatters.duration(store.elapsedSeconds))")
-                            .font(.caption)
-                            .foregroundStyle(.blue)
-                    }
-                }
+                GenerateControl()
             }
 
             TextEditor(text: Binding(
@@ -62,5 +58,33 @@ struct EditorView: View {
         }
         .padding()
         .navigationTitle(store.hasUnsavedEditorText ? "Unsaved Text" : "New Session")
+    }
+}
+
+private struct GenerateControl: View {
+    @EnvironmentObject private var store: AppStore
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(store.isGenerating ? store.elapsedTenSecondCounter : "0s")
+                .font(.title3.monospacedDigit().weight(.semibold))
+                .foregroundStyle(store.isGenerating ? .blue : .secondary)
+                .frame(minWidth: 48, alignment: .trailing)
+
+            Button {
+                store.generate()
+            } label: {
+                Label("Generate WAV", systemImage: "waveform.circle.fill")
+                    .labelStyle(.iconOnly)
+                    .font(.title2)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!store.canGenerate)
+            .help("Generate WAV")
+        }
+        .padding(.leading, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Generate WAV, elapsed \(store.elapsedTenSecondCounter)")
     }
 }

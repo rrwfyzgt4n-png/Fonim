@@ -33,14 +33,6 @@ struct ContentView: View {
                 .disabled(!store.canSaveDraft)
                 .help("Save Draft")
 
-                Button {
-                    store.generate()
-                } label: {
-                    Label("Generate WAV", systemImage: "waveform")
-                }
-                .disabled(!store.canGenerate)
-                .help("Generate WAV")
-
                 Button(role: .destructive) {
                     store.cancelGeneration()
                 } label: {

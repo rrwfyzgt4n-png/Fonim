@@ -6,13 +6,51 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: $store.selectedSessionID) {
-                ForEach(store.sessions) { record in
-                    HistoryRow(record: record)
-                        .tag(record.id as String?)
+            ScrollViewReader { proxy in
+                List(selection: $store.selectedSessionID) {
+                    ForEach(store.sessions) { record in
+                        HistoryRow(record: record)
+                            .id(record.id)
+                            .tag(record.id as String?)
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button {
+                                    store.duplicateAsNew(record)
+                                } label: {
+                                    Label("Duplicate", systemImage: "doc.on.doc")
+                                }
+                                .tint(.blue)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    store.archiveDeleteSession(record)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .contextMenu {
+                                Button {
+                                    store.duplicateAsNew(record)
+                                } label: {
+                                    Label("Duplicate as New", systemImage: "doc.on.doc")
+                                }
+
+                                Button(role: .destructive) {
+                                    store.archiveDeleteSession(record)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                    }
+                }
+                .listStyle(.sidebar)
+                .onChange(of: store.pendingScrollSessionID) { sessionID in
+                    guard let sessionID else { return }
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(sessionID, anchor: .center)
+                    }
+                    store.clearPendingScrollRequest()
                 }
             }
-            .listStyle(.sidebar)
 
             HStack {
                 Text("\(store.sessions.count) sessions")
