@@ -9,6 +9,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var editorText = ""
     @Published var selectedVoice = AppDefaults.defaultVoice
     @Published var cfgScale = AppDefaults.defaultCFGScale
+    @Published var ddpmInferenceSteps = AppDefaults.defaultDDPMInferenceSteps
     @Published var hasUnsavedEditorText = false
     @Published private(set) var isGenerating = false
     @Published private(set) var elapsedSeconds: TimeInterval = 0
@@ -63,6 +64,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         editorText = ""
         selectedVoice = AppDefaults.defaultVoice
         cfgScale = AppDefaults.defaultCFGScale
+        ddpmInferenceSteps = AppDefaults.defaultDDPMInferenceSteps
         hasUnsavedEditorText = false
         selectedSessionID = nil
         statusMessage = "New blank editor"
@@ -80,7 +82,12 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
 
         do {
-            let record = try fileStore.createDraft(text: text, voice: selectedVoice, cfgScale: cfgScale)
+            let record = try fileStore.createDraft(
+                text: text,
+                voice: selectedVoice,
+                cfgScale: cfgScale,
+                ddpmInferenceSteps: ddpmInferenceSteps
+            )
             hasUnsavedEditorText = false
             refreshHistory()
             if selectAfterSave {
@@ -107,7 +114,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let workspace = try fileStore.createGenerationSession(
                 text: text,
                 voice: selectedVoice,
-                cfgScale: cfgScale
+                cfgScale: cfgScale,
+                ddpmInferenceSteps: ddpmInferenceSteps
             )
             selectedSessionID = nil
             activeSessionID = workspace.record.id
@@ -116,7 +124,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             elapsedSeconds = 0
             activeStartedAt = Date()
             liveLogBySessionID[workspace.record.id] = ""
-            generationTicker = .started(voice: selectedVoice, cfgScale: cfgScale)
+            generationTicker = .started(
+                voice: selectedVoice,
+                cfgScale: cfgScale,
+                ddpmInferenceSteps: ddpmInferenceSteps
+            )
 
             var initialLog = """
             Session: \(workspace.record.id)
@@ -183,6 +195,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         editorText = record.inputText
         selectedVoice = record.metadata.voice
         cfgScale = record.metadata.cfgScale
+        ddpmInferenceSteps = record.metadata.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
         hasUnsavedEditorText = !record.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         selectedSessionID = nil
         statusMessage = "Duplicated \(record.id) as new unsaved text"
