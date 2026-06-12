@@ -15,6 +15,7 @@ public enum DockerCommandBuilder {
         sessionID: String,
         voice: String,
         cfgScale: String,
+        ddpmInferenceSteps: Int = AppDefaults.defaultDDPMInferenceSteps,
         projectRoot: URL = AppDefaults.projectRoot
     ) -> DockerRunCommand {
         let containerName = "vibevoice_batch_" + sanitizedContainerComponent(sessionID)
@@ -30,6 +31,7 @@ public enum DockerCommandBuilder {
             "-v", "\(projectRoot.outputsDirectory.path):/app/outputs",
             "-v", "\(projectRoot.hfCacheDirectory.path):/root/.cache/huggingface",
             "-v", "\(projectRoot.stagingInputFile.path):/app/input.txt:ro",
+            "-v", "\(projectRoot.inferenceScriptOverrideFile.path):/app/demo/realtime_model_inference_from_file.py:ro",
             AppDefaults.dockerImage,
             "python", "demo/realtime_model_inference_from_file.py",
             "--device", "cpu",
@@ -37,6 +39,7 @@ public enum DockerCommandBuilder {
             "--txt_path", "/app/input.txt",
             "--speaker_name", voice,
             "--cfg_scale", cfgScale,
+            "--ddpm_inference_steps", "\(ddpmInferenceSteps)",
             "--output_dir", "/app/outputs"
         ]
         return DockerRunCommand(executable: executable, arguments: arguments, containerName: containerName)
