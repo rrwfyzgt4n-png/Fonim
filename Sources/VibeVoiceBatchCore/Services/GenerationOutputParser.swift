@@ -26,6 +26,8 @@ public struct FinalGenerationSummary: Equatable {
     public var inputFile: String?
     public var outputFile: String?
     public var speakerNames: String?
+    public var cfgScale: String?
+    public var ddpmInferenceSteps: Int?
     public var prefilledTextTokens: Int?
     public var generatedSpeechTokens: Int?
     public var totalTokens: Int?
@@ -37,6 +39,8 @@ public struct FinalGenerationSummary: Equatable {
         inputFile == nil &&
             outputFile == nil &&
             speakerNames == nil &&
+            cfgScale == nil &&
+            ddpmInferenceSteps == nil &&
             prefilledTextTokens == nil &&
             generatedSpeechTokens == nil &&
             totalTokens == nil &&
@@ -80,6 +84,8 @@ public enum GenerationOutputParser {
         summary.inputFile = lastString(pattern: #"Input file:\s+(.+)"#, in: suffix)
         summary.outputFile = lastString(pattern: #"Output file:\s+(.+)"#, in: suffix)
         summary.speakerNames = lastString(pattern: #"Speaker names:\s+(.+)"#, in: suffix)
+        summary.cfgScale = lastString(pattern: #"CFG scale:\s+(.+)"#, in: suffix)
+        summary.ddpmInferenceSteps = lastInt(pattern: #"DDPM inference steps:\s+(\d+)"#, in: suffix)
         summary.prefilledTextTokens = lastInt(pattern: #"Prefilling text tokens:\s+(\d+)"#, in: suffix)
         summary.generatedSpeechTokens = lastInt(pattern: #"Generated speech tokens:\s+(\d+)"#, in: suffix)
         summary.totalTokens = lastInt(pattern: #"Total tokens:\s+(\d+)"#, in: suffix)
