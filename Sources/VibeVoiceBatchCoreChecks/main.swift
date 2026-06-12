@@ -9,6 +9,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkRecoverExistingGeneratedWAVMovesToRecovered()
         try checkMoveGeneratedWAVToSessionUsesOutputWAV()
         try checkReadsPCMDuration()
+        try checkParsesLiveProgressAndFinalSummary()
         print("VibeVoiceBatchCoreChecks passed")
     }
 
@@ -73,6 +74,43 @@ struct VibeVoiceBatchCoreChecks {
             throw CheckError("Expected WAV duration")
         }
         precondition(abs(duration - 2.0) < 0.001)
+    }
+
+    private static func checkParsesLiveProgressAndFinalSummary() throws {
+        let progressText = "noise\rPrefilled 70 text tokens, generated 80 speech tokens, current step (298 / 8192):   4%| | 298/8192 [00:27]"
+        guard let progress = GenerationOutputParser.latestProgress(in: progressText) else {
+            throw CheckError("Expected live progress")
+        }
+        precondition(progress.prefilledTextTokens == 70)
+        precondition(progress.generatedSpeechTokens == 80)
+        precondition(progress.currentStep == 298)
+        precondition(progress.maxSteps == 8192)
+        precondition(abs(progress.percent - 3.6376953125) < 0.0001)
+        precondition(progress.reportedElapsedSeconds == 27)
+
+        let summaryText = """
+        Input file: /app/input.txt
+        Output file: /app/outputs/input_generated.wav
+        Speaker names: en-mike_man
+        Prefilling text tokens: 389
+        Generated speech tokens: 930
+        Total tokens: 1467
+        Generation time: 329.40 seconds
+        Audio duration: 123.47 seconds
+        RTF (Real Time Factor): 2.67x
+        """
+        guard let summary = GenerationOutputParser.latestSummary(in: summaryText) else {
+            throw CheckError("Expected final summary")
+        }
+        precondition(summary.inputFile == "/app/input.txt")
+        precondition(summary.outputFile == "/app/outputs/input_generated.wav")
+        precondition(summary.speakerNames == "en-mike_man")
+        precondition(summary.prefilledTextTokens == 389)
+        precondition(summary.generatedSpeechTokens == 930)
+        precondition(summary.totalTokens == 1467)
+        precondition(summary.generationTimeSeconds == 329.40)
+        precondition(summary.audioDurationSeconds == 123.47)
+        precondition(summary.rtf == 2.67)
     }
 
     private static func withStore<T>(_ body: (URL, SessionFileStore) throws -> T) throws -> T {

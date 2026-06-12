@@ -1,4 +1,5 @@
 import Foundation
+import VibeVoiceBatchCore
 
 struct GenerationTickerState: Equatable {
     enum Phase: Equatable {
@@ -10,23 +11,32 @@ struct GenerationTickerState: Equatable {
     }
 
     var phase: Phase
-    var progress: GenerationProgressLine?
+    var progress: LiveGenerationProgress?
+    var finalSummary: FinalGenerationSummary?
     var elapsedSeconds: TimeInterval
     var message: String
+    var voice: String?
+    var cfgScale: String?
 
     static let idle = GenerationTickerState(
         phase: .idle,
         progress: nil,
+        finalSummary: nil,
         elapsedSeconds: 0,
-        message: "Ready"
+        message: "Ready",
+        voice: nil,
+        cfgScale: nil
     )
 
-    static func started() -> GenerationTickerState {
+    static func started(voice: String, cfgScale: String) -> GenerationTickerState {
         GenerationTickerState(
             phase: .running,
             progress: nil,
+            finalSummary: nil,
             elapsedSeconds: 0,
-            message: "Starting Docker generation..."
+            message: "Starting Docker generation...",
+            voice: voice,
+            cfgScale: cfgScale
         )
     }
 
@@ -38,9 +48,15 @@ struct GenerationTickerState: Equatable {
 
     func ingesting(logText: String, elapsed: TimeInterval) -> GenerationTickerState {
         var copy = ticking(elapsed: elapsed)
-        if let progress = GenerationProgressLine.latest(in: logText) {
+        if let progress = GenerationOutputParser.latestProgress(in: logText) {
             copy.progress = progress
-            copy.message = progress.summary
+            copy.message = "current step (\(progress.currentStep) / \(progress.maxSteps))"
+        }
+        if let summary = GenerationOutputParser.latestSummary(in: logText) {
+            copy.finalSummary = summary
+            if let speakerNames = summary.speakerNames {
+                copy.voice = speakerNames
+            }
         }
         return copy
     }
@@ -60,7 +76,7 @@ struct GenerationTickerState: Equatable {
         } else if let progress {
             filledCount = min(barWidth, max(0, Int((progress.fraction * Double(barWidth)).rounded(.down))))
         } else if phase == .running {
-            filledCount = min(barWidth, max(1, Int(elapsedSeconds.rounded(.down))))
+            filledCount = min(barWidth, max(1, Int((elapsedSeconds / 10).rounded(.down))))
         } else {
             filledCount = 0
         }
@@ -70,16 +86,23 @@ struct GenerationTickerState: Equatable {
             + String(repeating: " ", count: max(0, barWidth - filledCount))
             + "]"
 
-        let percentText: String
-        if phase == .completed {
-            percentText = "100%"
-        } else if let progress {
-            percentText = "\(Int(progress.percent.rounded()))%"
-        } else {
-            percentText = "--%"
-        }
-
-        return "\(bar) \(percentText) live \(Self.clock(elapsedSeconds)) remaining \(remainingText)  \(message)"
+        return [
+            "Status: \(phaseText)",
+            "Voice: \(voiceText)",
+            "CFG: \(cfgScale ?? "--")",
+            bar,
+            "Progress: \(progressText)",
+            "Elapsed: \(elapsedText)",
+            "Remaining: \(remainingText)",
+            "Text tokens: \(textTokensText)",
+            "Speech tokens: \(speechTokensText)",
+            "Current step: \(currentStepText)",
+            "DDPM steps: --",
+            "Generation time: \(generationTimeText)",
+            "Audio duration: \(audioDurationText)",
+            "RTF: \(rtfText)",
+            "Output: \(outputText)"
+        ].joined(separator: " | ")
     }
 
     var isActive: Bool {
@@ -93,10 +116,78 @@ struct GenerationTickerState: Equatable {
     private var remainingText: String {
         guard phase == .running,
               let progress,
-              let remainingSeconds = progress.estimatedRemainingSeconds(elapsedSeconds: elapsedSeconds) else {
+              let remainingSeconds = progress.estimatedRemainingSeconds(elapsedSeconds: elapsedForProgress) else {
             return "--:--"
         }
         return Self.clock(remainingSeconds)
+    }
+
+    private var elapsedForProgress: TimeInterval {
+        progress?.reportedElapsedSeconds ?? elapsedSeconds
+    }
+
+    private var phaseText: String {
+        switch phase {
+        case .idle: return "Ready"
+        case .running: return "Running"
+        case .completed: return "Completed"
+        case .failed: return "Failed"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
+    private var voiceText: String {
+        voice ?? finalSummary?.speakerNames ?? "--"
+    }
+
+    private var progressText: String {
+        if phase == .completed {
+            return "100.00%"
+        }
+        guard let progress else { return "--" }
+        return String(format: "%.2f%%", progress.percent)
+    }
+
+    private var elapsedText: String {
+        Self.clock(elapsedForProgress)
+    }
+
+    private var textTokensText: String {
+        if let value = finalSummary?.prefilledTextTokens ?? progress?.prefilledTextTokens {
+            return "\(value)"
+        }
+        return "--"
+    }
+
+    private var speechTokensText: String {
+        if let value = finalSummary?.generatedSpeechTokens ?? progress?.generatedSpeechTokens {
+            return "\(value)"
+        }
+        return "--"
+    }
+
+    private var currentStepText: String {
+        guard let progress else { return "--" }
+        return "\(progress.currentStep) / \(progress.maxSteps)"
+    }
+
+    private var generationTimeText: String {
+        guard let value = finalSummary?.generationTimeSeconds else { return "--" }
+        return String(format: "%.2f seconds", value)
+    }
+
+    private var audioDurationText: String {
+        guard let value = finalSummary?.audioDurationSeconds else { return "--" }
+        return String(format: "%.2f seconds", value)
+    }
+
+    private var rtfText: String {
+        guard let value = finalSummary?.rtf else { return "--" }
+        return String(format: "%.2fx", value)
+    }
+
+    private var outputText: String {
+        finalSummary?.outputFile ?? "--"
     }
 
     static func clock(_ seconds: TimeInterval) -> String {
@@ -109,87 +200,5 @@ struct GenerationTickerState: Equatable {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%02d:%02d", minutes, seconds)
-    }
-}
-
-struct GenerationProgressLine: Equatable {
-    let textTokens: Int
-    let speechTokens: Int
-    let currentStep: Int
-    let totalSteps: Int
-    let percent: Double
-    let reportedElapsedSeconds: TimeInterval?
-
-    var fraction: Double {
-        guard totalSteps > 0 else { return 0 }
-        return min(1, max(0, Double(currentStep) / Double(totalSteps)))
-    }
-
-    var summary: String {
-        "Prefilled \(textTokens) text tokens, generated \(speechTokens) speech tokens, current step (\(currentStep) / \(totalSteps))"
-    }
-
-    func estimatedRemainingSeconds(elapsedSeconds: TimeInterval) -> TimeInterval? {
-        guard currentStep > 0, totalSteps > currentStep else { return nil }
-        return elapsedSeconds * Double(totalSteps - currentStep) / Double(currentStep)
-    }
-
-    static func latest(in logText: String) -> GenerationProgressLine? {
-        let suffix = String(logText.suffix(16_000))
-        let pattern = #"Prefilled\s+(\d+)\s+text tokens,\s+generated\s+(\d+)\s+speech tokens,\s+current step\s+\(\s*(\d+)\s*/\s*(\d+)\s*\):\s*([0-9]+(?:\.[0-9]+)?)%.*?\[\s*([0-9:.]+)"#
-
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return nil
-        }
-
-        let range = NSRange(suffix.startIndex..<suffix.endIndex, in: suffix)
-        guard let match = regex.matches(in: suffix, range: range).last else {
-            return nil
-        }
-
-        func int(at index: Int) -> Int? {
-            guard let range = Range(match.range(at: index), in: suffix) else { return nil }
-            return Int(suffix[range])
-        }
-
-        func double(at index: Int) -> Double? {
-            guard let range = Range(match.range(at: index), in: suffix) else { return nil }
-            return Double(suffix[range])
-        }
-
-        func string(at index: Int) -> String? {
-            guard let range = Range(match.range(at: index), in: suffix) else { return nil }
-            return String(suffix[range])
-        }
-
-        guard let textTokens = int(at: 1),
-              let speechTokens = int(at: 2),
-              let currentStep = int(at: 3),
-              let totalSteps = int(at: 4),
-              let percent = double(at: 5) else {
-            return nil
-        }
-
-        return GenerationProgressLine(
-            textTokens: textTokens,
-            speechTokens: speechTokens,
-            currentStep: currentStep,
-            totalSteps: totalSteps,
-            percent: percent,
-            reportedElapsedSeconds: string(at: 6).flatMap(parseClock)
-        )
-    }
-
-    private static func parseClock(_ value: String) -> TimeInterval? {
-        let parts = value.split(separator: ":").compactMap { Int($0) }
-        guard !parts.isEmpty else { return nil }
-
-        if parts.count == 3 {
-            return TimeInterval(parts[0] * 3600 + parts[1] * 60 + parts[2])
-        }
-        if parts.count == 2 {
-            return TimeInterval(parts[0] * 60 + parts[1])
-        }
-        return TimeInterval(parts[0])
     }
 }

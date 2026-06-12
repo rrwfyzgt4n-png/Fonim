@@ -10,10 +10,19 @@ struct ContentView: View {
                 .navigationTitle("History")
                 .frame(minWidth: 340, idealWidth: 390)
         } detail: {
-            if let session = store.selectedSession {
-                SessionDetailView(record: session)
-            } else {
-                EditorView()
+            VStack(spacing: 0) {
+                Group {
+                    if let session = store.selectedSession {
+                        SessionDetailView(record: session)
+                    } else {
+                        EditorView()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                GenerationTickerView()
+                    .padding(.horizontal)
+                    .padding(.bottom)
             }
         }
         .toolbar {
