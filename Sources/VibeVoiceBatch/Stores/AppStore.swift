@@ -116,7 +116,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             elapsedSeconds = 0
             activeStartedAt = Date()
             liveLogBySessionID[workspace.record.id] = ""
-            generationTicker = .started()
+            generationTicker = .started(voice: selectedVoice, cfgScale: cfgScale)
 
             var initialLog = """
             Session: \(workspace.record.id)
@@ -259,7 +259,9 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             var metadata = workspace.record.metadata
             let completedAt = Date()
             metadata.completedAt = completedAt
-            metadata.generationTimeSeconds = result.elapsedSeconds
+            let currentLogText = (try? String(contentsOf: workspace.record.logURL, encoding: .utf8)) ?? ""
+            let dockerSummary = GenerationOutputParser.latestSummary(in: currentLogText)
+            metadata.generationTimeSeconds = dockerSummary?.generationTimeSeconds ?? result.elapsedSeconds
 
             var finalLog = "\nDocker process exited with code \(result.exitCode).\n"
 
@@ -275,9 +277,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                     metadata.outputFile = outputURL.path
                     if let duration = try WaveAudioInspector.durationSeconds(for: outputURL) {
                         metadata.audioDurationSeconds = duration
-                        if duration > 0 {
+                        if let summaryRTF = dockerSummary?.rtf {
+                            metadata.rtf = summaryRTF
+                        } else if duration > 0 {
                             metadata.rtf = result.elapsedSeconds / duration
                         }
+                    } else if let summaryDuration = dockerSummary?.audioDurationSeconds {
+                        metadata.audioDurationSeconds = summaryDuration
+                        metadata.rtf = dockerSummary?.rtf ?? (summaryDuration > 0 ? result.elapsedSeconds / summaryDuration : nil)
                     }
                     finalLog += "Completed: \(outputURL.path)\n"
                 } else {
@@ -304,11 +311,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 self.activeTask = nil
                 self.activeSessionID = nil
                 self.elapsedSeconds = result.elapsedSeconds
-                self.generationTicker = self.generationTicker.finished(
+                let logText = self.liveLogBySessionID[workspace.record.id, default: ""]
+                self.generationTicker = self.generationTicker
+                    .ingesting(logText: logText, elapsed: result.elapsedSeconds)
+                    .finished(
                     message: metadata.status.displayName,
                     elapsed: result.elapsedSeconds,
                     phase: metadata.status.tickerPhase
-                )
+                    )
                 self.stopElapsedTimer()
                 self.refreshHistory()
                 self.pendingScrollSessionID = workspace.record.id
