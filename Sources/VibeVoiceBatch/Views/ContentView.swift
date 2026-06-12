@@ -58,7 +58,7 @@ struct ContentView: View {
                         store.playWAV(session)
                     }
                 } label: {
-                    Label("Play WAV", systemImage: "play.circle")
+                    Label(playWAVTitle, systemImage: playWAVSystemImage)
                 }
                 .disabled(store.selectedSession?.outputURL == nil)
                 .help("Play WAV")
@@ -91,5 +91,15 @@ struct ContentView: View {
             get: { store.alertMessage != nil },
             set: { if !$0 { store.alertMessage = nil } }
         )
+    }
+
+    private var playWAVTitle: String {
+        guard let session = store.selectedSession else { return "Play WAV" }
+        return store.isPlaying(session) ? "Stop WAV" : "Play WAV"
+    }
+
+    private var playWAVSystemImage: String {
+        guard let session = store.selectedSession else { return "play.circle" }
+        return store.isPlaying(session) ? "stop.circle" : "play.circle"
     }
 }
