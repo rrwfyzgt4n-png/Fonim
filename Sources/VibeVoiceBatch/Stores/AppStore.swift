@@ -1,8 +1,9 @@
 import AppKit
+import AVFoundation
 import Foundation
 import VibeVoiceBatchCore
 
-final class AppStore: ObservableObject {
+final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var sessions: [SessionRecord] = []
     @Published var selectedSessionID: String?
     @Published var editorText = ""
@@ -13,6 +14,9 @@ final class AppStore: ObservableObject {
     @Published private(set) var elapsedSeconds: TimeInterval = 0
     @Published private(set) var activeSessionID: String?
     @Published var pendingScrollSessionID: String?
+    @Published private(set) var generationTicker = GenerationTickerState.idle
+    @Published private(set) var isPlayingWAV = false
+    @Published private(set) var playingSessionID: String?
     @Published var statusMessage = "Ready"
     @Published var alertMessage: String?
     @Published private var liveLogBySessionID: [String: String] = [:]
@@ -22,6 +26,7 @@ final class AppStore: ObservableObject {
     private var activeTask: Task<Void, Never>?
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
+    private var audioPlayer: AVAudioPlayer?
 
     var selectedSession: SessionRecord? {
         guard let selectedSessionID else { return nil }
@@ -34,10 +39,6 @@ final class AppStore: ObservableObject {
 
     var canSaveDraft: Bool {
         !isGenerating && !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var elapsedTenSecondCounter: String {
-        "\(Int(elapsedSeconds / 10) * 10)s"
     }
 
     func refreshHistory() {
@@ -65,6 +66,9 @@ final class AppStore: ObservableObject {
         hasUnsavedEditorText = false
         selectedSessionID = nil
         statusMessage = "New blank editor"
+        if !isGenerating {
+            generationTicker = .idle
+        }
     }
 
     @discardableResult
@@ -105,13 +109,14 @@ final class AppStore: ObservableObject {
                 voice: selectedVoice,
                 cfgScale: cfgScale
             )
-            selectedSessionID = workspace.record.id
+            selectedSessionID = nil
             activeSessionID = workspace.record.id
             hasUnsavedEditorText = false
             isGenerating = true
             elapsedSeconds = 0
             activeStartedAt = Date()
             liveLogBySessionID[workspace.record.id] = ""
+            generationTicker = .started()
 
             var initialLog = """
             Session: \(workspace.record.id)
@@ -132,6 +137,7 @@ final class AppStore: ObservableObject {
             try fileStore.replaceLog(initialLog, in: workspace.record.folderURL)
             refreshHistory()
             pendingScrollSessionID = workspace.record.id
+            generationTicker = generationTicker.ingesting(logText: initialLog, elapsed: 0)
             startElapsedTimer()
 
             let fileStore = self.fileStore
@@ -163,6 +169,7 @@ final class AppStore: ObservableObject {
             alertMessage = "Could not start generation: \(error.localizedDescription)"
             isGenerating = false
             stopElapsedTimer()
+            generationTicker = generationTicker.finished(message: "Could not start Docker", elapsed: elapsedSeconds, phase: .failed)
         }
     }
 
@@ -199,8 +206,29 @@ final class AppStore: ObservableObject {
     }
 
     func playWAV(_ record: SessionRecord) {
+        if isPlaying(record) {
+            stopWAVPlayback(status: "Stopped playback")
+            return
+        }
+
         guard let outputURL = record.outputURL else { return }
-        NSWorkspace.shared.open(outputURL)
+
+        do {
+            let player = try AVAudioPlayer(contentsOf: outputURL)
+            player.delegate = self
+            player.prepareToPlay()
+            player.play()
+            audioPlayer = player
+            playingSessionID = record.id
+            isPlayingWAV = true
+            statusMessage = "Playing \(record.id)"
+        } catch {
+            alertMessage = "Could not play WAV: \(error.localizedDescription)"
+        }
+    }
+
+    func isPlaying(_ record: SessionRecord) -> Bool {
+        isPlayingWAV && playingSessionID == record.id
     }
 
     func logText(for record: SessionRecord) -> String {
@@ -213,6 +241,12 @@ final class AppStore: ObservableObject {
 
     private func appendLiveLog(_ chunk: String, sessionID: String) {
         liveLogBySessionID[sessionID, default: ""] += chunk
+        if sessionID == activeSessionID {
+            generationTicker = generationTicker.ingesting(
+                logText: liveLogBySessionID[sessionID, default: ""],
+                elapsed: elapsedSeconds
+            )
+        }
         if sessionID == selectedSessionID {
             objectWillChange.send()
         }
@@ -269,9 +303,14 @@ final class AppStore: ObservableObject {
                 self.isGenerating = false
                 self.activeTask = nil
                 self.activeSessionID = nil
+                self.elapsedSeconds = result.elapsedSeconds
+                self.generationTicker = self.generationTicker.finished(
+                    message: metadata.status.displayName,
+                    elapsed: result.elapsedSeconds,
+                    phase: metadata.status.tickerPhase
+                )
                 self.stopElapsedTimer()
                 self.refreshHistory()
-                self.selectedSessionID = workspace.record.id
                 self.pendingScrollSessionID = workspace.record.id
                 self.statusMessage = metadata.status.displayName
             }
@@ -280,15 +319,58 @@ final class AppStore: ObservableObject {
 
     private func startElapsedTimer() {
         stopElapsedTimer()
-        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self, let activeStartedAt = self.activeStartedAt else { return }
-            self.elapsedSeconds = Date().timeIntervalSince(activeStartedAt)
+            let elapsed = Date().timeIntervalSince(activeStartedAt)
+            self.elapsedSeconds = elapsed
+            if self.isGenerating {
+                self.generationTicker = self.generationTicker.ticking(elapsed: elapsed)
+            }
         }
+        elapsedTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func stopElapsedTimer() {
         elapsedTimer?.invalidate()
         elapsedTimer = nil
         activeStartedAt = nil
+    }
+
+    private func stopWAVPlayback(status: String? = nil) {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        playingSessionID = nil
+        isPlayingWAV = false
+        if let status {
+            statusMessage = status
+        }
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async {
+            self.stopWAVPlayback(status: flag ? "Playback finished" : "Playback stopped")
+        }
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        DispatchQueue.main.async {
+            self.stopWAVPlayback(status: "Playback failed")
+            if let error {
+                self.alertMessage = "Could not play WAV: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+private extension SessionStatus {
+    var tickerPhase: GenerationTickerState.Phase {
+        switch self {
+        case .completed: .completed
+        case .failed: .failed
+        case .cancelled: .cancelled
+        case .running: .running
+        case .draft: .idle
+        }
     }
 }
