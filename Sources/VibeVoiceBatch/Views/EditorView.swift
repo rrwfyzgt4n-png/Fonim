@@ -25,9 +25,28 @@ struct EditorView: View {
                     Text("CFG Scale")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("CFG Scale", text: $store.cfgScale)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 120)
+                    Picker("CFG Scale", selection: $store.cfgScale) {
+                        ForEach(AppDefaults.availableCFGScales, id: \.self) { cfgScale in
+                            Text(cfgScale).tag(cfgScale)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 110)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("DDPM Steps")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("DDPM Steps", selection: $store.ddpmInferenceSteps) {
+                        ForEach(AppDefaults.availableDDPMInferenceSteps, id: \.self) { steps in
+                            Text("\(steps)").tag(steps)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 120)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
