@@ -66,7 +66,7 @@ private struct BackendsSettingsPane: View {
 
     var body: some View {
         Form {
-            Picker("Default backend", selection: binding(\.defaultBackendID)) {
+            Picker("Default backend", selection: backendBinding) {
                 ForEach(BackendProfiles.all) { profile in
                     Text(profile.displayName).tag(profile.id)
                 }
@@ -157,10 +157,10 @@ private struct BackendsSettingsPane: View {
         BackendProfiles.all.first { $0.id == settingsStore.settings.defaultBackendID } ?? BackendProfiles.vibeVoiceTTS
     }
 
-    private func binding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
+    private var backendBinding: Binding<String> {
         Binding(
-            get: { settingsStore.settings[keyPath: keyPath] },
-            set: { value in settingsStore.update { $0[keyPath: keyPath] = value } }
+            get: { settingsStore.settings.defaultBackendID },
+            set: { appStore.selectBackend($0) }
         )
     }
 }
@@ -226,21 +226,27 @@ private struct BackendOperationResultSummary: View {
 
 private struct ModelsSettingsPane: View {
     @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var appStore: AppStore
 
     var body: some View {
         Form {
             Picker("Default model", selection: binding(\.defaultModelID)) {
-                ForEach(BackendProfiles.vibeVoiceTTS.requiredModels) { model in
+                ForEach(selectedBackend.requiredModels) { model in
                     Text(model.displayName).tag(model.id)
                 }
             }
             .pickerStyle(.menu)
 
             LabeledContent("Model path", value: settingsStore.settings.defaultModelID)
-            LabeledContent("Docker image", value: BackendProfiles.vibeVoiceTTS.dockerImage ?? "Managed by backend")
-            LabeledContent("Format support", value: BackendProfiles.vibeVoiceTTS.outputFormatSupport.map(\.displayName).joined(separator: ", "))
+            LabeledContent("Runtime", value: selectedBackend.runtime.displayName)
+            LabeledContent("Image", value: selectedBackend.dockerImage ?? "Not required")
+            LabeledContent("Format support", value: selectedBackend.outputFormatSupport.map(\.displayName).joined(separator: ", "))
         }
         .formStyle(.grouped)
+    }
+
+    private var selectedBackend: BackendProfile {
+        appStore.selectedBackendProfile
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
@@ -279,11 +285,12 @@ private struct VoicesSettingsPane: View {
 
 private struct OutputSettingsPane: View {
     @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var appStore: AppStore
 
     var body: some View {
         Form {
             Picker("Export format", selection: binding(\.exportFormat)) {
-                ForEach(BackendProfiles.vibeVoiceTTS.outputFormatSupport, id: \.self) { format in
+                ForEach(appStore.selectedBackendProfile.outputFormatSupport, id: \.self) { format in
                     Text(format.displayName).tag(format)
                 }
             }

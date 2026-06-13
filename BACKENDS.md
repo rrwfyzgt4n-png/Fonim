@@ -25,7 +25,7 @@ Each backend profile defines:
 - `outputFormatSupport`
 - `licenseNotes`
 
-## Initial Backend
+## Registered Backends
 
 ### VibeVoiceTTS
 
@@ -36,14 +36,16 @@ Each backend profile defines:
 - Current image: `vibevoice-cpu`
 - Current model: `microsoft/VibeVoice-Realtime-0.5B`
 
-## Planned Backend Classes
-
 ### Kokoro
 
-- Runtime: Docker or local Python
+- Runtime: local Python placeholder
 - Role: fast clean preview and simple final narration
 - Strength: speed, simplicity, quality per complexity
-- Risk: less ambitious than VibeVoice for expressive long-form reads
+- Risk: managed install, voice inventory, and generation are not implemented yet
+- Current model id: `kokoro/default`
+- Current adapter: `UnavailableEngineAdapter`, which reports plain-language unavailable status instead of pretending generation is ready
+
+## Planned Backend Classes
 
 ### ComfyUI TTS-Audio-Suite
 

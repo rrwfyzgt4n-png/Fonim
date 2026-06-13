@@ -58,7 +58,7 @@ struct InspectorPanelView: View {
 
     private var backendSection: some View {
         InspectorGroup(title: "Model") {
-            Picker("Backend", selection: settingsBinding(\.defaultBackendID)) {
+            Picker("Backend", selection: backendBinding) {
                 ForEach(BackendProfiles.all) { profile in
                     Text(profile.displayName).tag(profile.id)
                 }
@@ -66,7 +66,7 @@ struct InspectorPanelView: View {
             .pickerStyle(.menu)
 
             Picker("Model", selection: settingsBinding(\.defaultModelID)) {
-                ForEach(BackendProfiles.vibeVoiceTTS.requiredModels) { model in
+                ForEach(store.selectedBackendProfile.requiredModels) { model in
                     Text(model.displayName).tag(model.id)
                 }
             }
@@ -79,7 +79,7 @@ struct InspectorPanelView: View {
     private var exportSection: some View {
         InspectorGroup(title: "Export") {
             Picker("Format", selection: settingsBinding(\.exportFormat)) {
-                ForEach(BackendProfiles.vibeVoiceTTS.outputFormatSupport, id: \.self) { format in
+                ForEach(store.selectedBackendProfile.outputFormatSupport, id: \.self) { format in
                     Text(format.rawValue.uppercased()).tag(format)
                 }
             }
@@ -146,9 +146,9 @@ struct InspectorPanelView: View {
             }
         case .section(.backends):
             InspectorGroup(title: "Backend Metadata") {
-                InspectorValue(label: "Backend", value: BackendProfiles.vibeVoiceTTS.displayName)
-                InspectorValue(label: "Runtime", value: BackendProfiles.vibeVoiceTTS.runtime.displayName)
-                InspectorValue(label: "Image", value: BackendProfiles.vibeVoiceTTS.dockerImage ?? "Not required")
+                InspectorValue(label: "Backend", value: store.selectedBackendProfile.displayName)
+                InspectorValue(label: "Runtime", value: store.selectedBackendProfile.runtime.displayName)
+                InspectorValue(label: "Image", value: store.selectedBackendProfile.dockerImage ?? "Not required")
             }
         case .section(.settings):
             InspectorGroup(title: "Settings") {
@@ -172,6 +172,13 @@ struct InspectorPanelView: View {
         Binding(
             get: { settingsStore.settings[keyPath: keyPath] },
             set: { value in settingsStore.update { $0[keyPath: keyPath] = value } }
+        )
+    }
+
+    private var backendBinding: Binding<String> {
+        Binding(
+            get: { settingsStore.settings.defaultBackendID },
+            set: { store.selectBackend($0) }
         )
     }
 }

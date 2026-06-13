@@ -50,8 +50,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if !BackendProfiles.all.contains(where: { $0.id == copy.defaultBackendID }) {
             copy.defaultBackendID = BackendProfiles.vibeVoiceTTS.id
         }
-        if copy.defaultModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            copy.defaultModelID = AppDefaults.modelPath
+        let selectedProfile = BackendProfiles.all.first { $0.id == copy.defaultBackendID } ?? BackendProfiles.vibeVoiceTTS
+        if !selectedProfile.requiredModels.contains(where: { $0.id == copy.defaultModelID }) {
+            copy.defaultModelID = selectedProfile.requiredModels.first?.id ?? AppDefaults.modelPath
         }
         if !AppDefaults.availableVoices.contains(copy.defaultVoice) {
             copy.defaultVoice = AppDefaults.defaultVoice
@@ -65,8 +66,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if copy.outputFolderPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             copy.outputFolderPath = AppDefaults.projectRoot.historyDirectory.path
         }
-        if !BackendProfiles.vibeVoiceTTS.outputFormatSupport.contains(copy.exportFormat) {
-            copy.exportFormat = .wav
+        if !selectedProfile.outputFormatSupport.contains(copy.exportFormat) {
+            copy.exportFormat = selectedProfile.outputFormatSupport.first ?? .wav
         }
         return copy
     }

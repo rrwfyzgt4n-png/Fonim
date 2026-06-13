@@ -47,6 +47,8 @@ Generation queue state is visible in the Batches destination. `AppStore` owns ap
 
 Backend readiness is represented by `BackendStatusSnapshot`. `BackendManager` owns runtime health checks and plain-language backend states; SwiftUI presents those states without exposing Docker commands as the primary interaction model.
 
+Additional backend expansion is represented by `BackendProfiles.kokoroTTS` and `UnavailableEngineAdapter`. Kokoro can be selected in native Settings, Backends, and Inspector surfaces, but it reports an unavailable state until managed install and generation support are implemented. This proves the profile and adapter route without faking backend capability.
+
 Durable app preferences are represented by `AppSettings` and persisted by `SettingsStore`. The native macOS Settings scene edits backend, model, voice, output, and advanced defaults while generation continues to enter through `JobQueue -> EngineAdapter`.
 
 Backend setup is represented by `BackendSetupReport` and `BackendSetupCheck`. `BackendManager` owns system, runtime, image, model-cache, and health checks; the SwiftUI setup assistant presents those checks and routes test generation through the existing safe generation path.

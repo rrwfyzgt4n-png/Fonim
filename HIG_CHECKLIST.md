@@ -17,6 +17,7 @@ Current implementation note:
 - History sessions remain selectable beneath History so existing session detail, playback, duplicate, and folder actions continue to work.
 - Outputs has its own browser for archived WAV files, with in-app playback, Finder reveal, Quick Look, path copy, drag-out support, and duplicate-as-new.
 - Voices and Presets are library surfaces backed by workspace records, with native apply/save actions instead of model-specific terminal concepts.
+- Backends can show additional registered profiles, including unavailable ones, with plain-language status rather than terminal errors.
 - The Settings sidebar destination opens toward the native Settings scene instead of replacing preferences with an in-window settings clone.
 
 ## Progressive Disclosure

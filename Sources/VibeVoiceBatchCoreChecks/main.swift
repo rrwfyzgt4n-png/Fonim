@@ -11,7 +11,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkReadsPCMDuration()
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
-        try checkBackendProfilesAndAdapterContracts()
+        try await checkBackendProfilesAndAdapterContracts()
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
         try checkBackendManagerOperations()
@@ -142,15 +142,19 @@ struct VibeVoiceBatchCoreChecks {
         }
     }
 
-    private static func checkBackendProfilesAndAdapterContracts() throws {
+    private static func checkBackendProfilesAndAdapterContracts() async throws {
         let profile = BackendProfiles.vibeVoiceTTS
         precondition(profile.id == "vibevoice-tts")
         precondition(profile.runtime == .docker)
         precondition(profile.engineType == .vibeVoiceTTS)
         precondition(profile.outputFormatSupport == [.wav])
+        precondition(BackendProfiles.all.contains(BackendProfiles.kokoroTTS))
+        precondition(BackendProfiles.kokoroTTS.engineType == .kokoro)
+        precondition(BackendProfiles.kokoroTTS.requiredModels.first?.id == "kokoro/default")
 
         let manager = BackendManager(projectRoot: FileManager.default.temporaryDirectory)
         precondition(manager.registeredProfiles().contains(profile))
+        precondition(manager.registeredProfiles().contains(BackendProfiles.kokoroTTS))
 
         let adapter = VibeVoiceDockerAdapter(projectRoot: FileManager.default.temporaryDirectory)
         let job = GenerationJob(
@@ -168,6 +172,11 @@ struct VibeVoiceBatchCoreChecks {
         precondition(command.arguments.contains("1.8"))
         precondition(command.arguments.contains("--ddpm_inference_steps"))
         precondition(command.arguments.contains("8"))
+
+        let unavailable = UnavailableEngineAdapter(profile: BackendProfiles.kokoroTTS)
+        let unavailableReport = await unavailable.healthCheck()
+        precondition(unavailableReport.profileID == BackendProfiles.kokoroTTS.id)
+        precondition(unavailableReport.state == .unknown)
     }
 
     private static func checkBackendStatusSnapshots() throws {
@@ -503,6 +512,15 @@ struct VibeVoiceBatchCoreChecks {
         precondition(normalized.defaultDDPMInferenceSteps == AppDefaults.defaultDDPMInferenceSteps)
         precondition(normalized.outputFolderPath == AppDefaults.projectRoot.historyDirectory.path)
         precondition(normalized.exportFormat == .wav)
+
+        let kokoroSettings = AppSettings(
+            defaultBackendID: BackendProfiles.kokoroTTS.id,
+            defaultModelID: "wrong-model",
+            exportFormat: .mp3
+        ).normalized
+        precondition(kokoroSettings.defaultBackendID == BackendProfiles.kokoroTTS.id)
+        precondition(kokoroSettings.defaultModelID == "kokoro/default")
+        precondition(kokoroSettings.exportFormat == .wav)
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {

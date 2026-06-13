@@ -468,10 +468,11 @@ private struct GenerationPresetCard: View {
 
 struct BackendsView: View {
     @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var settingsStore: SettingsStore
     @StateObject private var operationsStore = BackendOperationsStore()
 
     private var backend: BackendProfile {
-        BackendProfiles.vibeVoiceTTS
+        appStore.selectedBackendProfile
     }
 
     var body: some View {
@@ -507,6 +508,52 @@ struct BackendsView: View {
                                 }
                             }
                             .disabled(operationsStore.isRunning || appStore.isGenerating)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Profiles")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+
+                    ForEach(BackendProfiles.all) { profile in
+                        WorkspaceCard {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: profile.runtime == .docker ? "shippingbox" : "server.rack")
+                                    .foregroundStyle(profile.id == settingsStore.settings.defaultBackendID ? .blue : .secondary)
+                                    .frame(width: 18)
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 8) {
+                                        Text(profile.displayName)
+                                            .font(.headline)
+                                        if profile.id == settingsStore.settings.defaultBackendID {
+                                            Text("Selected")
+                                                .font(.caption2.weight(.semibold))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .foregroundStyle(.blue)
+                                                .background(.blue.opacity(0.14), in: Capsule())
+                                        }
+                                    }
+                                    Text(profile.role)
+                                        .foregroundStyle(.secondary)
+                                    Text("\(profile.runtime.displayName)  \(profile.requiredModels.first?.displayName ?? "No model")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                Button {
+                                    appStore.selectBackend(profile.id)
+                                } label: {
+                                    Label("Use", systemImage: "checkmark.circle")
+                                }
+                                .disabled(profile.id == settingsStore.settings.defaultBackendID)
+                            }
                         }
                     }
                 }

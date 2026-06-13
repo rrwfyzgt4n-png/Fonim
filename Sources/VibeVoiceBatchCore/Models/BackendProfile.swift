@@ -173,7 +173,48 @@ public enum BackendProfiles {
         ]
     )
 
+    public static let kokoroTTS = BackendProfile(
+        id: "kokoro-tts",
+        displayName: "Kokoro TTS",
+        engineType: .kokoro,
+        installMethod: .manual,
+        runtime: .localPython,
+        dockerImage: nil,
+        requiredModels: [
+            RequiredModel(
+                id: "kokoro/default",
+                displayName: "Kokoro Default Voice Model",
+                source: "kokoro",
+                approximateDiskSpaceGB: nil,
+                licenseNotes: "Model and voice license terms must be reviewed before managed install or redistribution."
+            )
+        ],
+        requiredDiskSpaceGB: nil,
+        requiredMemoryGB: nil,
+        supportedArchitectures: [.appleSilicon, .intel],
+        exposedPort: nil,
+        healthCheckURL: nil,
+        generateEndpoint: nil,
+        cancelEndpoint: nil,
+        progressParser: "UnavailableEngineAdapter",
+        logParser: "UnavailableEngineAdapter",
+        outputFormatSupport: [.wav],
+        licenseNotes: "Kokoro support is a backend profile placeholder until installer/runtime integration is implemented.",
+        role: "Fast clean narration preview",
+        strengths: [
+            "Fast preview target",
+            "Simpler generation surface",
+            "Good proof point for adapter-based expansion"
+        ],
+        risks: [
+            "Managed install not implemented yet",
+            "Voice inventory not connected yet",
+            "Generation adapter is not active yet"
+        ]
+    )
+
     public static let all: [BackendProfile] = [
-        vibeVoiceTTS
+        vibeVoiceTTS,
+        kokoroTTS
     ]
 }
