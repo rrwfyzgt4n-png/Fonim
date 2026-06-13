@@ -3,6 +3,9 @@ import VibeVoiceBatchCore
 
 struct ContentView: View {
     @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var settingsStore: SettingsStore
+    @Environment(\.openWindow) private var openWindow
+    @State private var didOfferSetupAssistant = false
 
     var body: some View {
         NavigationSplitView {
@@ -91,6 +94,10 @@ struct ContentView: View {
         .onAppear {
             store.refreshHistory()
             store.refreshBackendStatusIfPreferred()
+            if !settingsStore.settings.hasCompletedSetupAssistant, !didOfferSetupAssistant {
+                didOfferSetupAssistant = true
+                openWindow(id: "backend-setup")
+            }
         }
         .alert("VibeVoice Batch", isPresented: alertBinding) {
             Button("OK", role: .cancel) {
