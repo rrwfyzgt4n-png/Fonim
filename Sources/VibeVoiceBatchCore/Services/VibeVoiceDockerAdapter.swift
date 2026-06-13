@@ -25,7 +25,7 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
     }
 
     public func healthCheck() async -> BackendHealthReport {
-        backendManager.healthReport(for: profile)
+        await backendManager.healthReportAsync(for: profile)
     }
 
     public func listVoices() async throws -> [VoiceDescriptor] {
