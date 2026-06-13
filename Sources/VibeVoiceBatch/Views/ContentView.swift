@@ -90,7 +90,7 @@ struct ContentView: View {
         }
         .onAppear {
             store.refreshHistory()
-            store.refreshBackendStatus()
+            store.refreshBackendStatusIfPreferred()
         }
         .alert("VibeVoice Batch", isPresented: alertBinding) {
             Button("OK", role: .cancel) {
