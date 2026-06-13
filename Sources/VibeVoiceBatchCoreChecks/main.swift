@@ -11,6 +11,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkReadsPCMDuration()
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
+        try checkBackendProfilesAndAdapterContracts()
         print("VibeVoiceBatchCoreChecks passed")
     }
 
@@ -131,6 +132,34 @@ struct VibeVoiceBatchCoreChecks {
             precondition(command.arguments.contains("8"))
             precondition(command.displayCommand.contains("docker_overrides/realtime_model_inference_from_file.py:/app/demo/realtime_model_inference_from_file.py:ro"))
         }
+    }
+
+    private static func checkBackendProfilesAndAdapterContracts() throws {
+        let profile = BackendProfiles.vibeVoiceTTS
+        precondition(profile.id == "vibevoice-tts")
+        precondition(profile.runtime == .docker)
+        precondition(profile.engineType == .vibeVoiceTTS)
+        precondition(profile.outputFormatSupport == [.wav])
+
+        let manager = BackendManager(projectRoot: FileManager.default.temporaryDirectory)
+        precondition(manager.registeredProfiles().contains(profile))
+
+        let adapter = VibeVoiceDockerAdapter(projectRoot: FileManager.default.temporaryDirectory)
+        let job = GenerationJob(
+            id: "adapter-check",
+            inputText: "Hello architecture.",
+            backendID: profile.id,
+            modelID: AppDefaults.modelPath,
+            voiceID: "en-carter_man",
+            settings: GenerationSettings(cfgScale: "1.8", ddpmInferenceSteps: 8)
+        )
+        let command = adapter.makeDockerCommand(for: job)
+        precondition(command.arguments.contains("--speaker_name"))
+        precondition(command.arguments.contains("en-carter_man"))
+        precondition(command.arguments.contains("--cfg_scale"))
+        precondition(command.arguments.contains("1.8"))
+        precondition(command.arguments.contains("--ddpm_inference_steps"))
+        precondition(command.arguments.contains("8"))
     }
 
     private static func withStore<T>(_ body: (URL, SessionFileStore) throws -> T) throws -> T {
