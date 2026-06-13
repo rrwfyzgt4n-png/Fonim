@@ -26,6 +26,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var alertMessage: String?
     @Published private var liveLogBySessionID: [String: String] = [:]
 
+    private let settingsStore: SettingsStore
     private let fileStore = SessionFileStore()
     private let backendAdapter = VibeVoiceDockerAdapter()
     private lazy var jobQueue = JobQueue(adapters: [backendAdapter])
@@ -34,6 +35,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
     private var audioPlayer: AVAudioPlayer?
+
+    init(settingsStore: SettingsStore) {
+        self.settingsStore = settingsStore
+        super.init()
+        selectedVoice = settingsStore.settings.defaultVoice
+        cfgScale = settingsStore.settings.defaultCFGScale
+        ddpmInferenceSteps = settingsStore.settings.defaultDDPMInferenceSteps
+    }
 
     var selectedSession: SessionRecord? {
         guard let selectedSessionID else { return nil }
@@ -66,6 +75,12 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
+    func refreshBackendStatusIfPreferred() {
+        if settingsStore.settings.refreshBackendStatusOnLaunch {
+            refreshBackendStatus()
+        }
+    }
+
     func updateEditorText(_ value: String) {
         editorText = value
         hasUnsavedEditorText = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -78,9 +93,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
 
         editorText = ""
-        selectedVoice = AppDefaults.defaultVoice
-        cfgScale = AppDefaults.defaultCFGScale
-        ddpmInferenceSteps = AppDefaults.defaultDDPMInferenceSteps
+        applyDefaultGenerationSettings()
         hasUnsavedEditorText = false
         selectedSessionID = nil
         statusMessage = "New blank editor"
@@ -150,6 +163,13 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func showBackendDetails() {
         alertMessage = backendStatus.alertMessageWithDetails
+    }
+
+    func applyDefaultGenerationSettings() {
+        selectedVoice = settingsStore.settings.defaultVoice
+        cfgScale = settingsStore.settings.defaultCFGScale
+        ddpmInferenceSteps = settingsStore.settings.defaultDDPMInferenceSteps
+        statusMessage = "Applied default generation settings"
     }
 
     private func startGeneration(

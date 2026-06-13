@@ -48,6 +48,14 @@ Current implementation:
 - Missing or stopped Docker states include a recovery suggestion behind Details.
 - Generation preflights backend readiness before creating a session.
 
+## Settings
+
+Current implementation:
+
+- The app uses a real macOS Settings scene rather than treating preferences as a main-window destination.
+- Settings are grouped into Backends, Models, Voices, Output, and Advanced panes.
+- Backend details remain plain-language in normal settings, with raw details available only through Show Details.
+
 ## Error Presentation
 
 - Primary errors must be plain-language.
