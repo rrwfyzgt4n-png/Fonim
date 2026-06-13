@@ -31,7 +31,7 @@ struct VibeVoiceBatchApp: App {
                     store.generate()
                 }
                 .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(store.isGenerating)
+                .disabled(!store.canGenerate)
 
                 Button("Cancel Generation") {
                     store.cancelGeneration()
