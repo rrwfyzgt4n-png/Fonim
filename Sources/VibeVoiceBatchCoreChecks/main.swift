@@ -12,6 +12,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
         try checkBackendProfilesAndAdapterContracts()
+        try checkBackendStatusSnapshots()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkJobQueueCancellationReachesAdapter()
         print("VibeVoiceBatchCoreChecks passed")
@@ -162,6 +163,54 @@ struct VibeVoiceBatchCoreChecks {
         precondition(command.arguments.contains("1.8"))
         precondition(command.arguments.contains("--ddpm_inference_steps"))
         precondition(command.arguments.contains("8"))
+    }
+
+    private static func checkBackendStatusSnapshots() throws {
+        let profile = BackendProfiles.vibeVoiceTTS
+
+        let missingManager = BackendManager(
+            projectRoot: FileManager.default.temporaryDirectory,
+            dockerExecutableResolver: { nil }
+        )
+        let missing = missingManager.statusSnapshot(for: profile)
+        precondition(missing.state == .missing)
+        precondition(!missing.canStartGeneration)
+        precondition(missing.userMessage.contains("Docker Desktop"))
+        precondition(missing.recoverySuggestion == "Install Docker Desktop, then refresh backend status.")
+
+        let stoppedManager = BackendManager(
+            projectRoot: FileManager.default.temporaryDirectory,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, _ in
+                BackendProcessResult(exitCode: 1, combinedOutput: "Cannot connect to the Docker daemon")
+            }
+        )
+        let stopped = stoppedManager.statusSnapshot(for: profile)
+        precondition(stopped.state == .stopped)
+        precondition(!stopped.canStartGeneration)
+        precondition(stopped.technicalDetails?.contains("Docker daemon") == true)
+
+        let readyManager = BackendManager(
+            projectRoot: FileManager.default.temporaryDirectory,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, arguments in
+                precondition(arguments.contains("info"))
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+        )
+        let ready = readyManager.statusSnapshot(for: profile)
+        precondition(ready.state == .ready)
+        precondition(ready.canStartGeneration)
+        precondition(ready.userMessage.contains(profile.displayName))
+
+        let running = ready.replacingState(
+            .runningJob,
+            userMessage: "Generating audio.",
+            recoverySuggestion: "Cancel if needed."
+        )
+        precondition(running.state == .runningJob)
+        precondition(!running.canStartGeneration)
+        precondition(running.alertMessage.contains("Generating audio."))
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {
