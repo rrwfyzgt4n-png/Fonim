@@ -26,11 +26,13 @@ Native macOS App
 
 ## Current State
 
-The current working vertical slice uses the VibeVoice Docker backend. The UI still owns some generation orchestration through `AppStore` and `SessionFileStore`; this is transitional. New work should move toward:
+The current working vertical slice uses the VibeVoice Docker backend through the queue and adapter path:
 
 ```text
 Generate action -> JobQueue -> EngineAdapter -> BackendManager/runtime -> GenerationRecord
 ```
+
+`AppStore` remains the SwiftUI bridge for editor state, live ticker updates, playback, and history refresh. Backend-specific staging, Docker process execution, cancellation, final WAV archival, log writing, and metadata finalization belong to `VibeVoiceDockerAdapter`.
 
 ## Migration Rule
 

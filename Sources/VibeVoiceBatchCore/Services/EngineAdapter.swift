@@ -53,6 +53,7 @@ public struct NormalizedAudioOutput: Equatable {
 }
 
 public enum GenerationEvent: Equatable {
+    case sessionStarted(SessionRecord)
     case status(String)
     case progress(GenerationProgressSnapshot)
     case log(String)

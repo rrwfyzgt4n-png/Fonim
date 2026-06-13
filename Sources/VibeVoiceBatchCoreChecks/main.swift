@@ -3,7 +3,7 @@ import VibeVoiceBatchCore
 
 @main
 struct VibeVoiceBatchCoreChecks {
-    static func main() throws {
+    static func main() async throws {
         try checkDraftCreatesPermanentSessionFiles()
         try checkSessionIDsNeverCollide()
         try checkRecoverExistingGeneratedWAVMovesToRecovered()
@@ -12,6 +12,8 @@ struct VibeVoiceBatchCoreChecks {
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
         try checkBackendProfilesAndAdapterContracts()
+        try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
+        try await checkJobQueueCancellationReachesAdapter()
         print("VibeVoiceBatchCoreChecks passed")
     }
 
@@ -162,6 +164,138 @@ struct VibeVoiceBatchCoreChecks {
         precondition(command.arguments.contains("8"))
     }
 
+    private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchAdapterChecks-\(UUID().uuidString)", isDirectory: true)
+        let fileStore = SessionFileStore(projectRoot: root)
+        try fileStore.ensureBaseDirectories()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data([9, 9, 9]).write(to: root.generatedWAVFile)
+
+        let runner = FakeDockerRunner()
+        runner.chunks = [
+            "Prefilled 70 text tokens, generated 80 speech tokens, current step (298 / 8192):   4%| | 298/8192 [00:27]\n",
+            """
+            Input file: /app/input.txt
+            Output file: /app/outputs/input_generated.wav
+            Speaker names: en-carter_man
+            CFG scale: 1.8
+            DDPM inference steps: 8
+            Prefilling text tokens: 70
+            Generated speech tokens: 80
+            Total tokens: 150
+            Generation time: 12.00 seconds
+            Audio duration: 2.00 seconds
+            RTF (Real Time Factor): 6.00x
+
+            """
+        ]
+        runner.onRun = { _ in
+            try? makePCM16MonoWav(durationSeconds: 2.0, sampleRate: 8_000)
+                .write(to: root.generatedWAVFile)
+        }
+
+        let adapter = VibeVoiceDockerAdapter(projectRoot: root, fileStore: fileStore, runner: runner)
+        let job = GenerationJob(
+            id: "adapter-job",
+            createdAt: Date(timeIntervalSince1970: 1_718_171_695),
+            inputText: "Hello adapter.",
+            backendID: BackendProfiles.vibeVoiceTTS.id,
+            modelID: AppDefaults.modelPath,
+            voiceID: "en-carter_man",
+            settings: GenerationSettings(cfgScale: "1.8", ddpmInferenceSteps: 8)
+        )
+
+        var events: [GenerationEvent] = []
+        let record = try await adapter.generate(job) { event in
+            events.append(event)
+        }
+
+        precondition(record.status == .completed)
+        precondition(record.id.contains("en-carter_man_cfg1.8"))
+        precondition(record.exportPath?.hasSuffix("/output.wav") == true)
+        precondition(record.durationSeconds == 2.0)
+        precondition(runner.receivedCommand?.arguments.contains("--speaker_name") == true)
+        precondition(runner.receivedCommand?.arguments.contains("en-carter_man") == true)
+        precondition(!FileManager.default.fileExists(atPath: root.generatedWAVFile.path))
+
+        let sessions = try fileStore.loadSessions()
+        precondition(sessions.count == 1)
+        let session = sessions[0]
+        precondition(session.metadata.status == .completed)
+        precondition(session.metadata.generationTimeSeconds == 12.0)
+        precondition(session.metadata.audioDurationSeconds == 2.0)
+        precondition(session.metadata.rtf == 6.0)
+        precondition(session.outputURL?.lastPathComponent == "output.wav")
+
+        let recoveredFiles = try FileManager.default.contentsOfDirectory(
+            at: root.recoveredDirectory,
+            includingPropertiesForKeys: nil
+        )
+        precondition(recoveredFiles.contains { $0.lastPathComponent.hasSuffix("_pre_run_input_generated.wav") })
+        precondition(events.contains { event in
+            switch event {
+            case .sessionStarted:
+                return true
+            case .status, .progress, .log, .output:
+                return false
+            }
+        })
+        precondition(events.contains { event in
+            switch event {
+            case .progress(let snapshot):
+                return snapshot.currentStep == 298
+            case .sessionStarted, .status, .log, .output:
+                return false
+            }
+        })
+        precondition(events.contains { event in
+            switch event {
+            case .output:
+                return true
+            case .sessionStarted, .status, .progress, .log:
+                return false
+            }
+        })
+    }
+
+    private static func checkJobQueueCancellationReachesAdapter() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchCancelChecks-\(UUID().uuidString)", isDirectory: true)
+        let fileStore = SessionFileStore(projectRoot: root)
+        try fileStore.ensureBaseDirectories()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runner = BlockingDockerRunner()
+        let adapter = VibeVoiceDockerAdapter(projectRoot: root, fileStore: fileStore, runner: runner)
+        let queue = JobQueue(adapters: [adapter])
+        let job = GenerationJob(
+            id: "cancel-job",
+            createdAt: Date(timeIntervalSince1970: 1_718_171_795),
+            inputText: "Cancel adapter.",
+            backendID: BackendProfiles.vibeVoiceTTS.id,
+            modelID: AppDefaults.modelPath,
+            voiceID: "en-carter_man",
+            settings: GenerationSettings(cfgScale: "1.8", ddpmInferenceSteps: 8)
+        )
+
+        let task = Task {
+            try await queue.submit(job)
+        }
+
+        precondition(runner.waitUntilStarted())
+        await queue.cancel(jobID: job.id)
+        let record = try await task.value
+
+        precondition(runner.didCancel)
+        precondition(record.status == .cancelled)
+        let sessions = try fileStore.loadSessions()
+        precondition(sessions.count == 1)
+        precondition(sessions[0].metadata.status == .cancelled)
+        precondition(sessions[0].outputURL == nil)
+    }
+
     private static func withStore<T>(_ body: (URL, SessionFileStore) throws -> T) throws -> T {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("VibeVoiceBatchChecks-\(UUID().uuidString)", isDirectory: true)
@@ -219,5 +353,54 @@ private extension Data {
     mutating func appendUInt32LE(_ value: UInt32) {
         var littleEndian = value.littleEndian
         Swift.withUnsafeBytes(of: &littleEndian) { append(contentsOf: $0) }
+    }
+}
+
+private final class FakeDockerRunner: DockerGenerationRunning {
+    var chunks: [String] = []
+    var result = DockerRunResult(exitCode: 0, wasCancelled: false, elapsedSeconds: 12)
+    var onRun: ((DockerRunCommand) -> Void)?
+    private(set) var receivedCommand: DockerRunCommand?
+    private(set) var didCancel = false
+
+    func run(command: DockerRunCommand, logHandler: @escaping (String) -> Void) throws -> DockerRunResult {
+        receivedCommand = command
+        for chunk in chunks {
+            logHandler(chunk)
+        }
+        onRun?(command)
+        return result
+    }
+
+    func cancel() {
+        didCancel = true
+    }
+}
+
+private final class BlockingDockerRunner: DockerGenerationRunning {
+    private let started = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+    private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.checks.blocking-runner")
+    private var cancelFlag = false
+
+    var didCancel: Bool {
+        stateQueue.sync { cancelFlag }
+    }
+
+    func run(command: DockerRunCommand, logHandler: @escaping (String) -> Void) throws -> DockerRunResult {
+        started.signal()
+        _ = release.wait(timeout: .now() + 1)
+        return DockerRunResult(exitCode: didCancel ? 143 : 0, wasCancelled: didCancel, elapsedSeconds: 1)
+    }
+
+    func cancel() {
+        stateQueue.sync {
+            cancelFlag = true
+        }
+        release.signal()
+    }
+
+    func waitUntilStarted() -> Bool {
+        started.wait(timeout: .now() + 1) == .success
     }
 }

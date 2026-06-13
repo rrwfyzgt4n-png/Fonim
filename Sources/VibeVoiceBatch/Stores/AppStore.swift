@@ -3,6 +3,7 @@ import AVFoundation
 import Foundation
 import VibeVoiceBatchCore
 
+@MainActor
 final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var sessions: [SessionRecord] = []
     @Published var selectedSessionID: String?
@@ -23,8 +24,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private var liveLogBySessionID: [String: String] = [:]
 
     private let fileStore = SessionFileStore()
-    private let runner = DockerGenerationRunner()
+    private let backendAdapter = VibeVoiceDockerAdapter()
+    private lazy var jobQueue = JobQueue(adapters: [backendAdapter])
     private var activeTask: Task<Void, Never>?
+    private var activeJobID: String?
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
     private var audioPlayer: AVAudioPlayer?
@@ -110,85 +113,54 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         guard !isGenerating else { return }
 
-        do {
-            let workspace = try fileStore.createGenerationSession(
-                text: text,
-                voice: selectedVoice,
+        let job = GenerationJob(
+            inputText: text,
+            backendID: BackendProfiles.vibeVoiceTTS.id,
+            modelID: AppDefaults.modelPath,
+            voiceID: selectedVoice,
+            settings: GenerationSettings(
                 cfgScale: cfgScale,
                 ddpmInferenceSteps: ddpmInferenceSteps
             )
-            selectedSessionID = nil
-            activeSessionID = workspace.record.id
-            hasUnsavedEditorText = false
-            isGenerating = true
-            elapsedSeconds = 0
-            activeStartedAt = Date()
-            liveLogBySessionID[workspace.record.id] = ""
-            generationTicker = .started(
-                voice: selectedVoice,
-                cfgScale: cfgScale,
-                ddpmInferenceSteps: ddpmInferenceSteps
-            )
+        )
+        let queue = jobQueue
 
-            var initialLog = """
-            Session: \(workspace.record.id)
-            Created: \(ISO8601DateFormatter().string(from: workspace.record.metadata.createdAt))
-            Command: \(workspace.command.displayCommand)
+        selectedSessionID = nil
+        activeSessionID = nil
+        activeJobID = job.id
+        hasUnsavedEditorText = false
+        isGenerating = true
+        elapsedSeconds = 0
+        activeStartedAt = Date()
+        statusMessage = "Queued"
+        generationTicker = .started(
+            voice: selectedVoice,
+            cfgScale: cfgScale,
+            ddpmInferenceSteps: ddpmInferenceSteps
+        )
+        startElapsedTimer()
 
-            """
-
-            try fileStore.stageInput(text)
-            initialLog += "Staged input.txt for Docker.\n"
-
-            if let recovered = try fileStore.recoverExistingGeneratedWAV(reason: "pre_run") {
-                initialLog += "Recovered existing generated WAV before run: \(recovered.path)\n"
-            }
-
-            initialLog += "\nStarting Docker generation...\n\n"
-            liveLogBySessionID[workspace.record.id] = initialLog
-            try fileStore.replaceLog(initialLog, in: workspace.record.folderURL)
-            refreshHistory()
-            pendingScrollSessionID = workspace.record.id
-            generationTicker = generationTicker.ingesting(logText: initialLog, elapsed: 0)
-            startElapsedTimer()
-
-            let fileStore = self.fileStore
-            let runner = self.runner
-
-            activeTask = Task.detached(priority: .userInitiated) { [weak self] in
-                let result: DockerRunResult
-                do {
-                    result = try runner.run(command: workspace.command) { chunk in
-                        try? fileStore.appendLog(chunk, to: workspace.record.folderURL)
-                        DispatchQueue.main.async {
-                            self?.appendLiveLog(chunk, sessionID: workspace.record.id)
-                        }
+        activeTask = Task(priority: .userInitiated) { [weak self] in
+            do {
+                let record = try await queue.submit(job) { event in
+                    Task { @MainActor in
+                        self?.handleGenerationEvent(event)
                     }
-                } catch {
-                    let failureText = "\nCould not start Docker: \(error.localizedDescription)\n"
-                    try? fileStore.appendLog(failureText, to: workspace.record.folderURL)
-                    DispatchQueue.main.async {
-                        self?.appendLiveLog(failureText, sessionID: workspace.record.id)
-                    }
-                    let failedResult = DockerRunResult(exitCode: -1, wasCancelled: false, elapsedSeconds: Date().timeIntervalSince(workspace.record.metadata.createdAt))
-                    self?.finishGeneration(workspace: workspace, result: failedResult)
-                    return
                 }
-
-                self?.finishGeneration(workspace: workspace, result: result)
+                self?.completeGeneration(record: record)
+            } catch {
+                self?.failGenerationStart(error: error)
             }
-        } catch {
-            alertMessage = "Could not start generation: \(error.localizedDescription)"
-            isGenerating = false
-            stopElapsedTimer()
-            generationTicker = generationTicker.finished(message: "Could not start Docker", elapsed: elapsedSeconds, phase: .failed)
         }
     }
 
     func cancelGeneration() {
-        guard isGenerating else { return }
+        guard isGenerating, let activeJobID else { return }
         statusMessage = "Cancelling generation..."
-        runner.cancel()
+        let queue = jobQueue
+        Task {
+            await queue.cancel(jobID: activeJobID)
+        }
     }
 
     func duplicateAsNew(_ record: SessionRecord) {
@@ -252,6 +224,25 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         pendingScrollSessionID = nil
     }
 
+    private func handleGenerationEvent(_ event: GenerationEvent) {
+        switch event {
+        case .sessionStarted(let record):
+            activeSessionID = record.id
+            liveLogBySessionID[record.id] = ""
+            refreshHistory()
+            pendingScrollSessionID = record.id
+        case .status(let message):
+            statusMessage = message
+        case .progress:
+            break
+        case .log(let chunk):
+            guard let activeSessionID else { return }
+            appendLiveLog(chunk, sessionID: activeSessionID)
+        case .output(let output):
+            statusMessage = "Output ready: \(output.fileURL.lastPathComponent)"
+        }
+    }
+
     private func appendLiveLog(_ chunk: String, sessionID: String) {
         liveLogBySessionID[sessionID, default: ""] += chunk
         if sessionID == activeSessionID {
@@ -265,89 +256,76 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    private func finishGeneration(workspace: GenerationWorkspace, result: DockerRunResult) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
+    private func completeGeneration(record: GenerationRecord) {
+        let finalElapsed = record.completedAt?.timeIntervalSince(record.createdAt) ?? elapsedSeconds
+        if activeSessionID == nil {
+            activeSessionID = record.id
+        }
+        let sessionID = record.id
+        isGenerating = false
+        activeTask = nil
+        activeJobID = nil
+        activeSessionID = nil
+        elapsedSeconds = finalElapsed
+        let logText = liveLogBySessionID[sessionID, default: record.logs]
+        generationTicker = generationTicker
+            .ingesting(logText: logText, elapsed: finalElapsed)
+            .finished(
+                message: record.status.displayName,
+                elapsed: finalElapsed,
+                phase: record.status.tickerPhase
+            )
+        stopElapsedTimer()
+        refreshHistory()
+        pendingScrollSessionID = sessionID
+        statusMessage = record.status.displayName
+    }
 
-            var metadata = workspace.record.metadata
-            let completedAt = Date()
-            metadata.completedAt = completedAt
-            let currentLogText = (try? String(contentsOf: workspace.record.logURL, encoding: .utf8)) ?? ""
-            let dockerSummary = GenerationOutputParser.latestSummary(in: currentLogText)
-            metadata.generationTimeSeconds = dockerSummary?.generationTimeSeconds ?? result.elapsedSeconds
+    private func failGenerationStart(error: Error) {
+        isGenerating = false
+        activeTask = nil
+        activeJobID = nil
+        activeSessionID = nil
+        let finalElapsed = elapsedSeconds
+        stopElapsedTimer()
+        generationTicker = generationTicker.finished(
+            message: "Failed",
+            elapsed: finalElapsed,
+            phase: .failed
+        )
+        refreshHistory()
+        alertMessage = userFacingMessage(for: error)
+        statusMessage = "Failed"
+    }
 
-            var finalLog = "\nDocker process exited with code \(result.exitCode).\n"
-
-            do {
-                if result.wasCancelled {
-                    metadata.status = .cancelled
-                    if let recovered = try self.fileStore.recoverExistingGeneratedWAV(reason: "cancelled_\(workspace.record.id)") {
-                        finalLog += "Recovered generated staging WAV after cancellation: \(recovered.path)\n"
-                    }
-                    finalLog += "Generation cancelled.\n"
-                } else if result.exitCode == 0, let outputURL = try self.fileStore.moveGeneratedWAVToSession(folderURL: workspace.record.folderURL) {
-                    metadata.status = .completed
-                    metadata.outputFile = outputURL.path
-                    if let duration = try WaveAudioInspector.durationSeconds(for: outputURL) {
-                        metadata.audioDurationSeconds = duration
-                        if let summaryRTF = dockerSummary?.rtf {
-                            metadata.rtf = summaryRTF
-                        } else if duration > 0 {
-                            metadata.rtf = result.elapsedSeconds / duration
-                        }
-                    } else if let summaryDuration = dockerSummary?.audioDurationSeconds {
-                        metadata.audioDurationSeconds = summaryDuration
-                        metadata.rtf = dockerSummary?.rtf ?? (summaryDuration > 0 ? result.elapsedSeconds / summaryDuration : nil)
-                    }
-                    finalLog += "Completed: \(outputURL.path)\n"
-                } else {
-                    metadata.status = .failed
-                    if let recovered = try self.fileStore.recoverExistingGeneratedWAV(reason: "failed_\(workspace.record.id)") {
-                        finalLog += "Recovered generated staging WAV after failure: \(recovered.path)\n"
-                    }
-                    finalLog += "FAILED: no completed output.wav was produced.\n"
-                }
-
-                try self.fileStore.appendLog(finalLog, to: workspace.record.folderURL)
-                try self.fileStore.writeMetadata(metadata, in: workspace.record.folderURL)
-            } catch {
-                finalLog += "Finalization error: \(error.localizedDescription)\n"
-                try? self.fileStore.appendLog(finalLog, to: workspace.record.folderURL)
-                metadata.status = .failed
-                metadata.completedAt = completedAt
-                try? self.fileStore.writeMetadata(metadata, in: workspace.record.folderURL)
-            }
-
-            DispatchQueue.main.async {
-                self.appendLiveLog(finalLog, sessionID: workspace.record.id)
-                self.isGenerating = false
-                self.activeTask = nil
-                self.activeSessionID = nil
-                self.elapsedSeconds = result.elapsedSeconds
-                let logText = self.liveLogBySessionID[workspace.record.id, default: ""]
-                self.generationTicker = self.generationTicker
-                    .ingesting(logText: logText, elapsed: result.elapsedSeconds)
-                    .finished(
-                    message: metadata.status.displayName,
-                    elapsed: result.elapsedSeconds,
-                    phase: metadata.status.tickerPhase
-                    )
-                self.stopElapsedTimer()
-                self.refreshHistory()
-                self.pendingScrollSessionID = workspace.record.id
-                self.statusMessage = metadata.status.displayName
+    private func userFacingMessage(for error: Error) -> String {
+        if let backendError = error as? BackendError {
+            switch backendError {
+            case .backendUnavailable(let record),
+                    .operationUnavailable(let record),
+                    .generationFailed(let record):
+                return [
+                    record.title,
+                    record.explanation,
+                    record.recoverySuggestion
+                ]
+                .compactMap { $0 }
+                .joined(separator: "\n\n")
             }
         }
+        return "Could not start generation: \(error.localizedDescription)"
     }
 
     private func startElapsedTimer() {
         stopElapsedTimer()
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
-            guard let self, let activeStartedAt = self.activeStartedAt else { return }
-            let elapsed = Date().timeIntervalSince(activeStartedAt)
-            self.elapsedSeconds = elapsed
-            if self.isGenerating {
-                self.generationTicker = self.generationTicker.ticking(elapsed: elapsed)
+            Task { @MainActor in
+                guard let self, let activeStartedAt = self.activeStartedAt else { return }
+                let elapsed = Date().timeIntervalSince(activeStartedAt)
+                self.elapsedSeconds = elapsed
+                if self.isGenerating {
+                    self.generationTicker = self.generationTicker.ticking(elapsed: elapsed)
+                }
             }
         }
         elapsedTimer = timer
@@ -370,14 +348,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async {
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
             self.stopWAVPlayback(status: flag ? "Playback finished" : "Playback stopped")
         }
     }
 
-    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        DispatchQueue.main.async {
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor in
             self.stopWAVPlayback(status: "Playback failed")
             if let error {
                 self.alertMessage = "Could not play WAV: \(error.localizedDescription)"
@@ -386,14 +364,24 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 }
 
-private extension SessionStatus {
+private extension GenerationRecordStatus {
     var tickerPhase: GenerationTickerState.Phase {
         switch self {
         case .completed: .completed
         case .failed: .failed
         case .cancelled: .cancelled
         case .running: .running
-        case .draft: .idle
+        case .queued: .running
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .queued: "Queued"
+        case .running: "Running"
+        case .completed: "Completed"
+        case .failed: "Failed"
+        case .cancelled: "Cancelled"
         }
     }
 }

@@ -12,7 +12,15 @@ public struct DockerRunResult: Equatable {
     }
 }
 
-public final class DockerGenerationRunner {
+public protocol DockerGenerationRunning: AnyObject {
+    func run(
+        command: DockerRunCommand,
+        logHandler: @escaping (String) -> Void
+    ) throws -> DockerRunResult
+    func cancel()
+}
+
+public final class DockerGenerationRunner: DockerGenerationRunning {
     private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.docker-runner")
     private var process: Process?
     private var containerName: String?

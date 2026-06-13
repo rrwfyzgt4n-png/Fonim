@@ -39,4 +39,4 @@ Required capabilities:
 
 ## Current Adapter
 
-`VibeVoiceDockerAdapter` is the first adapter. It wraps the current VibeVoice Docker profile and command construction while the existing vertical slice is migrated behind the queue.
+`VibeVoiceDockerAdapter` is the first adapter. It owns the VibeVoice Docker session lifecycle behind the queue: session creation, staging-file preparation, stale WAV recovery, process execution, cancellation, log streaming, output archival, metadata finalization, and progress reporting.
