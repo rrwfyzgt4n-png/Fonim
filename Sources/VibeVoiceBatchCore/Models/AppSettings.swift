@@ -14,6 +14,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var exportFormat: AudioOutputFormat
     public var showAdvancedGenerationControls: Bool
     public var refreshBackendStatusOnLaunch: Bool
+    public var hasCompletedSetupAssistant: Bool
+    public var setupMode: BackendSetupMode
 
     public init(
         defaultBackendID: String = BackendProfiles.vibeVoiceTTS.id,
@@ -24,7 +26,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         outputFolderPath: String = AppDefaults.projectRoot.historyDirectory.path,
         exportFormat: AudioOutputFormat = .wav,
         showAdvancedGenerationControls: Bool = true,
-        refreshBackendStatusOnLaunch: Bool = true
+        refreshBackendStatusOnLaunch: Bool = true,
+        hasCompletedSetupAssistant: Bool = false,
+        setupMode: BackendSetupMode = .simple
     ) {
         self.defaultBackendID = defaultBackendID
         self.defaultModelID = defaultModelID
@@ -35,6 +39,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.exportFormat = exportFormat
         self.showAdvancedGenerationControls = showAdvancedGenerationControls
         self.refreshBackendStatusOnLaunch = refreshBackendStatusOnLaunch
+        self.hasCompletedSetupAssistant = hasCompletedSetupAssistant
+        self.setupMode = setupMode
     }
 
     public static let defaults = AppSettings()

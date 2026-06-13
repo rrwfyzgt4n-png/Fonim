@@ -5,6 +5,7 @@ import VibeVoiceBatchCore
 struct SettingsView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var appStore: AppStore
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         TabView {
@@ -46,6 +47,12 @@ struct SettingsView: View {
                 Button("Reset Defaults") {
                     settingsStore.resetDefaults()
                     appStore.applyDefaultGenerationSettings()
+                }
+            }
+
+            ToolbarItem {
+                Button("Setup Assistant") {
+                    openWindow(id: "backend-setup")
                 }
             }
         }

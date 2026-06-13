@@ -47,12 +47,32 @@ struct VibeVoiceBatchApp: App {
                 .keyboardShortcut(".", modifiers: [.command])
                 .disabled(!store.isGenerating)
             }
+
+            CommandGroup(after: .windowArrangement) {
+                OpenBackendSetupButton()
+            }
         }
 
         Settings {
             SettingsView()
                 .environmentObject(settingsStore)
                 .environmentObject(store)
+        }
+
+        Window("Backend Setup", id: "backend-setup") {
+            BackendSetupAssistantView()
+                .environmentObject(settingsStore)
+                .environmentObject(store)
+        }
+    }
+}
+
+private struct OpenBackendSetupButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Backend Setup Assistant") {
+            openWindow(id: "backend-setup")
         }
     }
 }

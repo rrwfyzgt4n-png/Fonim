@@ -13,6 +13,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkDockerCommandIncludesDDPMControls()
         try checkBackendProfilesAndAdapterContracts()
         try checkBackendStatusSnapshots()
+        try checkBackendSetupReport()
         try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkJobQueueCancellationReachesAdapter()
@@ -212,6 +213,36 @@ struct VibeVoiceBatchCoreChecks {
         precondition(running.state == .runningJob)
         precondition(!running.canStartGeneration)
         precondition(running.alertMessage.contains("Generating audio."))
+    }
+
+    private static func checkBackendSetupReport() throws {
+        let profile = BackendProfiles.vibeVoiceTTS
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchSetupChecks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let missingManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { nil }
+        )
+        let missing = missingManager.setupReport(for: profile)
+        precondition(!missing.isReady)
+        precondition(missing.checks.contains { $0.id == "docker-runtime" && $0.state == .failed })
+
+        let readyManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, arguments in
+                if arguments.contains("inspect") {
+                    return BackendProcessResult(exitCode: 0, combinedOutput: "image")
+                }
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+        )
+        let ready = readyManager.setupReport(for: profile)
+        precondition(ready.checks.contains { $0.id == "docker-runtime" && $0.state == .passed })
+        precondition(ready.checks.contains { $0.id == "docker-image-\(profile.id)" && $0.state == .passed })
+        precondition(ready.checks.contains { $0.id == "health-\(profile.id)" && $0.state == .passed })
     }
 
     private static func checkAppSettingsNormalizeInvalidValues() throws {

@@ -56,6 +56,14 @@ Current implementation:
 - Settings are grouped into Backends, Models, Voices, Output, and Advanced panes.
 - Backend details remain plain-language in normal settings, with raw details available only through Show Details.
 
+## Setup Assistant
+
+Current implementation:
+
+- First launch opens a native Backend Setup Assistant until setup is completed.
+- The assistant shows plain-language checks for Mac compatibility, local folders, Docker runtime, backend image, model cache, and health.
+- Test voice generation goes through the normal queue and no-overwrite history behavior.
+
 ## Error Presentation
 
 - Primary errors must be plain-language.

@@ -320,6 +320,181 @@ public final class BackendManager: @unchecked Sendable {
         return total
     }
 
+    public func setupReport(for profile: BackendProfile, generatedAt: Date = Date()) -> BackendSetupReport {
+        var checks: [BackendSetupCheck] = []
+        checks.append(systemCompatibilityCheck(for: profile))
+        checks.append(projectFoldersCheck())
+
+        switch profile.runtime {
+        case .docker:
+            let docker = dockerRuntimeReport()
+            checks.append(dockerSetupCheck(docker))
+            checks.append(dockerImageCheck(profile: profile, docker: docker))
+            checks.append(modelCacheCheck(profile: profile))
+        case .localPython, .comfyUI, .native, .externalService:
+            checks.append(
+                BackendSetupCheck(
+                    id: "runtime-\(profile.id)",
+                    title: "Runtime",
+                    state: .warning,
+                    message: "Setup checks for \(profile.displayName) are not implemented yet.",
+                    recoverySuggestion: "Use the VibeVoice backend while additional backend installers are added."
+                )
+            )
+        }
+
+        let health = healthReport(for: profile)
+        checks.append(
+            BackendSetupCheck(
+                id: "health-\(profile.id)",
+                title: "Backend health",
+                state: health.state == .ready ? .passed : .failed,
+                message: health.userMessage,
+                recoverySuggestion: health.recoverySuggestion,
+                technicalDetails: health.technicalDetails
+            )
+        )
+
+        return BackendSetupReport(profileID: profile.id, generatedAt: generatedAt, checks: checks)
+    }
+
+    public func setupReportAsync(for profile: BackendProfile, generatedAt: Date = Date()) async -> BackendSetupReport {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: self.setupReport(for: profile, generatedAt: generatedAt))
+            }
+        }
+    }
+
+    private func systemCompatibilityCheck(for profile: BackendProfile) -> BackendSetupCheck {
+        let memoryGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824
+        let architecture = currentArchitecture
+        let supported = profile.supportedArchitectures.contains(.universal) ||
+            profile.supportedArchitectures.contains(architecture)
+        let memoryRequired = profile.requiredMemoryGB ?? 0
+        let memoryOK = memoryRequired == 0 || memoryGB >= memoryRequired
+        let state: BackendSetupCheckState = supported && memoryOK ? .passed : .warning
+
+        var details = [
+            "macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "Architecture: \(architecture.rawValue)",
+            String(format: "Memory: %.1f GB", memoryGB)
+        ]
+        if let required = profile.requiredMemoryGB {
+            details.append(String(format: "Required memory: %.1f GB", required))
+        }
+
+        return BackendSetupCheck(
+            id: "system-\(profile.id)",
+            title: "Mac compatibility",
+            state: state,
+            message: supported && memoryOK ? "This Mac meets the known requirements for \(profile.displayName)." : "This Mac may be below the recommended requirements.",
+            recoverySuggestion: state == .passed ? nil : "Generation may still work, but use shorter scripts or a lighter backend if performance is poor.",
+            technicalDetails: details.joined(separator: "\n")
+        )
+    }
+
+    private func projectFoldersCheck() -> BackendSetupCheck {
+        let requiredFolders = [
+            projectRoot.historyDirectory,
+            projectRoot.outputsDirectory,
+            projectRoot.recoveredDirectory,
+            projectRoot.hfCacheDirectory
+        ]
+        let missing = requiredFolders.filter { !fileManager.fileExists(atPath: $0.path) }
+        return BackendSetupCheck(
+            id: "project-folders",
+            title: "Local folders",
+            state: missing.isEmpty ? .passed : .warning,
+            message: missing.isEmpty ? "Project folders are present." : "Some local folders will be created when needed.",
+            recoverySuggestion: missing.isEmpty ? nil : "If generation cannot write files, check permissions for \(projectRoot.path).",
+            technicalDetails: missing.map(\.path).joined(separator: "\n")
+        )
+    }
+
+    private func dockerSetupCheck(_ docker: DockerRuntimeReport) -> BackendSetupCheck {
+        if !docker.isInstalled {
+            return BackendSetupCheck(
+                id: "docker-runtime",
+                title: "Docker Desktop",
+                state: .failed,
+                message: "Docker Desktop was not found on this Mac.",
+                recoverySuggestion: "Install Docker Desktop, then run setup checks again.",
+                technicalDetails: docker.details
+            )
+        }
+        if !docker.isRunning {
+            return BackendSetupCheck(
+                id: "docker-runtime",
+                title: "Docker Desktop",
+                state: .failed,
+                message: "Docker Desktop is installed but not running.",
+                recoverySuggestion: "Start Docker Desktop, then run setup checks again.",
+                technicalDetails: docker.details
+            )
+        }
+        return BackendSetupCheck(
+            id: "docker-runtime",
+            title: "Docker Desktop",
+            state: .passed,
+            message: "Docker Desktop is installed and running.",
+            technicalDetails: docker.details
+        )
+    }
+
+    private func dockerImageCheck(profile: BackendProfile, docker: DockerRuntimeReport) -> BackendSetupCheck {
+        guard docker.isRunning, let dockerExecutable = docker.executablePath else {
+            return BackendSetupCheck(
+                id: "docker-image-\(profile.id)",
+                title: "Backend image",
+                state: .waiting,
+                message: "Image check waits until Docker Desktop is running."
+            )
+        }
+        guard let image = profile.dockerImage else {
+            return BackendSetupCheck(
+                id: "docker-image-\(profile.id)",
+                title: "Backend image",
+                state: .warning,
+                message: "This backend does not declare a Docker image."
+            )
+        }
+        let result = runProcess(executable: dockerExecutable, arguments: ["image", "inspect", image])
+        return BackendSetupCheck(
+            id: "docker-image-\(profile.id)",
+            title: "Backend image",
+            state: result.exitCode == 0 ? .passed : .warning,
+            message: result.exitCode == 0 ? "\(image) is available locally." : "\(image) is not available locally yet.",
+            recoverySuggestion: result.exitCode == 0 ? nil : "Phase 5 will add managed pull/update. For now, make sure the working image is available before generation.",
+            technicalDetails: result.combinedOutput
+        )
+    }
+
+    private func modelCacheCheck(profile: BackendProfile) -> BackendSetupCheck {
+        let cacheExists = fileManager.fileExists(atPath: projectRoot.hfCacheDirectory.path)
+        let hasModelHint = profile.requiredModels.contains { model in
+            model.source == AppDefaults.modelPath
+        }
+        return BackendSetupCheck(
+            id: "model-cache-\(profile.id)",
+            title: "Model cache",
+            state: cacheExists ? .passed : .warning,
+            message: cacheExists ? "The local model cache folder is present." : "The local model cache folder has not been created yet.",
+            recoverySuggestion: cacheExists ? nil : "The backend can create the cache during its first model download, or you can create the folder during backend install.",
+            technicalDetails: hasModelHint ? "Expected model: \(AppDefaults.modelPath)" : nil
+        )
+    }
+
+    private var currentArchitecture: SystemArchitecture {
+        #if arch(arm64)
+        return .appleSilicon
+        #elseif arch(x86_64)
+        return .intel
+        #else
+        return .universal
+        #endif
+    }
+
     private func resolveDockerExecutable() -> String? {
         if let dockerExecutableResolver {
             return dockerExecutableResolver()
