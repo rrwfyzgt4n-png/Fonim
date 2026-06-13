@@ -42,3 +42,11 @@ Backend setup must be an app flow, not a terminal checklist.
 - reset or reinstall backend
 
 SwiftUI views must ask the backend manager or an app store for state. Views must not run shell commands directly.
+
+## Current Implementation
+
+- A native Backend Setup Assistant opens on first launch until setup is marked complete.
+- The assistant supports Simple, Advanced, and External setup modes as persisted settings.
+- `BackendManager` produces setup reports for Mac compatibility, local folders, Docker runtime, Docker image presence, model cache presence, and backend health.
+- The assistant can start a short test voice generation through the normal generation queue, preserving the same history and no-overwrite guarantees as regular generation.
+- Managed pull/update, model download, repair, and reset actions remain Phase 5 backend-manager operations.
