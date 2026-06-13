@@ -4,7 +4,7 @@ The app should feel like a Mac narration workstation, not a terminal frontend.
 
 ## Native Structure
 
-- Sidebar for Projects, Scripts, Batches, Voices, Presets, History, Backends, and Settings.
+- Sidebar for Projects, Scripts, Batches, Outputs, Voices, Presets, History, Backends, and Settings.
 - Toolbar for primary context actions.
 - Inspector for voice, model, inference settings, export settings, and metadata.
 - Real Settings window for backend and generation defaults.
@@ -13,8 +13,9 @@ The app should feel like a Mac narration workstation, not a terminal frontend.
 Current implementation note:
 
 - The core data model supports Projects, Scripts, and Batches separately from History.
-- The main window now uses a native source-list sidebar for Projects, Scripts, Batches, Voices, Presets, History, Backends, and Settings.
+- The main window now uses a native source-list sidebar for Projects, Scripts, Batches, Outputs, Voices, Presets, History, Backends, and Settings.
 - History sessions remain selectable beneath History so existing session detail, playback, duplicate, and folder actions continue to work.
+- Outputs has its own browser for archived WAV files, with in-app playback, Finder reveal, Quick Look, path copy, drag-out support, and duplicate-as-new.
 - The Settings sidebar destination opens toward the native Settings scene instead of replacing preferences with an in-window settings clone.
 
 ## Progressive Disclosure
@@ -94,5 +95,5 @@ Current implementation:
 - User chooses output folders.
 - Generated files can be revealed in Finder.
 - Generated audio can be played in app.
-- Generated audio should be draggable out of the app in a later UI pass.
-- Quick Look support should be evaluated for the output browser.
+- Generated audio can be dragged out of the output browser.
+- Quick Look is available from output rows and details through the native macOS preview panel.

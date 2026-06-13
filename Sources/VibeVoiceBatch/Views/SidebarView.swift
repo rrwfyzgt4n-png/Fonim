@@ -27,6 +27,8 @@ struct SidebarView: View {
                     }
 
                     Section("Generation") {
+                        SidebarSectionRow(section: .outputs, detail: "\(store.outputSessions.count)")
+                            .tag(WorkstationSelection.section(.outputs) as WorkstationSelection?)
                         SidebarSectionRow(section: .history, detail: "\(store.sessions.count)")
                             .tag(WorkstationSelection.section(.history) as WorkstationSelection?)
 

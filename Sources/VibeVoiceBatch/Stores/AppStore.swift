@@ -30,6 +30,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private let settingsStore: SettingsStore
     private let fileStore = SessionFileStore()
+    private let quickLookPreviewer = QuickLookPreviewer()
     private let backendAdapter = VibeVoiceDockerAdapter()
     private lazy var jobQueue = JobQueue(adapters: [backendAdapter])
     private var activeTask: Task<Void, Never>?
@@ -50,6 +51,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     var selectedSession: SessionRecord? {
         guard let selectedSessionID else { return nil }
         return sessions.first { $0.id == selectedSessionID }
+    }
+
+    var outputSessions: [SessionRecord] {
+        sessions.filter { $0.outputURL != nil }
     }
 
     var canGenerate: Bool {
@@ -338,6 +343,34 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func openSessionFolder(_ record: SessionRecord) {
         NSWorkspace.shared.open(record.folderURL)
+    }
+
+    func revealOutputFile(_ record: SessionRecord) {
+        guard let outputURL = record.outputURL else {
+            statusMessage = "No WAV file for this session"
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+        statusMessage = "Revealed \(outputURL.lastPathComponent)"
+    }
+
+    func copyOutputPath(_ record: SessionRecord) {
+        guard let outputURL = record.outputURL else {
+            statusMessage = "No WAV file for this session"
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(outputURL.path, forType: .string)
+        statusMessage = "Copied output path"
+    }
+
+    func quickLookOutputFile(_ record: SessionRecord) {
+        guard let outputURL = record.outputURL else {
+            statusMessage = "No WAV file for this session"
+            return
+        }
+        quickLookPreviewer.preview(outputURL)
+        statusMessage = "Previewing \(outputURL.lastPathComponent)"
     }
 
     func playWAV(_ record: SessionRecord) {

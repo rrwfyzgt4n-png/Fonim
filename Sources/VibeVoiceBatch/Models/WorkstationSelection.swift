@@ -4,6 +4,7 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
     case projects
     case scripts
     case batches
+    case outputs
     case voices
     case presets
     case history
@@ -17,6 +18,7 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
         case .projects: "Projects"
         case .scripts: "Scripts"
         case .batches: "Batches"
+        case .outputs: "Outputs"
         case .voices: "Voices"
         case .presets: "Presets"
         case .history: "History"
@@ -30,6 +32,7 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
         case .projects: "folder"
         case .scripts: "doc.text"
         case .batches: "tray.full"
+        case .outputs: "music.note.list"
         case .voices: "waveform"
         case .presets: "slider.horizontal.3"
         case .history: "clock.arrow.circlepath"

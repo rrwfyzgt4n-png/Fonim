@@ -37,6 +37,8 @@ Generate action -> JobQueue -> EngineAdapter -> BackendManager/runtime -> Genera
 
 Main-window navigation is represented by `WorkstationSelection` and a native `NavigationSplitView`. `SidebarView` presents Projects, Scripts, Batches, Voices, Presets, History, Backends, and Settings as workstation destinations while keeping individual history sessions selectable for the existing detail/playback/duplicate flow.
 
+Outputs are represented as a browser over immutable history sessions that have an archived `output.wav`. `OutputBrowserView` owns browsing, search, selection, drag providers, and output detail presentation. `AppStore` owns playback, Finder reveal, path copy, Quick Look preview, and duplicate-as-new actions so output handling stays native and history-backed.
+
 Inspector state is window-scoped. `InspectorPanelView` owns the right-side desktop inspector surface for voice, model, inference, export, and contextual metadata controls. The editor stays focused on text and generation while advanced controls move into the inspector.
 
 Generation queue state is visible in the Batches destination. `AppStore` owns app-level `QueuedGenerationItem` presentation state, retry, duplicate, and cancel routing; actual work still enters through `JobQueue -> EngineAdapter`. The queue drains one job at a time for the current VibeVoice backend and keeps terminal queue rows visible so users can retry or duplicate without modifying original history sessions.

@@ -134,6 +134,15 @@ struct InspectorPanelView: View {
                 InspectorValue(label: "Default CFG", value: settingsStore.settings.defaultCFGScale)
                 InspectorValue(label: "Default steps", value: "\(settingsStore.settings.defaultDDPMInferenceSteps)")
             }
+        case .section(.outputs):
+            InspectorGroup(title: "Outputs") {
+                InspectorValue(label: "Count", value: "\(store.outputSessions.count)")
+                if let session = store.selectedSession {
+                    InspectorValue(label: "Selected", value: session.outputURL?.lastPathComponent ?? "No WAV")
+                    InspectorValue(label: "Audio", value: SessionFormatters.duration(session.metadata.audioDurationSeconds))
+                    InspectorValue(label: "RTF", value: SessionFormatters.rtf(session.metadata.rtf))
+                }
+            }
         case .section(.backends):
             InspectorGroup(title: "Backend Metadata") {
                 InspectorValue(label: "Backend", value: BackendProfiles.vibeVoiceTTS.displayName)

@@ -145,6 +145,8 @@ struct ContentView: View {
             VoicesView()
         case .section(.presets):
             PresetsView()
+        case .section(.outputs):
+            OutputBrowserView()
         case .section(.history):
             EditorView()
         case .section(.backends):
@@ -162,7 +164,7 @@ struct ContentView: View {
 
     private var showsGenerationTicker: Bool {
         switch selection ?? .section(.history) {
-        case .section(.history), .historySession:
+        case .section(.history), .section(.outputs), .historySession:
             return true
         case .section:
             return store.isGenerating
