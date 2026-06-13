@@ -1,6 +1,6 @@
 import Foundation
 
-public struct GenerationSettings: Codable, Equatable {
+public struct GenerationSettings: Codable, Equatable, Sendable {
     public var cfgScale: String
     public var ddpmInferenceSteps: Int?
     public var temperature: Double?

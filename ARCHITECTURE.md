@@ -23,6 +23,7 @@ Native macOS App
 - `Sources/VibeVoiceBatchCore/Services`: orchestration, backend management, adapters, file stores, parsers, process clients, and audio inspection.
 - `docker_overrides`: explicit, reviewed backend support files mounted into managed containers.
 - `history`: generated session artifacts only. Root `input.txt` and `outputs/input_generated.wav` remain staging files.
+- `workspace`: editable product records for Projects, Scripts, and Batches. These records can point to generation history, but they do not replace or mutate history sessions.
 
 ## Current State
 
@@ -41,6 +42,8 @@ Durable app preferences are represented by `AppSettings` and persisted by `Setti
 Backend setup is represented by `BackendSetupReport` and `BackendSetupCheck`. `BackendManager` owns system, runtime, image, model-cache, and health checks; the SwiftUI setup assistant presents those checks and routes test generation through the existing safe generation path.
 
 Backend operations are represented by `BackendOperationKind`, `BackendOperationResult`, and `BackendDiskUsageReport`. `BackendManager` owns install, update, prepare, stop, health check, repair, reset, and disk usage operations; SwiftUI calls those operations through observable stores and never runs runtime commands directly.
+
+Projects, scripts, and batches are represented by `NarrationProject`, `NarrationScript`, `NarrationBatch`, and `NarrationBatchItem`. `WorkspaceFileStore` persists them under `workspace/projects`, `workspace/scripts`, and `workspace/batches`. A script can reference multiple `history/<session_id>` generations, which lets one editable script produce many immutable generation records without overwriting earlier input, audio, logs, or metadata.
 
 ## Migration Rule
 

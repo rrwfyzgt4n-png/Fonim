@@ -53,6 +53,10 @@ public extension URL {
     var historyDirectory: URL { appendingPathComponent("history", isDirectory: true) }
     var outputsDirectory: URL { appendingPathComponent("outputs", isDirectory: true) }
     var recoveredDirectory: URL { appendingPathComponent("recovered", isDirectory: true) }
+    var workspaceDirectory: URL { appendingPathComponent("workspace", isDirectory: true) }
+    var projectsDirectory: URL { workspaceDirectory.appendingPathComponent("projects", isDirectory: true) }
+    var scriptsDirectory: URL { workspaceDirectory.appendingPathComponent("scripts", isDirectory: true) }
+    var batchesDirectory: URL { workspaceDirectory.appendingPathComponent("batches", isDirectory: true) }
     var hfCacheDirectory: URL { appendingPathComponent("hf-cache", isDirectory: true) }
     var dockerOverridesDirectory: URL { appendingPathComponent("docker_overrides", isDirectory: true) }
     var inferenceScriptOverrideFile: URL { dockerOverridesDirectory.appendingPathComponent("realtime_model_inference_from_file.py", isDirectory: false) }

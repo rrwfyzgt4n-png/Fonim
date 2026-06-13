@@ -15,6 +15,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
         try checkBackendManagerOperations()
+        try checkWorkspaceDataModel()
         try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkJobQueueCancellationReachesAdapter()
@@ -329,6 +330,115 @@ struct VibeVoiceBatchCoreChecks {
 
         let usage = stopManager.diskUsageReport()
         precondition(usage.projectRootBytes >= usage.recoveredBytes)
+    }
+
+    private static func checkWorkspaceDataModel() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchWorkspaceChecks-\(UUID().uuidString)", isDirectory: true)
+        let workspaceStore = WorkspaceFileStore(projectRoot: root)
+        let sessionStore = SessionFileStore(projectRoot: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let createdAt = Date(timeIntervalSince1970: 1_718_171_695)
+        let project = try workspaceStore.createProject(title: "Novel Narration", now: createdAt)
+        precondition(project.status == .draft)
+        precondition(FileManager.default.fileExists(atPath: root.projectsDirectory.path))
+
+        let script = try workspaceStore.createScript(
+            projectID: project.id,
+            title: "Chapter One",
+            text: "The first chapter begins here.",
+            voice: "en-carter_man",
+            settings: GenerationSettings(cfgScale: "1.8", ddpmInferenceSteps: 8),
+            now: createdAt
+        )
+        precondition(script.projectID == project.id)
+        precondition(script.inputWordCount == 5)
+        let projectAfterScript = try workspaceStore.loadProject(id: project.id)
+        precondition(projectAfterScript.scriptIDs == [script.id])
+
+        let collidingScript = try workspaceStore.createScript(
+            projectID: project.id,
+            title: "Chapter One",
+            text: "A different editable source script.",
+            now: createdAt
+        )
+        precondition(collidingScript.id != script.id)
+        precondition(collidingScript.id.hasSuffix("_2"))
+
+        let batch = try workspaceStore.createBatch(
+            projectID: project.id,
+            title: "Morning Batch",
+            scriptIDs: [script.id, collidingScript.id],
+            now: createdAt
+        )
+        precondition(batch.items.count == 2)
+        precondition(batch.status == .queued)
+        let projectAfterBatch = try workspaceStore.loadProject(id: project.id)
+        precondition(projectAfterBatch.batchIDs == [batch.id])
+
+        let firstRun = try sessionStore.createDraft(
+            text: script.text,
+            voice: script.defaultVoice,
+            cfgScale: script.defaultSettings.cfgScale,
+            ddpmInferenceSteps: script.defaultSettings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps,
+            now: createdAt
+        )
+        let secondRun = try sessionStore.createDraft(
+            text: script.text,
+            voice: script.defaultVoice,
+            cfgScale: script.defaultSettings.cfgScale,
+            ddpmInferenceSteps: script.defaultSettings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps,
+            now: createdAt
+        )
+        precondition(firstRun.id != secondRun.id)
+
+        let linkedOnce = try workspaceStore.appendGenerationSession(firstRun.id, toScript: script.id, now: createdAt)
+        let linkedTwice = try workspaceStore.appendGenerationSession(secondRun.id, toScript: script.id, now: createdAt)
+        let linkedDuplicate = try workspaceStore.appendGenerationSession(firstRun.id, toScript: script.id, now: createdAt)
+        precondition(linkedOnce.generationSessionIDs == [firstRun.id])
+        precondition(linkedTwice.generationSessionIDs == [firstRun.id, secondRun.id])
+        precondition(linkedDuplicate.generationSessionIDs == [firstRun.id, secondRun.id])
+
+        let updatedBatch = try workspaceStore.recordBatchItemGeneration(
+            batchID: batch.id,
+            itemID: batch.items[0].id,
+            sessionID: firstRun.id,
+            status: .completed,
+            now: createdAt
+        )
+        precondition(updatedBatch.items[0].generationSessionID == firstRun.id)
+        precondition(updatedBatch.status == .queued)
+
+        let updatedScript = try workspaceStore.updateScriptText(
+            id: script.id,
+            text: "The source script has changed for a future run.",
+            now: createdAt.addingTimeInterval(10)
+        )
+        precondition(updatedScript.text.contains("future run"))
+        let preservedHistoryRecord = try sessionStore.loadRecord(folderURL: firstRun.folderURL)
+        precondition(preservedHistoryRecord.inputText == "The first chapter begins here.")
+
+        let snapshot = try workspaceStore.loadSnapshot()
+        precondition(snapshot.projects.count == 1)
+        precondition(snapshot.scripts.count == 2)
+        precondition(snapshot.batches.count == 1)
+
+        do {
+            _ = try workspaceStore.createScript(projectID: "missing-project", title: "Orphan", text: "Nope")
+            throw CheckError("Expected missing project to fail")
+        } catch is CocoaError {
+            let scriptCount = try workspaceStore.loadScripts().count
+            precondition(scriptCount == 2)
+        }
+
+        do {
+            _ = try workspaceStore.createBatch(projectID: project.id, title: "Broken Batch", scriptIDs: ["missing-script"])
+            throw CheckError("Expected missing script to fail")
+        } catch is CocoaError {
+            let batchCount = try workspaceStore.loadBatches().count
+            precondition(batchCount == 1)
+        }
     }
 
     private static func checkAppSettingsNormalizeInvalidValues() throws {

@@ -10,6 +10,10 @@ The app should feel like a Mac narration workstation, not a terminal frontend.
 - Real Settings window for backend and generation defaults.
 - Standard macOS keyboard shortcuts for common actions.
 
+Current implementation note:
+
+- The core data model now supports Projects, Scripts, and Batches separately from History. The expanded native sidebar and editor surfaces are scheduled for the navigation phase.
+
 ## Progressive Disclosure
 
 Normal users see:
