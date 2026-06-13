@@ -19,6 +19,9 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var generationTicker = GenerationTickerState.idle
     @Published private(set) var isPlayingWAV = false
     @Published private(set) var playingSessionID: String?
+    @Published private(set) var backendStatus = BackendStatusSnapshot.unknown(profile: BackendProfiles.vibeVoiceTTS)
+    @Published private(set) var isRefreshingBackendStatus = false
+    @Published private(set) var isPreparingGeneration = false
     @Published var statusMessage = "Ready"
     @Published var alertMessage: String?
     @Published private var liveLogBySessionID: [String: String] = [:]
@@ -38,7 +41,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     var canGenerate: Bool {
-        !isGenerating && !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !isGenerating &&
+            !isPreparingGeneration &&
+            backendStatus.canStartGeneration &&
+            !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var canSaveDraft: Bool {
@@ -50,6 +56,13 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             sessions = try fileStore.loadSessions()
         } catch {
             alertMessage = "Could not load history: \(error.localizedDescription)"
+        }
+    }
+
+    func refreshBackendStatus() {
+        guard !isRefreshingBackendStatus else { return }
+        Task {
+            _ = await refreshBackendStatusNow()
         }
     }
 
@@ -111,13 +124,45 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             statusMessage = "No text to generate"
             return
         }
-        guard !isGenerating else { return }
+        guard !isGenerating, !isPreparingGeneration else { return }
 
+        let voice = selectedVoice
+        let selectedCFGScale = cfgScale
+        let selectedDDPMInferenceSteps = ddpmInferenceSteps
+        isPreparingGeneration = true
+        statusMessage = "Checking backend..."
+        Task {
+            let status = await refreshBackendStatusNow()
+            guard status.canStartGeneration else {
+                isPreparingGeneration = false
+                presentBlockedBackend(status)
+                return
+            }
+            isPreparingGeneration = false
+            startGeneration(
+                text: text,
+                voice: voice,
+                cfgScale: selectedCFGScale,
+                ddpmInferenceSteps: selectedDDPMInferenceSteps
+            )
+        }
+    }
+
+    func showBackendDetails() {
+        alertMessage = backendStatus.alertMessageWithDetails
+    }
+
+    private func startGeneration(
+        text: String,
+        voice: String,
+        cfgScale: String,
+        ddpmInferenceSteps: Int
+    ) {
         let job = GenerationJob(
             inputText: text,
             backendID: BackendProfiles.vibeVoiceTTS.id,
             modelID: AppDefaults.modelPath,
-            voiceID: selectedVoice,
+            voiceID: voice,
             settings: GenerationSettings(
                 cfgScale: cfgScale,
                 ddpmInferenceSteps: ddpmInferenceSteps
@@ -133,8 +178,13 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         elapsedSeconds = 0
         activeStartedAt = Date()
         statusMessage = "Queued"
+        backendStatus = backendStatus.replacingState(
+            .runningJob,
+            userMessage: "\(backendStatus.displayName) is generating audio.",
+            recoverySuggestion: "You can cancel the running job from the toolbar."
+        )
         generationTicker = .started(
-            voice: selectedVoice,
+            voice: voice,
             cfgScale: cfgScale,
             ddpmInferenceSteps: ddpmInferenceSteps
         )
@@ -157,6 +207,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func cancelGeneration() {
         guard isGenerating, let activeJobID else { return }
         statusMessage = "Cancelling generation..."
+        backendStatus = backendStatus.replacingState(
+            .runningJob,
+            userMessage: "Cancelling the current generation.",
+            recoverySuggestion: "The partial session will stay in history."
+        )
         let queue = jobQueue
         Task {
             await queue.cancel(jobID: activeJobID)
@@ -231,6 +286,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             liveLogBySessionID[record.id] = ""
             refreshHistory()
             pendingScrollSessionID = record.id
+            backendStatus = backendStatus.replacingState(
+                .runningJob,
+                userMessage: "\(backendStatus.displayName) is generating audio.",
+                recoverySuggestion: "You can cancel the running job from the toolbar."
+            )
         case .status(let message):
             statusMessage = message
         case .progress:
@@ -279,10 +339,12 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         refreshHistory()
         pendingScrollSessionID = sessionID
         statusMessage = record.status.displayName
+        refreshBackendStatus()
     }
 
     private func failGenerationStart(error: Error) {
         isGenerating = false
+        isPreparingGeneration = false
         activeTask = nil
         activeJobID = nil
         activeSessionID = nil
@@ -296,6 +358,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         refreshHistory()
         alertMessage = userFacingMessage(for: error)
         statusMessage = "Failed"
+        refreshBackendStatus()
     }
 
     private func userFacingMessage(for error: Error) -> String {
@@ -314,6 +377,21 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         }
         return "Could not start generation: \(error.localizedDescription)"
+    }
+
+    private func refreshBackendStatusNow() async -> BackendStatusSnapshot {
+        isRefreshingBackendStatus = true
+        defer { isRefreshingBackendStatus = false }
+        let report = await backendAdapter.healthCheck()
+        let snapshot = BackendStatusSnapshot(profile: backendAdapter.profile, report: report)
+        backendStatus = snapshot
+        statusMessage = snapshot.state == .ready ? "Backend ready" : snapshot.state.displayName
+        return snapshot
+    }
+
+    private func presentBlockedBackend(_ status: BackendStatusSnapshot) {
+        statusMessage = status.state.displayName
+        alertMessage = status.alertMessage
     }
 
     private func startElapsedTimer() {
@@ -383,5 +461,16 @@ private extension GenerationRecordStatus {
         case .failed: "Failed"
         case .cancelled: "Cancelled"
         }
+    }
+}
+
+private extension BackendStatusSnapshot {
+    var alertMessageWithDetails: String {
+        [
+            alertMessage,
+            technicalDetails.map { "Details:\n\($0)" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n\n")
     }
 }

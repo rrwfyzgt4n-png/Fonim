@@ -42,6 +42,12 @@ The app must show plain-language states for:
 - generation failed
 - output complete
 
+Current implementation:
+
+- A native status strip shows the selected backend, runtime state, and a plain-language message.
+- Missing or stopped Docker states include a recovery suggestion behind Details.
+- Generation preflights backend readiness before creating a session.
+
 ## Error Presentation
 
 - Primary errors must be plain-language.
