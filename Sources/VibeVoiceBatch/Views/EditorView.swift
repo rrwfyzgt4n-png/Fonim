@@ -95,7 +95,7 @@ private struct GenerateControl: View {
         .controlSize(.large)
         .frame(width: 44, height: 34)
         .disabled(!store.canGenerate)
-        .help("Generate WAV")
+        .help(store.canGenerate ? "Generate WAV" : store.backendStatus.userMessage)
         .padding(.leading, 8)
         .accessibilityLabel("Generate WAV")
     }
