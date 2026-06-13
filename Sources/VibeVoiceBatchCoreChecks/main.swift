@@ -13,6 +13,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkDockerCommandIncludesDDPMControls()
         try checkBackendProfilesAndAdapterContracts()
         try checkBackendStatusSnapshots()
+        try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkJobQueueCancellationReachesAdapter()
         print("VibeVoiceBatchCoreChecks passed")
@@ -211,6 +212,26 @@ struct VibeVoiceBatchCoreChecks {
         precondition(running.state == .runningJob)
         precondition(!running.canStartGeneration)
         precondition(running.alertMessage.contains("Generating audio."))
+    }
+
+    private static func checkAppSettingsNormalizeInvalidValues() throws {
+        let settings = AppSettings(
+            defaultBackendID: "missing",
+            defaultModelID: "",
+            defaultVoice: "missing",
+            defaultCFGScale: "9.9",
+            defaultDDPMInferenceSteps: 999,
+            outputFolderPath: "",
+            exportFormat: .mp3
+        )
+        let normalized = settings.normalized
+        precondition(normalized.defaultBackendID == BackendProfiles.vibeVoiceTTS.id)
+        precondition(normalized.defaultModelID == AppDefaults.modelPath)
+        precondition(normalized.defaultVoice == AppDefaults.defaultVoice)
+        precondition(normalized.defaultCFGScale == AppDefaults.defaultCFGScale)
+        precondition(normalized.defaultDDPMInferenceSteps == AppDefaults.defaultDDPMInferenceSteps)
+        precondition(normalized.outputFolderPath == AppDefaults.projectRoot.historyDirectory.path)
+        precondition(normalized.exportFormat == .wav)
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {
