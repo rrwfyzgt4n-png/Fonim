@@ -12,7 +12,10 @@ The app should feel like a Mac narration workstation, not a terminal frontend.
 
 Current implementation note:
 
-- The core data model now supports Projects, Scripts, and Batches separately from History. The expanded native sidebar and editor surfaces are scheduled for the navigation phase.
+- The core data model supports Projects, Scripts, and Batches separately from History.
+- The main window now uses a native source-list sidebar for Projects, Scripts, Batches, Voices, Presets, History, Backends, and Settings.
+- History sessions remain selectable beneath History so existing session detail, playback, duplicate, and folder actions continue to work.
+- The Settings sidebar destination opens toward the native Settings scene instead of replacing preferences with an in-window settings clone.
 
 ## Progressive Disclosure
 

@@ -14,11 +14,13 @@ struct VibeVoiceBatchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var settingsStore: SettingsStore
     @StateObject private var store: AppStore
+    @StateObject private var workspaceStore: WorkspaceStore
 
     init() {
         let settingsStore = SettingsStore()
         _settingsStore = StateObject(wrappedValue: settingsStore)
         _store = StateObject(wrappedValue: AppStore(settingsStore: settingsStore))
+        _workspaceStore = StateObject(wrappedValue: WorkspaceStore())
     }
 
     var body: some Scene {
@@ -26,6 +28,7 @@ struct VibeVoiceBatchApp: App {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(settingsStore)
+                .environmentObject(workspaceStore)
                 .frame(minWidth: 980, minHeight: 680)
         }
         .commands {

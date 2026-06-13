@@ -4,14 +4,16 @@ import VibeVoiceBatchCore
 struct ContentView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
     @Environment(\.openWindow) private var openWindow
+    @State private var selection: WorkstationSelection? = .section(.history)
     @State private var didOfferSetupAssistant = false
 
     var body: some View {
         NavigationSplitView {
-            SidebarView()
-                .navigationTitle("History")
-                .frame(minWidth: 340, idealWidth: 390)
+            SidebarView(selection: $selection)
+                .navigationTitle("Narration")
+                .frame(minWidth: 280, idealWidth: 330)
         } detail: {
             VStack(spacing: 0) {
                 BackendStatusView()
@@ -19,18 +21,14 @@ struct ContentView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 8)
 
-                Group {
-                    if let session = store.selectedSession {
-                        SessionDetailView(record: session)
-                    } else {
-                        EditorView()
-                    }
-                }
+                detailView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                GenerationTickerView()
-                    .padding(.horizontal)
-                    .padding(.bottom)
+                if showsGenerationTicker {
+                    GenerationTickerView()
+                        .padding(.horizontal)
+                        .padding(.bottom)
+                }
             }
         }
         .toolbar {
@@ -93,25 +91,76 @@ struct ContentView: View {
         }
         .onAppear {
             store.refreshHistory()
+            workspaceStore.refresh()
             store.refreshBackendStatusIfPreferred()
             if !settingsStore.settings.hasCompletedSetupAssistant, !didOfferSetupAssistant {
                 didOfferSetupAssistant = true
                 openWindow(id: "backend-setup")
             }
         }
+        .onChange(of: selection) { newValue in
+            if case .historySession(let sessionID) = newValue {
+                store.selectedSessionID = sessionID
+            } else {
+                store.selectedSessionID = nil
+            }
+        }
         .alert("VibeVoice Batch", isPresented: alertBinding) {
             Button("OK", role: .cancel) {
                 store.alertMessage = nil
+                workspaceStore.alertMessage = nil
             }
         } message: {
-            Text(store.alertMessage ?? "")
+            Text(store.alertMessage ?? workspaceStore.alertMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selection ?? .section(.history) {
+        case .section(.projects):
+            ProjectsView()
+        case .section(.scripts):
+            ScriptsView()
+        case .section(.batches):
+            BatchesView()
+        case .section(.voices):
+            VoicesView()
+        case .section(.presets):
+            PresetsView()
+        case .section(.history):
+            EditorView()
+        case .section(.backends):
+            BackendsView()
+        case .section(.settings):
+            SettingsLandingView()
+        case .historySession:
+            if let session = store.selectedSession {
+                SessionDetailView(record: session)
+            } else {
+                EditorView()
+            }
+        }
+    }
+
+    private var showsGenerationTicker: Bool {
+        switch selection ?? .section(.history) {
+        case .section(.history), .historySession:
+            return true
+        case .section:
+            return store.isGenerating
         }
     }
 
     private var alertBinding: Binding<Bool> {
         Binding(
-            get: { store.alertMessage != nil },
-            set: { if !$0 { store.alertMessage = nil } }
+            get: { store.alertMessage != nil || workspaceStore.alertMessage != nil },
+            set: {
+                if !$0 {
+                    store.alertMessage = nil
+                    workspaceStore.alertMessage = nil
+                }
+            }
         )
     }
 

@@ -3,48 +3,83 @@ import VibeVoiceBatchCore
 
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @Binding var selection: WorkstationSelection?
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
-                List(selection: $store.selectedSessionID) {
-                    ForEach(store.sessions) { record in
-                        HistoryRow(record: record)
-                            .id(record.id)
-                            .tag(record.id as String?)
-                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                Button {
-                                    store.duplicateAsNew(record)
-                                } label: {
-                                    Label("Duplicate", systemImage: "doc.on.doc")
-                                }
-                                .tint(.blue)
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
-                                    store.archiveDeleteSession(record)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                            .contextMenu {
-                                Button {
-                                    store.duplicateAsNew(record)
-                                } label: {
-                                    Label("Duplicate as New", systemImage: "doc.on.doc")
-                                }
+                List(selection: $selection) {
+                    Section("Workspace") {
+                        SidebarSectionRow(section: .projects, detail: "\(workspaceStore.projects.count)")
+                            .tag(WorkstationSelection.section(.projects) as WorkstationSelection?)
+                        SidebarSectionRow(section: .scripts, detail: "\(workspaceStore.scripts.count)")
+                            .tag(WorkstationSelection.section(.scripts) as WorkstationSelection?)
+                        SidebarSectionRow(section: .batches, detail: "\(workspaceStore.batches.count)")
+                            .tag(WorkstationSelection.section(.batches) as WorkstationSelection?)
+                    }
 
-                                Button(role: .destructive) {
-                                    store.archiveDeleteSession(record)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+                    Section("Library") {
+                        SidebarSectionRow(section: .voices, detail: "\(AppDefaults.availableVoices.count)")
+                            .tag(WorkstationSelection.section(.voices) as WorkstationSelection?)
+                        SidebarSectionRow(section: .presets, detail: "Defaults")
+                            .tag(WorkstationSelection.section(.presets) as WorkstationSelection?)
+                    }
+
+                    Section("Generation") {
+                        SidebarSectionRow(section: .history, detail: "\(store.sessions.count)")
+                            .tag(WorkstationSelection.section(.history) as WorkstationSelection?)
+
+                        ForEach(store.sessions) { record in
+                            HistoryRow(record: record)
+                                .id(record.id)
+                                .tag(WorkstationSelection.historySession(record.id) as WorkstationSelection?)
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    Button {
+                                        store.duplicateAsNew(record)
+                                        selection = .section(.history)
+                                    } label: {
+                                        Label("Duplicate", systemImage: "doc.on.doc")
+                                    }
+                                    .tint(.blue)
                                 }
-                            }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        store.archiveDeleteSession(record)
+                                        selection = .section(.history)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                                .contextMenu {
+                                    Button {
+                                        store.duplicateAsNew(record)
+                                        selection = .section(.history)
+                                    } label: {
+                                        Label("Duplicate as New", systemImage: "doc.on.doc")
+                                    }
+
+                                    Button(role: .destructive) {
+                                        store.archiveDeleteSession(record)
+                                        selection = .section(.history)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                        }
+                    }
+
+                    Section("System") {
+                        SidebarSectionRow(section: .backends, detail: store.backendStatus.state.displayName)
+                            .tag(WorkstationSelection.section(.backends) as WorkstationSelection?)
+                        SidebarSectionRow(section: .settings, detail: nil)
+                            .tag(WorkstationSelection.section(.settings) as WorkstationSelection?)
                     }
                 }
                 .listStyle(.sidebar)
                 .onChange(of: store.pendingScrollSessionID) { sessionID in
                     guard let sessionID else { return }
+                    selection = .historySession(sessionID)
                     withAnimation(.easeInOut(duration: 0.25)) {
                         proxy.scrollTo(sessionID, anchor: .center)
                     }
@@ -53,16 +88,17 @@ struct SidebarView: View {
             }
 
             HStack {
-                Text("\(store.sessions.count) sessions")
+                Text("\(workspaceStore.projects.count) projects  \(store.sessions.count) sessions")
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
+                    workspaceStore.refresh()
                     store.refreshHistory()
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
-                .help("Refresh History")
+                .help("Refresh Workspace")
             }
             .font(.caption)
             .padding(.horizontal, 12)
@@ -71,34 +107,51 @@ struct SidebarView: View {
     }
 }
 
+private struct SidebarSectionRow: View {
+    let section: WorkstationSection
+    let detail: String?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: section.systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+
+            Text(section.title)
+                .lineLimit(1)
+
+            Spacer()
+
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
 private struct HistoryRow: View {
     let record: SessionRecord
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        HStack(spacing: 10) {
+            Image(systemName: record.metadata.status.sidebarSystemImage)
+                .foregroundStyle(record.metadata.status.sidebarTint)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(SessionFormatters.displayDateFormatter.string(from: record.metadata.createdAt))
-                    .font(.headline)
                     .lineLimit(1)
-                Spacer(minLength: 8)
-                StatusBadge(status: record.metadata.status)
+
+                Text("\(record.metadata.voice)  \(record.metadata.inputWordCount) words")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-
-            Text("\(record.metadata.voice)  cfg \(record.metadata.cfgScale)  steps \(stepsText)  \(record.metadata.inputWordCount) words")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Text("gen \(SessionFormatters.duration(record.metadata.generationTimeSeconds))  audio \(SessionFormatters.duration(record.metadata.audioDurationSeconds))  RTF \(SessionFormatters.rtf(record.metadata.rtf))")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
         }
-        .padding(.vertical, 5)
-    }
-
-    private var stepsText: String {
-        record.metadata.ddpmInferenceSteps.map(String.init) ?? "--"
+        .padding(.vertical, 2)
     }
 }
 
@@ -126,5 +179,27 @@ struct StatusBadge: View {
 
     private var backgroundStyle: Color {
         foregroundStyle.opacity(0.14)
+    }
+}
+
+private extension SessionStatus {
+    var sidebarSystemImage: String {
+        switch self {
+        case .completed: "checkmark.circle"
+        case .failed: "xmark.octagon"
+        case .cancelled: "pause.circle"
+        case .running: "waveform.circle"
+        case .draft: "doc.text"
+        }
+    }
+
+    var sidebarTint: Color {
+        switch self {
+        case .completed: .green
+        case .failed: .red
+        case .cancelled: .orange
+        case .running: .blue
+        case .draft: .secondary
+        }
     }
 }
