@@ -8,6 +8,7 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var selection: WorkstationSelection? = .section(.history)
     @State private var didOfferSetupAssistant = false
+    @SceneStorage("local.vibevoice.batch.showInspector") private var showInspector = true
 
     var body: some View {
         NavigationSplitView {
@@ -15,19 +16,26 @@ struct ContentView: View {
                 .navigationTitle("Narration")
                 .frame(minWidth: 280, idealWidth: 330)
         } detail: {
-            VStack(spacing: 0) {
-                BackendStatusView()
-                    .padding(.horizontal)
-                    .padding(.top, 10)
-                    .padding(.bottom, 8)
-
-                detailView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if showsGenerationTicker {
-                    GenerationTickerView()
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    BackendStatusView()
                         .padding(.horizontal)
-                        .padding(.bottom)
+                        .padding(.top, 10)
+                        .padding(.bottom, 8)
+
+                    detailView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if showsGenerationTicker {
+                        GenerationTickerView()
+                            .padding(.horizontal)
+                            .padding(.bottom)
+                    }
+                }
+
+                if showInspector {
+                    Divider()
+                    InspectorPanelView(selection: selection)
                 }
             }
         }
@@ -87,6 +95,15 @@ struct ContentView: View {
                 }
                 .disabled(store.selectedSession == nil)
                 .help("Duplicate as New")
+            }
+
+            ToolbarItem {
+                Button {
+                    showInspector.toggle()
+                } label: {
+                    Label("Inspector", systemImage: "sidebar.right")
+                }
+                .help(showInspector ? "Hide Inspector" : "Show Inspector")
             }
         }
         .onAppear {

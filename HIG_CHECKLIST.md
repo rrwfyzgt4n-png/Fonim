@@ -36,6 +36,12 @@ Advanced users can reveal:
 - backend logs
 - parser details
 
+Current implementation:
+
+- The editor surface now stays focused on text, text metrics, and Generate.
+- The right-side inspector exposes voice, model, inference, export, and contextual metadata controls.
+- Inspector visibility is a window-scoped preference and can be toggled from the toolbar.
+
 ## Status States
 
 The app must show plain-language states for:

@@ -37,6 +37,8 @@ Generate action -> JobQueue -> EngineAdapter -> BackendManager/runtime -> Genera
 
 Main-window navigation is represented by `WorkstationSelection` and a native `NavigationSplitView`. `SidebarView` presents Projects, Scripts, Batches, Voices, Presets, History, Backends, and Settings as workstation destinations while keeping individual history sessions selectable for the existing detail/playback/duplicate flow.
 
+Inspector state is window-scoped. `InspectorPanelView` owns the right-side desktop inspector surface for voice, model, inference, export, and contextual metadata controls. The editor stays focused on text and generation while advanced controls move into the inspector.
+
 Backend readiness is represented by `BackendStatusSnapshot`. `BackendManager` owns runtime health checks and plain-language backend states; SwiftUI presents those states without exposing Docker commands as the primary interaction model.
 
 Durable app preferences are represented by `AppSettings` and persisted by `SettingsStore`. The native macOS Settings scene edits backend, model, voice, output, and advanced defaults while generation continues to enter through `JobQueue -> EngineAdapter`.

@@ -3,55 +3,10 @@ import VibeVoiceBatchCore
 
 struct EditorView: View {
     @EnvironmentObject private var store: AppStore
-    @EnvironmentObject private var settingsStore: SettingsStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .lastTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Voice")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("Voice", selection: $store.selectedVoice) {
-                        ForEach(AppDefaults.availableVoices, id: \.self) { voice in
-                            Text(voice).tag(voice)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 220)
-                }
-
-                if settingsStore.settings.showAdvancedGenerationControls {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("CFG Scale")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Picker("CFG Scale", selection: $store.cfgScale) {
-                            ForEach(AppDefaults.availableCFGScales, id: \.self) { cfgScale in
-                                Text(cfgScale).tag(cfgScale)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 110)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("DDPM Steps")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Picker("DDPM Steps", selection: $store.ddpmInferenceSteps) {
-                            ForEach(AppDefaults.availableDDPMInferenceSteps, id: \.self) { steps in
-                                Text("\(steps)").tag(steps)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(width: 120)
-                    }
-                }
-
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Text")
                         .font(.caption)
