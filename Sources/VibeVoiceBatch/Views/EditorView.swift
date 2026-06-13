@@ -3,6 +3,7 @@ import VibeVoiceBatchCore
 
 struct EditorView: View {
     @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var settingsStore: SettingsStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -21,32 +22,34 @@ struct EditorView: View {
                     .frame(width: 220)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("CFG Scale")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("CFG Scale", selection: $store.cfgScale) {
-                        ForEach(AppDefaults.availableCFGScales, id: \.self) { cfgScale in
-                            Text(cfgScale).tag(cfgScale)
+                if settingsStore.settings.showAdvancedGenerationControls {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("CFG Scale")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("CFG Scale", selection: $store.cfgScale) {
+                            ForEach(AppDefaults.availableCFGScales, id: \.self) { cfgScale in
+                                Text(cfgScale).tag(cfgScale)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 110)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 110)
-                }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("DDPM Steps")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("DDPM Steps", selection: $store.ddpmInferenceSteps) {
-                        ForEach(AppDefaults.availableDDPMInferenceSteps, id: \.self) { steps in
-                            Text("\(steps)").tag(steps)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("DDPM Steps")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("DDPM Steps", selection: $store.ddpmInferenceSteps) {
+                            ForEach(AppDefaults.availableDDPMInferenceSteps, id: \.self) { steps in
+                                Text("\(steps)").tag(steps)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 120)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
