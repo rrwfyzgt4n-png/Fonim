@@ -44,9 +44,20 @@ Recovery: Keep the session record, show details, and offer retry or duplicate as
 
 Details: include backend logs and command metadata.
 
+### Backend Operation Failed
+
+Title: Backend action failed
+
+Explanation: The app could not complete the selected backend action, such as install, update, prepare, stop, repair, or reset.
+
+Recovery: Keep the primary message plain-language, offer a next action, and put command output behind Show Details.
+
+Details: include the managed operation name, backend id, and captured process output.
+
 ## Non-Negotiables
 
 - Never delete failed session folders.
 - Never overwrite logs, input text, metadata, or output audio.
 - Never show raw stack traces as the primary message.
 - Always preserve enough metadata to reproduce or diagnose the run.
+- Backend reset must not delete history, generated audio, logs, metadata, or model cache.

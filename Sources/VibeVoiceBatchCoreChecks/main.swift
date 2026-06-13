@@ -14,6 +14,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkBackendProfilesAndAdapterContracts()
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
+        try checkBackendManagerOperations()
         try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkJobQueueCancellationReachesAdapter()
@@ -243,6 +244,91 @@ struct VibeVoiceBatchCoreChecks {
         precondition(ready.checks.contains { $0.id == "docker-runtime" && $0.state == .passed })
         precondition(ready.checks.contains { $0.id == "docker-image-\(profile.id)" && $0.state == .passed })
         precondition(ready.checks.contains { $0.id == "health-\(profile.id)" && $0.state == .passed })
+    }
+
+    private static func checkBackendManagerOperations() throws {
+        let profile = BackendProfiles.vibeVoiceTTS
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchOperationChecks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let missingManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { nil }
+        )
+        let missingInstall = missingManager.performOperation(.install, for: profile)
+        precondition(missingInstall.status == .failed)
+        precondition(missingInstall.message.contains("Docker Desktop"))
+
+        let installSpy = BackendProcessSpy { arguments in
+            if arguments.contains("info") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+            if arguments.contains("pull") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "Pulled vibevoice-cpu")
+            }
+            return BackendProcessResult(exitCode: 0, combinedOutput: "")
+        }
+        let installManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { executable, arguments in
+                installSpy.run(executable: executable, arguments: arguments)
+            }
+        )
+        let install = installManager.performOperation(.install, for: profile)
+        precondition(install.status == .succeeded)
+        precondition(installSpy.calls.contains { $0.contains("pull") && $0.contains(AppDefaults.dockerImage) })
+        precondition(FileManager.default.fileExists(atPath: root.hfCacheDirectory.path))
+
+        let prepareMissingImage = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, arguments in
+                if arguments.contains("inspect") {
+                    return BackendProcessResult(exitCode: 1, combinedOutput: "No such image")
+                }
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+        )
+        let prepare = prepareMissingImage.performOperation(.prepare, for: profile)
+        precondition(prepare.status == .failed)
+        precondition(prepare.recoverySuggestion?.contains("Install") == true)
+
+        let stopSpy = BackendProcessSpy { arguments in
+            if arguments.contains("ps") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "vibevoice_batch_one\nvibevoice_batch_two\n")
+            }
+            if arguments.contains("stop") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "stopped")
+            }
+            return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+        }
+        let stopManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { executable, arguments in
+                stopSpy.run(executable: executable, arguments: arguments)
+            }
+        )
+        let stop = stopManager.performOperation(.stop, for: profile)
+        precondition(stop.status == .succeeded)
+        precondition(stop.message.contains("2"))
+        precondition(stopSpy.calls.contains { $0.first == "stop" && $0.contains("vibevoice_batch_one") })
+
+        try FileManager.default.createDirectory(at: root.outputsDirectory, withIntermediateDirectories: true)
+        try Data([7, 7, 7]).write(to: root.generatedWAVFile)
+        let reset = stopManager.performOperation(.reset, for: profile)
+        precondition(reset.status == .succeeded)
+        precondition(!FileManager.default.fileExists(atPath: root.generatedWAVFile.path))
+        let recoveredFiles = try FileManager.default.contentsOfDirectory(
+            at: root.recoveredDirectory,
+            includingPropertiesForKeys: nil
+        )
+        precondition(recoveredFiles.contains { $0.lastPathComponent.contains("backend_reset_input_generated.wav") })
+
+        let usage = stopManager.diskUsageReport()
+        precondition(usage.projectRootBytes >= usage.recoveredBytes)
     }
 
     private static func checkAppSettingsNormalizeInvalidValues() throws {
@@ -475,6 +561,27 @@ private final class FakeDockerRunner: DockerGenerationRunning {
 
     func cancel() {
         didCancel = true
+    }
+}
+
+private final class BackendProcessSpy: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "local.vibevoice.batch.checks.backend-process-spy")
+    private let handler: @Sendable ([String]) -> BackendProcessResult
+    private var recordedCalls: [[String]] = []
+
+    init(handler: @escaping @Sendable ([String]) -> BackendProcessResult) {
+        self.handler = handler
+    }
+
+    var calls: [[String]] {
+        queue.sync { recordedCalls }
+    }
+
+    func run(executable: String, arguments: [String]) -> BackendProcessResult {
+        queue.sync {
+            recordedCalls.append(arguments)
+        }
+        return handler(arguments)
     }
 }
 

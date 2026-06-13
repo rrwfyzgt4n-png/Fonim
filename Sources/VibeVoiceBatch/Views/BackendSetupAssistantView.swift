@@ -6,6 +6,7 @@ struct BackendSetupAssistantView: View {
     @EnvironmentObject private var appStore: AppStore
     @Environment(\.dismiss) private var dismiss
     @StateObject private var setupStore = BackendSetupStore()
+    @StateObject private var operationsStore = BackendOperationsStore()
 
     private var selectedBackend: BackendProfile {
         BackendProfiles.all.first { $0.id == settingsStore.settings.defaultBackendID } ?? BackendProfiles.vibeVoiceTTS
@@ -37,6 +38,12 @@ struct BackendSetupAssistantView: View {
                     BackendInstallSetupPane(
                         profile: selectedBackend,
                         report: setupStore.report,
+                        operationResult: operationsStore.latestResult,
+                        isOperationRunning: operationsStore.isRunning,
+                        activeOperation: operationsStore.activeOperation,
+                        install: { runBackendOperation(.install) },
+                        repair: { runBackendOperation(.repair) },
+                        prepare: { runBackendOperation(.prepare) },
                         runChecks: { setupStore.runChecks(profile: selectedBackend) },
                         onContinue: { setupStore.selectedStage = .test }
                     )
@@ -85,6 +92,14 @@ struct BackendSetupAssistantView: View {
     private func completeSetup() {
         settingsStore.markSetupAssistantCompleted()
         dismiss()
+    }
+
+    private func runBackendOperation(_ kind: BackendOperationKind) {
+        operationsStore.run(kind, profile: selectedBackend) { result in
+            appStore.statusMessage = result.message
+            appStore.refreshBackendStatus()
+            setupStore.runChecks(profile: selectedBackend)
+        }
     }
 }
 
@@ -159,6 +174,12 @@ private struct ChecksSetupPane: View {
 private struct BackendInstallSetupPane: View {
     let profile: BackendProfile
     let report: BackendSetupReport?
+    let operationResult: BackendOperationResult?
+    let isOperationRunning: Bool
+    let activeOperation: BackendOperationKind?
+    let install: () -> Void
+    let repair: () -> Void
+    let prepare: () -> Void
     let runChecks: () -> Void
     let onContinue: () -> Void
 
@@ -176,13 +197,60 @@ private struct BackendInstallSetupPane: View {
 
             CheckList(report: report, isChecking: false)
 
+            if let operationResult {
+                SetupOperationResult(result: operationResult, isRunning: isOperationRunning)
+            }
+
             HStack {
+                Button {
+                    install()
+                } label: {
+                    Label("Install", systemImage: activeOperation == .install ? "hourglass" : "square.and.arrow.down")
+                }
+                .disabled(isOperationRunning)
+
+                Button {
+                    repair()
+                } label: {
+                    Label("Repair", systemImage: activeOperation == .repair ? "hourglass" : "wrench.and.screwdriver")
+                }
+                .disabled(isOperationRunning)
+
+                Button {
+                    prepare()
+                } label: {
+                    Label("Prepare", systemImage: activeOperation == .prepare ? "hourglass" : "play.circle")
+                }
+                .disabled(isOperationRunning)
+
                 Button("Refresh Checks", action: runChecks)
+                    .disabled(isOperationRunning)
                 Spacer()
                 Button("Continue", action: onContinue)
                     .buttonStyle(.borderedProminent)
             }
         }
+    }
+}
+
+private struct SetupOperationResult: View {
+    let result: BackendOperationResult
+    let isRunning: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(result.kind.displayName, systemImage: isRunning ? "hourglass" : result.status.systemImage)
+                .foregroundStyle(isRunning ? .secondary : result.status.tint)
+            Text(result.message)
+                .foregroundStyle(.secondary)
+            if let recovery = result.recoverySuggestion {
+                Text(recovery)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
     }
 }
 
@@ -323,6 +391,24 @@ private extension BackendRuntime {
         case .comfyUI: "ComfyUI"
         case .native: "Native"
         case .externalService: "External service"
+        }
+    }
+}
+
+private extension BackendOperationStatus {
+    var systemImage: String {
+        switch self {
+        case .succeeded: "checkmark.circle.fill"
+        case .failed: "xmark.octagon.fill"
+        case .skipped: "minus.circle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .succeeded: .green
+        case .failed: .red
+        case .skipped: .secondary
         }
     }
 }

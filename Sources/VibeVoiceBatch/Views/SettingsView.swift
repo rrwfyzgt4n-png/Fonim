@@ -62,6 +62,7 @@ struct SettingsView: View {
 private struct BackendsSettingsPane: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var appStore: AppStore
+    @StateObject private var operationsStore = BackendOperationsStore()
 
     var body: some View {
         Form {
@@ -75,6 +76,8 @@ private struct BackendsSettingsPane: View {
             LabeledContent("Runtime", value: selectedBackend.runtime.displayName)
             LabeledContent("Role", value: selectedBackend.role)
             LabeledContent("Status", value: appStore.backendStatus.state.displayName)
+            LabeledContent("Project data", value: operationsStore.diskUsage.projectRootBytes.formattedByteCount)
+            LabeledContent("Model cache", value: operationsStore.diskUsage.modelCacheBytes.formattedByteCount)
 
             HStack {
                 Button("Refresh Status") {
@@ -84,6 +87,67 @@ private struct BackendsSettingsPane: View {
                 Button("Show Details") {
                     appStore.showBackendDetails()
                 }
+            }
+
+            Divider()
+
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                GridRow {
+                    BackendOperationButton(
+                        title: "Install",
+                        systemImage: "square.and.arrow.down",
+                        kind: .install,
+                        selectedBackend: selectedBackend,
+                        operationsStore: operationsStore,
+                        appStore: appStore
+                    )
+                    BackendOperationButton(
+                        title: "Update",
+                        systemImage: "arrow.down.circle",
+                        kind: .update,
+                        selectedBackend: selectedBackend,
+                        operationsStore: operationsStore,
+                        appStore: appStore
+                    )
+                    BackendOperationButton(
+                        title: "Prepare",
+                        systemImage: "play.circle",
+                        kind: .prepare,
+                        selectedBackend: selectedBackend,
+                        operationsStore: operationsStore,
+                        appStore: appStore
+                    )
+                }
+                GridRow {
+                    BackendOperationButton(
+                        title: "Stop",
+                        systemImage: "stop.circle",
+                        kind: .stop,
+                        selectedBackend: selectedBackend,
+                        operationsStore: operationsStore,
+                        appStore: appStore
+                    )
+                    BackendOperationButton(
+                        title: "Repair",
+                        systemImage: "wrench.and.screwdriver",
+                        kind: .repair,
+                        selectedBackend: selectedBackend,
+                        operationsStore: operationsStore,
+                        appStore: appStore
+                    )
+                    BackendOperationButton(
+                        title: "Reset",
+                        systemImage: "arrow.counterclockwise.circle",
+                        kind: .reset,
+                        selectedBackend: selectedBackend,
+                        operationsStore: operationsStore,
+                        appStore: appStore
+                    )
+                }
+            }
+
+            if let result = operationsStore.latestResult {
+                BackendOperationResultSummary(result: result, isRunning: operationsStore.isRunning)
             }
         }
         .formStyle(.grouped)
@@ -98,6 +162,65 @@ private struct BackendsSettingsPane: View {
             get: { settingsStore.settings[keyPath: keyPath] },
             set: { value in settingsStore.update { $0[keyPath: keyPath] = value } }
         )
+    }
+}
+
+private struct BackendOperationButton: View {
+    let title: String
+    let systemImage: String
+    let kind: BackendOperationKind
+    let selectedBackend: BackendProfile
+    @ObservedObject var operationsStore: BackendOperationsStore
+    let appStore: AppStore
+
+    var body: some View {
+        Button {
+            operationsStore.run(kind, profile: selectedBackend) { result in
+                appStore.statusMessage = result.message
+                appStore.refreshBackendStatus()
+            }
+        } label: {
+            Label(title, systemImage: operationsStore.activeOperation == kind ? "hourglass" : systemImage)
+                .frame(minWidth: 96, alignment: .leading)
+        }
+        .disabled(operationsStore.isRunning || appStore.isGenerating)
+        .help(kind.displayName)
+    }
+}
+
+private struct BackendOperationResultSummary: View {
+    let result: BackendOperationResult
+    let isRunning: Bool
+    @State private var showingDetails = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label(result.kind.displayName, systemImage: isRunning ? "hourglass" : result.status.systemImage)
+                    .foregroundStyle(isRunning ? .secondary : result.status.tint)
+                Spacer()
+                Text(isRunning ? "Running" : result.status.displayName)
+                    .foregroundStyle(.secondary)
+            }
+            Text(result.message)
+                .foregroundStyle(.secondary)
+            if let recovery = result.recoverySuggestion {
+                Text(recovery)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if result.technicalDetails?.isEmpty == false {
+                DisclosureGroup("Show Details", isExpanded: $showingDetails) {
+                    ScrollView {
+                        Text(result.technicalDetails ?? "")
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(minHeight: 80, maxHeight: 140)
+                }
+            }
+        }
     }
 }
 
@@ -246,5 +369,29 @@ private extension BackendRuntime {
 private extension AudioOutputFormat {
     var displayName: String {
         rawValue.uppercased()
+    }
+}
+
+private extension BackendOperationStatus {
+    var systemImage: String {
+        switch self {
+        case .succeeded: "checkmark.circle.fill"
+        case .failed: "xmark.octagon.fill"
+        case .skipped: "minus.circle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .succeeded: .green
+        case .failed: .red
+        case .skipped: .secondary
+        }
+    }
+}
+
+private extension UInt64 {
+    var formattedByteCount: String {
+        ByteCountFormatter.string(fromByteCount: Int64(self), countStyle: .file)
     }
 }

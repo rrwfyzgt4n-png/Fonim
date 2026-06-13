@@ -40,6 +40,8 @@ Durable app preferences are represented by `AppSettings` and persisted by `Setti
 
 Backend setup is represented by `BackendSetupReport` and `BackendSetupCheck`. `BackendManager` owns system, runtime, image, model-cache, and health checks; the SwiftUI setup assistant presents those checks and routes test generation through the existing safe generation path.
 
+Backend operations are represented by `BackendOperationKind`, `BackendOperationResult`, and `BackendDiskUsageReport`. `BackendManager` owns install, update, prepare, stop, health check, repair, reset, and disk usage operations; SwiftUI calls those operations through observable stores and never runs runtime commands directly.
+
 ## Migration Rule
 
 Do not add new model-specific behavior to SwiftUI views. New backend-specific behavior belongs in an `EngineAdapter` implementation or a parser owned by the backend layer.

@@ -49,4 +49,6 @@ SwiftUI views must ask the backend manager or an app store for state. Views must
 - The assistant supports Simple, Advanced, and External setup modes as persisted settings.
 - `BackendManager` produces setup reports for Mac compatibility, local folders, Docker runtime, Docker image presence, model cache presence, and backend health.
 - The assistant can start a short test voice generation through the normal generation queue, preserving the same history and no-overwrite guarantees as regular generation.
-- Managed pull/update, model download, repair, and reset actions remain Phase 5 backend-manager operations.
+- Managed install, update, prepare, stop, repair, reset, health check, and disk usage are Phase 5 backend-manager operations and are exposed through Settings and the setup assistant.
+- The VibeVoice model cache folder is prepared by the app, but model weights are still populated by the existing backend workflow during first generation.
+- Reset is conservative: it stops app-owned runtime containers and recovers stray staging WAV files without deleting history, final outputs, logs, metadata, or model cache.

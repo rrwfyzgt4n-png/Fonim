@@ -62,3 +62,18 @@ Each backend profile defines:
 ## Docker Policy
 
 Docker is allowed as a runtime, but never as the product identity. The app should detect, explain, install, start, stop, repair, and uninstall Docker-backed services through native UI flows.
+
+## Managed Operations
+
+The current manager supports:
+
+- install: prepare local folders and pull the managed backend image
+- update: pull the managed backend image again
+- prepare: verify the local runtime and image before generation
+- stop: stop app-owned `vibevoice_batch_` containers
+- health check: report runtime readiness in plain language
+- repair: rebuild local folders and install the image if needed
+- reset: stop app-owned containers and recover stray staging WAV files without deleting history, generated outputs, logs, metadata, or model cache
+- disk usage: report project, history, outputs, recovered, and model-cache storage
+
+VibeVoice currently runs as a one-shot generation container, not a resident server. For this backend, "prepare" is the equivalent of starting managed infrastructure: it verifies that Docker is available and the image is present.

@@ -55,6 +55,8 @@ Current implementation:
 - The app uses a real macOS Settings scene rather than treating preferences as a main-window destination.
 - Settings are grouped into Backends, Models, Voices, Output, and Advanced panes.
 - Backend details remain plain-language in normal settings, with raw details available only through Show Details.
+- Backend install, update, prepare, stop, repair, and reset are native Settings actions backed by `BackendManager` operations.
+- Disk usage is summarized in Settings without making the user inspect folders manually.
 
 ## Setup Assistant
 
@@ -62,6 +64,7 @@ Current implementation:
 
 - First launch opens a native Backend Setup Assistant until setup is completed.
 - The assistant shows plain-language checks for Mac compatibility, local folders, Docker runtime, backend image, model cache, and health.
+- The assistant can install, repair, and prepare the selected backend without sending the user to Terminal.
 - Test voice generation goes through the normal queue and no-overwrite history behavior.
 
 ## Error Presentation
