@@ -38,6 +38,8 @@ Backend readiness is represented by `BackendStatusSnapshot`. `BackendManager` ow
 
 Durable app preferences are represented by `AppSettings` and persisted by `SettingsStore`. The native macOS Settings scene edits backend, model, voice, output, and advanced defaults while generation continues to enter through `JobQueue -> EngineAdapter`.
 
+Backend setup is represented by `BackendSetupReport` and `BackendSetupCheck`. `BackendManager` owns system, runtime, image, model-cache, and health checks; the SwiftUI setup assistant presents those checks and routes test generation through the existing safe generation path.
+
 ## Migration Rule
 
 Do not add new model-specific behavior to SwiftUI views. New backend-specific behavior belongs in an `EngineAdapter` implementation or a parser owned by the backend layer.
