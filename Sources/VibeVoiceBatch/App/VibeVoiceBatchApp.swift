@@ -12,12 +12,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct VibeVoiceBatchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var store = AppStore()
+    @StateObject private var settingsStore: SettingsStore
+    @StateObject private var store: AppStore
+
+    init() {
+        let settingsStore = SettingsStore()
+        _settingsStore = StateObject(wrappedValue: settingsStore)
+        _store = StateObject(wrappedValue: AppStore(settingsStore: settingsStore))
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(settingsStore)
                 .frame(minWidth: 980, minHeight: 680)
         }
         .commands {
@@ -39,6 +47,12 @@ struct VibeVoiceBatchApp: App {
                 .keyboardShortcut(".", modifiers: [.command])
                 .disabled(!store.isGenerating)
             }
+        }
+
+        Settings {
+            SettingsView()
+                .environmentObject(settingsStore)
+                .environmentObject(store)
         }
     }
 }
