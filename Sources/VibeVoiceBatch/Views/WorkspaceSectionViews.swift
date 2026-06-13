@@ -71,37 +71,177 @@ struct ScriptsView: View {
 }
 
 struct BatchesView: View {
+    @EnvironmentObject private var appStore: AppStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
 
     var body: some View {
-        WorkspaceListShell(
-            title: "Batches",
-            subtitle: "Queued script groups.",
-            isEmpty: workspaceStore.batches.isEmpty,
-            emptySystemImage: "tray.full",
-            emptyTitle: "No Batches",
-            emptyMessage: "No batch records are saved."
-        ) {
-            ForEach(workspaceStore.batches) { batch in
-                WorkspaceCard {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(batch.title)
-                                .font(.headline)
-                            Text("\(batch.items.count) items  \(completedCount(batch)) completed")
-                                .foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader(
+                    title: "Batches",
+                    subtitle: "Generation queue and saved script groups."
+                )
+
+                if appStore.queuedGenerations.isEmpty && workspaceStore.batches.isEmpty {
+                    EmptyWorkspaceView(
+                        systemImage: "tray.full",
+                        title: "No Batches",
+                        message: "Queued generation work will appear here."
+                    )
+                }
+
+                if !appStore.queuedGenerations.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Generation Queue")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+
+                        ForEach(appStore.queuedGenerations) { item in
+                            QueueItemCard(item: item)
                         }
-                        Spacer()
-                        WorkspaceStatusBadge(status: batch.status)
+                    }
+                }
+
+                if !workspaceStore.batches.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Saved Batches")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+
+                        ForEach(workspaceStore.batches) { batch in
+                            WorkspaceCard {
+                                HStack(alignment: .firstTextBaseline) {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(batch.title)
+                                            .font(.headline)
+                                        Text("\(batch.items.count) items  \(completedCount(batch)) completed")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    WorkspaceStatusBadge(status: batch.status)
+                                }
+                            }
+                        }
                     }
                 }
             }
+            .padding()
         }
         .navigationTitle("Batches")
     }
 
     private func completedCount(_ batch: NarrationBatch) -> Int {
         batch.items.filter { $0.status == .completed }.count
+    }
+}
+
+private struct QueueItemCard: View {
+    @EnvironmentObject private var appStore: AppStore
+    let item: QueuedGenerationItem
+
+    var body: some View {
+        WorkspaceCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: item.status.systemImage)
+                        .foregroundStyle(item.status.tint)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text("\(item.voice)  CFG \(item.cfgScale)  \(item.ddpmInferenceSteps) steps  \(TextMetrics.wordCount(in: item.sourceText)) words")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Text(item.status.displayName)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .foregroundStyle(item.status.tint)
+                        .background(item.status.tint.opacity(0.14), in: Capsule())
+                }
+
+                progressView
+
+                HStack(spacing: 10) {
+                    Text(statusLine)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        appStore.cancelQueuedGeneration(item)
+                    } label: {
+                        Image(systemName: "stop.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(item.status != .queued && item.status != .running)
+                    .help("Cancel")
+
+                    Button {
+                        appStore.retryQueuedGeneration(item)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!item.status.isTerminal)
+                    .help("Retry")
+
+                    Button {
+                        appStore.duplicateQueuedGenerationAsNew(item)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Duplicate as New")
+                }
+                .font(.callout)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var progressView: some View {
+        if item.status == .running {
+            if let fraction = item.progressFraction {
+                ProgressView(value: fraction)
+            } else {
+                ProgressView()
+            }
+        } else if let fraction = item.progressFraction {
+            ProgressView(value: fraction)
+        }
+    }
+
+    private var title: String {
+        let trimmed = item.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "Untitled generation" }
+        return String(trimmed.prefix(72))
+    }
+
+    private var statusLine: String {
+        var parts = [item.statusMessage]
+        parts.append("Elapsed \(SessionFormatters.duration(item.elapsedSeconds))")
+        if let remaining = item.estimatedRemainingSeconds {
+            parts.append("Remaining \(SessionFormatters.duration(remaining))")
+        }
+        if let current = item.currentStep, let total = item.totalSteps {
+            parts.append("\(current)/\(total)")
+        }
+        if let sessionID = item.sessionID {
+            parts.append(sessionID)
+        }
+        if let errorMessage = item.errorMessage, item.status == .failed {
+            parts.append(errorMessage)
+        }
+        return parts.joined(separator: "  ")
     }
 }
 
@@ -355,6 +495,28 @@ private struct WorkspaceStatusBadge: View {
         case .running: .blue
         case .queued, .ready: .purple
         case .draft, .archived: .secondary
+        }
+    }
+}
+
+private extension QueuedGenerationStatus {
+    var systemImage: String {
+        switch self {
+        case .queued: "clock"
+        case .running: "waveform.circle"
+        case .completed: "checkmark.circle"
+        case .failed: "xmark.octagon"
+        case .cancelled: "pause.circle"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .completed: .green
+        case .failed: .red
+        case .cancelled: .orange
+        case .running: .blue
+        case .queued: .purple
         }
     }
 }

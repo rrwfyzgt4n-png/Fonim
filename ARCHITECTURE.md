@@ -39,6 +39,8 @@ Main-window navigation is represented by `WorkstationSelection` and a native `Na
 
 Inspector state is window-scoped. `InspectorPanelView` owns the right-side desktop inspector surface for voice, model, inference, export, and contextual metadata controls. The editor stays focused on text and generation while advanced controls move into the inspector.
 
+Generation queue state is visible in the Batches destination. `AppStore` owns app-level `QueuedGenerationItem` presentation state, retry, duplicate, and cancel routing; actual work still enters through `JobQueue -> EngineAdapter`. The queue drains one job at a time for the current VibeVoice backend and keeps terminal queue rows visible so users can retry or duplicate without modifying original history sessions.
+
 Backend readiness is represented by `BackendStatusSnapshot`. `BackendManager` owns runtime health checks and plain-language backend states; SwiftUI presents those states without exposing Docker commands as the primary interaction model.
 
 Durable app preferences are represented by `AppSettings` and persisted by `SettingsStore`. The native macOS Settings scene edits backend, model, voice, output, and advanced defaults while generation continues to enter through `JobQueue -> EngineAdapter`.

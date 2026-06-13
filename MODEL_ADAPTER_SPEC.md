@@ -40,3 +40,7 @@ Required capabilities:
 ## Current Adapter
 
 `VibeVoiceDockerAdapter` is the first adapter. It owns the VibeVoice Docker session lifecycle behind the queue: session creation, staging-file preparation, stale WAV recovery, process execution, cancellation, log streaming, output archival, metadata finalization, and progress reporting.
+
+## Current Queue Behavior
+
+The SwiftUI app may present multiple queued generation requests, but execution still flows through `JobQueue.submit(_:)` and the selected `EngineAdapter`. UI queue rows are presentation records; durable generation records remain the immutable `history/<session_id>` sessions produced by the adapter.

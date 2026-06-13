@@ -120,6 +120,8 @@ struct InspectorPanelView: View {
             InspectorGroup(title: "Batches") {
                 InspectorValue(label: "Count", value: "\(workspaceStore.batches.count)")
                 InspectorValue(label: "Items", value: "\(workspaceStore.batches.reduce(0) { $0 + $1.items.count })")
+                InspectorValue(label: "Queued", value: "\(store.queuedGenerations.filter { $0.status == .queued }.count)")
+                InspectorValue(label: "Running", value: "\(store.queuedGenerations.filter { $0.status == .running }.count)")
             }
         case .section(.voices):
             InspectorGroup(title: "Voices") {

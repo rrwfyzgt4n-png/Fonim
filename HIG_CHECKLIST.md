@@ -41,6 +41,7 @@ Current implementation:
 - The editor surface now stays focused on text, text metrics, and Generate.
 - The right-side inspector exposes voice, model, inference, export, and contextual metadata controls.
 - Inspector visibility is a window-scoped preference and can be toggled from the toolbar.
+- The Batches destination exposes queued, running, completed, failed, and cancelled jobs with row-level cancel, retry, and duplicate actions.
 
 ## Status States
 
@@ -60,6 +61,7 @@ Current implementation:
 - A native status strip shows the selected backend, runtime state, and a plain-language message.
 - Missing or stopped Docker states include a recovery suggestion behind Details.
 - Generation preflights backend readiness before creating a session.
+- Running queue rows show elapsed time, parsed progress when available, estimated remaining time when available, and the session identifier once created.
 
 ## Settings
 

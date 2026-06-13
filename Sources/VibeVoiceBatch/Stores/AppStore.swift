@@ -22,6 +22,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var backendStatus = BackendStatusSnapshot.unknown(profile: BackendProfiles.vibeVoiceTTS)
     @Published private(set) var isRefreshingBackendStatus = false
     @Published private(set) var isPreparingGeneration = false
+    @Published private(set) var queuedGenerations: [QueuedGenerationItem] = []
+    @Published var selectedQueueItemID: String?
     @Published var statusMessage = "Ready"
     @Published var alertMessage: String?
     @Published private var liveLogBySessionID: [String: String] = [:]
@@ -32,6 +34,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private lazy var jobQueue = JobQueue(adapters: [backendAdapter])
     private var activeTask: Task<Void, Never>?
     private var activeJobID: String?
+    private var queuedJobPayloads: [String: GenerationJob] = [:]
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
     private var audioPlayer: AVAudioPlayer?
@@ -50,9 +53,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     var canGenerate: Bool {
-        !isGenerating &&
-            !isPreparingGeneration &&
-            backendStatus.canStartGeneration &&
+        !isPreparingGeneration &&
+            (isGenerating || backendStatus.canStartGeneration) &&
             !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -137,11 +139,21 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             statusMessage = "No text to generate"
             return
         }
-        guard !isGenerating, !isPreparingGeneration else { return }
+        guard !isPreparingGeneration else { return }
 
         let voice = selectedVoice
         let selectedCFGScale = cfgScale
         let selectedDDPMInferenceSteps = ddpmInferenceSteps
+        if isGenerating {
+            enqueueGeneration(
+                text: text,
+                voice: voice,
+                cfgScale: selectedCFGScale,
+                ddpmInferenceSteps: selectedDDPMInferenceSteps
+            )
+            return
+        }
+
         isPreparingGeneration = true
         statusMessage = "Checking backend..."
         Task {
@@ -152,13 +164,51 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 return
             }
             isPreparingGeneration = false
-            startGeneration(
+            enqueueGeneration(
                 text: text,
                 voice: voice,
                 cfgScale: selectedCFGScale,
                 ddpmInferenceSteps: selectedDDPMInferenceSteps
             )
         }
+    }
+
+    func cancelQueuedGeneration(_ item: QueuedGenerationItem) {
+        switch item.status {
+        case .running:
+            guard item.id == activeJobID else { return }
+            cancelGeneration()
+        case .queued:
+            queuedJobPayloads[item.id] = nil
+            updateQueuedGeneration(id: item.id) { queuedItem in
+                queuedItem.status = .cancelled
+                queuedItem.statusMessage = "Cancelled before start"
+                queuedItem.completedAt = Date()
+            }
+            statusMessage = "Cancelled queued generation"
+        case .completed, .failed, .cancelled:
+            break
+        }
+    }
+
+    func retryQueuedGeneration(_ item: QueuedGenerationItem) {
+        enqueueGeneration(
+            text: item.sourceText,
+            voice: item.voice,
+            cfgScale: item.cfgScale,
+            ddpmInferenceSteps: item.ddpmInferenceSteps
+        )
+        statusMessage = "Queued retry"
+    }
+
+    func duplicateQueuedGenerationAsNew(_ item: QueuedGenerationItem) {
+        editorText = item.sourceText
+        selectedVoice = item.voice
+        cfgScale = item.cfgScale
+        ddpmInferenceSteps = item.ddpmInferenceSteps
+        hasUnsavedEditorText = !item.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        selectedSessionID = nil
+        statusMessage = "Duplicated queued item as new unsaved text"
     }
 
     func showBackendDetails() {
@@ -172,7 +222,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         statusMessage = "Applied default generation settings"
     }
 
-    private func startGeneration(
+    private func enqueueGeneration(
         text: String,
         voice: String,
         cfgScale: String,
@@ -188,25 +238,50 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 ddpmInferenceSteps: ddpmInferenceSteps
             )
         )
+        queuedJobPayloads[job.id] = job
+        queuedGenerations.append(QueuedGenerationItem(job: job))
+        selectedQueueItemID = job.id
+        selectedSessionID = nil
+        hasUnsavedEditorText = false
+        statusMessage = isGenerating ? "Queued for generation" : "Queued"
+        startNextQueuedGenerationIfIdle()
+    }
+
+    private func startNextQueuedGenerationIfIdle() {
+        guard !isGenerating else { return }
+        guard let nextItem = queuedGenerations.first(where: { $0.status == .queued }),
+              let job = queuedJobPayloads[nextItem.id] else {
+            return
+        }
+
+        startQueuedGeneration(job)
+    }
+
+    private func startQueuedGeneration(_ job: GenerationJob) {
         let queue = jobQueue
 
         selectedSessionID = nil
         activeSessionID = nil
         activeJobID = job.id
-        hasUnsavedEditorText = false
         isGenerating = true
         elapsedSeconds = 0
         activeStartedAt = Date()
-        statusMessage = "Queued"
+        statusMessage = "Starting queued generation"
+        updateQueuedGeneration(id: job.id) { item in
+            item.status = .running
+            item.statusMessage = "Starting"
+            item.startedAt = Date()
+            item.elapsedSeconds = 0
+        }
         backendStatus = backendStatus.replacingState(
             .runningJob,
             userMessage: "\(backendStatus.displayName) is generating audio.",
             recoverySuggestion: "You can cancel the running job from the toolbar."
         )
         generationTicker = .started(
-            voice: voice,
-            cfgScale: cfgScale,
-            ddpmInferenceSteps: ddpmInferenceSteps
+            voice: job.voiceID,
+            cfgScale: job.settings.cfgScale,
+            ddpmInferenceSteps: job.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
         )
         startElapsedTimer()
 
@@ -304,6 +379,13 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         case .sessionStarted(let record):
             activeSessionID = record.id
             liveLogBySessionID[record.id] = ""
+            if let activeJobID {
+                updateQueuedGeneration(id: activeJobID) { item in
+                    item.sessionID = record.id
+                    item.status = .running
+                    item.statusMessage = "Session created"
+                }
+            }
             refreshHistory()
             pendingScrollSessionID = record.id
             backendStatus = backendStatus.replacingState(
@@ -313,8 +395,21 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             )
         case .status(let message):
             statusMessage = message
-        case .progress:
-            break
+            if let activeJobID {
+                updateQueuedGeneration(id: activeJobID) { item in
+                    item.statusMessage = message
+                }
+            }
+        case .progress(let snapshot):
+            updateQueuedGeneration(id: snapshot.jobID) { item in
+                item.status = .running
+                item.progressFraction = snapshot.fractionComplete
+                item.currentStep = snapshot.currentStep
+                item.totalSteps = snapshot.totalSteps
+                item.estimatedRemainingSeconds = snapshot.estimatedRemainingSeconds
+                item.elapsedSeconds = snapshot.elapsedSeconds ?? elapsedSeconds
+                item.statusMessage = snapshot.message
+            }
         case .log(let chunk):
             guard let activeSessionID else { return }
             appendLiveLog(chunk, sessionID: activeSessionID)
@@ -338,6 +433,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private func completeGeneration(record: GenerationRecord) {
         let finalElapsed = record.completedAt?.timeIntervalSince(record.createdAt) ?? elapsedSeconds
+        let completedJobID = activeJobID
         if activeSessionID == nil {
             activeSessionID = record.id
         }
@@ -347,6 +443,17 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeJobID = nil
         activeSessionID = nil
         elapsedSeconds = finalElapsed
+        if let completedJobID {
+            queuedJobPayloads[completedJobID] = nil
+            updateQueuedGeneration(id: completedJobID) { item in
+                item.status = QueuedGenerationStatus(recordStatus: record.status)
+                item.sessionID = record.id
+                item.completedAt = record.completedAt ?? Date()
+                item.elapsedSeconds = finalElapsed
+                item.statusMessage = record.status.displayName
+                item.errorMessage = record.error?.explanation
+            }
+        }
         let logText = liveLogBySessionID[sessionID, default: record.logs]
         generationTicker = generationTicker
             .ingesting(logText: logText, elapsed: finalElapsed)
@@ -359,16 +466,31 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         refreshHistory()
         pendingScrollSessionID = sessionID
         statusMessage = record.status.displayName
-        refreshBackendStatus()
+        if queuedGenerations.contains(where: { $0.status == .queued }) {
+            startNextQueuedGenerationIfIdle()
+        } else {
+            refreshBackendStatus()
+        }
     }
 
     private func failGenerationStart(error: Error) {
+        let failedJobID = activeJobID
         isGenerating = false
         isPreparingGeneration = false
         activeTask = nil
         activeJobID = nil
         activeSessionID = nil
         let finalElapsed = elapsedSeconds
+        if let failedJobID {
+            updateQueuedGeneration(id: failedJobID) { item in
+                item.status = .failed
+                item.completedAt = Date()
+                item.elapsedSeconds = finalElapsed
+                item.statusMessage = "Failed"
+                item.errorMessage = userFacingMessage(for: error)
+            }
+            queuedJobPayloads[failedJobID] = nil
+        }
         stopElapsedTimer()
         generationTicker = generationTicker.finished(
             message: "Failed",
@@ -378,7 +500,16 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         refreshHistory()
         alertMessage = userFacingMessage(for: error)
         statusMessage = "Failed"
-        refreshBackendStatus()
+        if queuedGenerations.contains(where: { $0.status == .queued }) {
+            startNextQueuedGenerationIfIdle()
+        } else {
+            refreshBackendStatus()
+        }
+    }
+
+    private func updateQueuedGeneration(id: String, mutate: (inout QueuedGenerationItem) -> Void) {
+        guard let index = queuedGenerations.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&queuedGenerations[index])
     }
 
     private func userFacingMessage(for error: Error) -> String {
@@ -423,6 +554,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 self.elapsedSeconds = elapsed
                 if self.isGenerating {
                     self.generationTicker = self.generationTicker.ticking(elapsed: elapsed)
+                    if let activeJobID = self.activeJobID {
+                        self.updateQueuedGeneration(id: activeJobID) { item in
+                            item.elapsedSeconds = elapsed
+                        }
+                    }
                 }
             }
         }
@@ -480,6 +616,23 @@ private extension GenerationRecordStatus {
         case .completed: "Completed"
         case .failed: "Failed"
         case .cancelled: "Cancelled"
+        }
+    }
+}
+
+private extension QueuedGenerationStatus {
+    init(recordStatus: GenerationRecordStatus) {
+        switch recordStatus {
+        case .queued:
+            self = .queued
+        case .running:
+            self = .running
+        case .completed:
+            self = .completed
+        case .failed:
+            self = .failed
+        case .cancelled:
+            self = .cancelled
         }
     }
 }

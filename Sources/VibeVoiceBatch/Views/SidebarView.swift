@@ -15,7 +15,7 @@ struct SidebarView: View {
                             .tag(WorkstationSelection.section(.projects) as WorkstationSelection?)
                         SidebarSectionRow(section: .scripts, detail: "\(workspaceStore.scripts.count)")
                             .tag(WorkstationSelection.section(.scripts) as WorkstationSelection?)
-                        SidebarSectionRow(section: .batches, detail: "\(workspaceStore.batches.count)")
+                        SidebarSectionRow(section: .batches, detail: batchesDetail)
                             .tag(WorkstationSelection.section(.batches) as WorkstationSelection?)
                     }
 
@@ -88,7 +88,7 @@ struct SidebarView: View {
             }
 
             HStack {
-                Text("\(workspaceStore.projects.count) projects  \(store.sessions.count) sessions")
+                Text("\(workspaceStore.projects.count) projects  \(store.queuedGenerations.count) queued  \(store.sessions.count) sessions")
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
@@ -104,6 +104,14 @@ struct SidebarView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
+    }
+
+    private var batchesDetail: String {
+        let queuedCount = store.queuedGenerations.filter { !$0.status.isTerminal }.count
+        if queuedCount > 0 {
+            return "\(queuedCount) active"
+        }
+        return "\(workspaceStore.batches.count)"
     }
 }
 
