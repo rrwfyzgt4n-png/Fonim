@@ -44,3 +44,7 @@ Required capabilities:
 ## Current Queue Behavior
 
 The SwiftUI app may present multiple queued generation requests, but execution still flows through `JobQueue.submit(_:)` and the selected `EngineAdapter`. UI queue rows are presentation records; durable generation records remain the immutable `history/<session_id>` sessions produced by the adapter.
+
+## Presets
+
+Voice and generation presets store backend, model, voice, settings, and output-format choices as reusable workspace records. Applying a preset prepares a `GenerationJob` configuration; adapters still own backend-specific execution and normalization.

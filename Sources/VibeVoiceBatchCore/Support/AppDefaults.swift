@@ -57,6 +57,9 @@ public extension URL {
     var projectsDirectory: URL { workspaceDirectory.appendingPathComponent("projects", isDirectory: true) }
     var scriptsDirectory: URL { workspaceDirectory.appendingPathComponent("scripts", isDirectory: true) }
     var batchesDirectory: URL { workspaceDirectory.appendingPathComponent("batches", isDirectory: true) }
+    var presetsDirectory: URL { workspaceDirectory.appendingPathComponent("presets", isDirectory: true) }
+    var voicePresetsDirectory: URL { presetsDirectory.appendingPathComponent("voices", isDirectory: true) }
+    var generationPresetsDirectory: URL { presetsDirectory.appendingPathComponent("generation", isDirectory: true) }
     var hfCacheDirectory: URL { appendingPathComponent("hf-cache", isDirectory: true) }
     var dockerOverridesDirectory: URL { appendingPathComponent("docker_overrides", isDirectory: true) }
     var inferenceScriptOverrideFile: URL { dockerOverridesDirectory.appendingPathComponent("realtime_model_inference_from_file.py", isDirectory: false) }

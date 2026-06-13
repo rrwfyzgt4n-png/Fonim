@@ -125,11 +125,12 @@ struct InspectorPanelView: View {
             }
         case .section(.voices):
             InspectorGroup(title: "Voices") {
-                InspectorValue(label: "Available", value: "\(AppDefaults.availableVoices.count)")
+                InspectorValue(label: "Available", value: "\(workspaceStore.voicePresets.count)")
                 InspectorValue(label: "Selected", value: store.selectedVoice)
             }
         case .section(.presets):
             InspectorGroup(title: "Preset Metadata") {
+                InspectorValue(label: "Count", value: "\(workspaceStore.generationPresets.count)")
                 InspectorValue(label: "Default voice", value: settingsStore.settings.defaultVoice)
                 InspectorValue(label: "Default CFG", value: settingsStore.settings.defaultCFGScale)
                 InspectorValue(label: "Default steps", value: "\(settingsStore.settings.defaultDDPMInferenceSteps)")

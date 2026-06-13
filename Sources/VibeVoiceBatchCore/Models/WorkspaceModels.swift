@@ -199,18 +199,136 @@ public struct NarrationBatch: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct NarrationVoicePreset: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var backendID: String
+    public var modelID: String
+    public var voiceID: String
+    public var locale: String?
+    public var traits: [String]
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var notes: String
+    public var isBuiltIn: Bool
+
+    public init(
+        id: String,
+        displayName: String,
+        backendID: String = BackendProfiles.vibeVoiceTTS.id,
+        modelID: String = AppDefaults.modelPath,
+        voiceID: String,
+        locale: String? = nil,
+        traits: [String] = [],
+        createdAt: Date,
+        updatedAt: Date,
+        notes: String = "",
+        isBuiltIn: Bool = false
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.backendID = backendID
+        self.modelID = modelID
+        self.voiceID = voiceID
+        self.locale = locale
+        self.traits = traits
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.notes = notes
+        self.isBuiltIn = isBuiltIn
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+        case backendID = "backend_id"
+        case modelID = "model_id"
+        case voiceID = "voice_id"
+        case locale
+        case traits
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case notes
+        case isBuiltIn = "is_built_in"
+    }
+}
+
+public struct NarrationGenerationPreset: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var backendID: String
+    public var modelID: String
+    public var voicePresetID: String?
+    public var voiceID: String?
+    public var settings: GenerationSettings
+    public var outputFormat: AudioOutputFormat
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var notes: String
+    public var isBuiltIn: Bool
+
+    public init(
+        id: String,
+        displayName: String,
+        backendID: String = BackendProfiles.vibeVoiceTTS.id,
+        modelID: String = AppDefaults.modelPath,
+        voicePresetID: String? = nil,
+        voiceID: String? = nil,
+        settings: GenerationSettings = GenerationSettings(),
+        outputFormat: AudioOutputFormat = .wav,
+        createdAt: Date,
+        updatedAt: Date,
+        notes: String = "",
+        isBuiltIn: Bool = false
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.backendID = backendID
+        self.modelID = modelID
+        self.voicePresetID = voicePresetID
+        self.voiceID = voiceID
+        self.settings = settings
+        self.outputFormat = outputFormat
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.notes = notes
+        self.isBuiltIn = isBuiltIn
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+        case backendID = "backend_id"
+        case modelID = "model_id"
+        case voicePresetID = "voice_preset_id"
+        case voiceID = "voice_id"
+        case settings
+        case outputFormat = "output_format"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case notes
+        case isBuiltIn = "is_built_in"
+    }
+}
+
 public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
     public var projects: [NarrationProject]
     public var scripts: [NarrationScript]
     public var batches: [NarrationBatch]
+    public var voicePresets: [NarrationVoicePreset]
+    public var generationPresets: [NarrationGenerationPreset]
 
     public init(
         projects: [NarrationProject],
         scripts: [NarrationScript],
-        batches: [NarrationBatch]
+        batches: [NarrationBatch],
+        voicePresets: [NarrationVoicePreset] = [],
+        generationPresets: [NarrationGenerationPreset] = []
     ) {
         self.projects = projects
         self.scripts = scripts
         self.batches = batches
+        self.voicePresets = voicePresets
+        self.generationPresets = generationPresets
     }
 }

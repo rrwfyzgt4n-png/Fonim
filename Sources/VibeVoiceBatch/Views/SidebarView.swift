@@ -20,9 +20,9 @@ struct SidebarView: View {
                     }
 
                     Section("Library") {
-                        SidebarSectionRow(section: .voices, detail: "\(AppDefaults.availableVoices.count)")
+                        SidebarSectionRow(section: .voices, detail: "\(workspaceStore.voicePresets.count)")
                             .tag(WorkstationSelection.section(.voices) as WorkstationSelection?)
-                        SidebarSectionRow(section: .presets, detail: "Defaults")
+                        SidebarSectionRow(section: .presets, detail: "\(workspaceStore.generationPresets.count)")
                             .tag(WorkstationSelection.section(.presets) as WorkstationSelection?)
                     }
 

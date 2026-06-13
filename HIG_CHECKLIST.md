@@ -16,6 +16,7 @@ Current implementation note:
 - The main window now uses a native source-list sidebar for Projects, Scripts, Batches, Outputs, Voices, Presets, History, Backends, and Settings.
 - History sessions remain selectable beneath History so existing session detail, playback, duplicate, and folder actions continue to work.
 - Outputs has its own browser for archived WAV files, with in-app playback, Finder reveal, Quick Look, path copy, drag-out support, and duplicate-as-new.
+- Voices and Presets are library surfaces backed by workspace records, with native apply/save actions instead of model-specific terminal concepts.
 - The Settings sidebar destination opens toward the native Settings scene instead of replacing preferences with an in-window settings clone.
 
 ## Progressive Disclosure
@@ -41,6 +42,7 @@ Current implementation:
 
 - The editor surface now stays focused on text, text metrics, and Generate.
 - The right-side inspector exposes voice, model, inference, export, and contextual metadata controls.
+- Voices and Presets let users apply reusable profiles without exposing backend command details.
 - Inspector visibility is a window-scoped preference and can be toggled from the toolbar.
 - The Batches destination exposes queued, running, completed, failed, and cancelled jobs with row-level cancel, retry, and duplicate actions.
 

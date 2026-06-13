@@ -216,6 +216,35 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         statusMessage = "Duplicated queued item as new unsaved text"
     }
 
+    func applyVoicePreset(_ preset: NarrationVoicePreset) {
+        selectedVoice = preset.voiceID
+        settingsStore.update {
+            $0.defaultBackendID = preset.backendID
+            $0.defaultModelID = preset.modelID
+            $0.defaultVoice = preset.voiceID
+        }
+        statusMessage = "Applied voice preset: \(preset.displayName)"
+    }
+
+    func applyGenerationPreset(_ preset: NarrationGenerationPreset) {
+        if let voiceID = preset.voiceID {
+            selectedVoice = voiceID
+        }
+        cfgScale = preset.settings.cfgScale
+        ddpmInferenceSteps = preset.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
+        settingsStore.update {
+            $0.defaultBackendID = preset.backendID
+            $0.defaultModelID = preset.modelID
+            if let voiceID = preset.voiceID {
+                $0.defaultVoice = voiceID
+            }
+            $0.defaultCFGScale = preset.settings.cfgScale
+            $0.defaultDDPMInferenceSteps = preset.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
+            $0.exportFormat = preset.outputFormat
+        }
+        statusMessage = "Applied generation preset: \(preset.displayName)"
+    }
+
     func showBackendDetails() {
         alertMessage = backendStatus.alertMessageWithDetails
     }

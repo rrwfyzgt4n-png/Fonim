@@ -13,6 +13,8 @@ public final class WorkspaceFileStore {
         try fileManager.createDirectory(at: projectRoot.projectsDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: projectRoot.scriptsDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: projectRoot.batchesDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: projectRoot.voicePresetsDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: projectRoot.generationPresetsDirectory, withIntermediateDirectories: true)
     }
 
     public func loadSnapshot() throws -> WorkspaceSnapshot {
@@ -20,7 +22,9 @@ public final class WorkspaceFileStore {
         return WorkspaceSnapshot(
             projects: try loadProjects(),
             scripts: try loadScripts(),
-            batches: try loadBatches()
+            batches: try loadBatches(),
+            voicePresets: try loadVoicePresets(),
+            generationPresets: try loadGenerationPresets()
         )
     }
 
@@ -52,6 +56,21 @@ public final class WorkspaceFileStore {
                 }
                 return lhs.updatedAt > rhs.updatedAt
             }
+    }
+
+    public func loadVoicePresets() throws -> [NarrationVoicePreset] {
+        let custom = try loadItems(in: projectRoot.voicePresetsDirectory, as: NarrationVoicePreset.self)
+        return mergedPresets(defaultVoicePresets(), custom: custom) { $0.displayName < $1.displayName }
+    }
+
+    public func loadGenerationPresets() throws -> [NarrationGenerationPreset] {
+        let custom = try loadItems(in: projectRoot.generationPresetsDirectory, as: NarrationGenerationPreset.self)
+        return mergedPresets(defaultGenerationPresets(), custom: custom) { lhs, rhs in
+            if lhs.isBuiltIn != rhs.isBuiltIn {
+                return lhs.isBuiltIn && !rhs.isBuiltIn
+            }
+            return lhs.displayName < rhs.displayName
+        }
     }
 
     public func createProject(
@@ -141,6 +160,62 @@ public final class WorkspaceFileStore {
         return batch
     }
 
+    public func createVoicePreset(
+        title: String,
+        voiceID: String,
+        backendID: String = BackendProfiles.vibeVoiceTTS.id,
+        modelID: String = AppDefaults.modelPath,
+        locale: String? = nil,
+        traits: [String] = [],
+        notes: String = "",
+        now: Date = Date()
+    ) throws -> NarrationVoicePreset {
+        try ensureWorkspaceDirectories()
+        let preset = NarrationVoicePreset(
+            id: try makeUniqueWorkspaceID(prefix: "voice_preset", title: title, directory: projectRoot.voicePresetsDirectory, date: now),
+            displayName: title,
+            backendID: backendID,
+            modelID: modelID,
+            voiceID: voiceID,
+            locale: locale,
+            traits: traits,
+            createdAt: now,
+            updatedAt: now,
+            notes: notes
+        )
+        try saveVoicePreset(preset)
+        return preset
+    }
+
+    public func createGenerationPreset(
+        title: String,
+        backendID: String = BackendProfiles.vibeVoiceTTS.id,
+        modelID: String = AppDefaults.modelPath,
+        voicePresetID: String? = nil,
+        voiceID: String? = nil,
+        settings: GenerationSettings,
+        outputFormat: AudioOutputFormat,
+        notes: String = "",
+        now: Date = Date()
+    ) throws -> NarrationGenerationPreset {
+        try ensureWorkspaceDirectories()
+        let preset = NarrationGenerationPreset(
+            id: try makeUniqueWorkspaceID(prefix: "generation_preset", title: title, directory: projectRoot.generationPresetsDirectory, date: now),
+            displayName: title,
+            backendID: backendID,
+            modelID: modelID,
+            voicePresetID: voicePresetID,
+            voiceID: voiceID,
+            settings: settings,
+            outputFormat: outputFormat,
+            createdAt: now,
+            updatedAt: now,
+            notes: notes
+        )
+        try saveGenerationPreset(preset)
+        return preset
+    }
+
     public func saveProject(_ project: NarrationProject) throws {
         try ensureWorkspaceDirectories()
         try write(project, to: projectURL(project.id))
@@ -156,6 +231,18 @@ public final class WorkspaceFileStore {
         try write(batch, to: batchURL(batch.id))
     }
 
+    public func saveVoicePreset(_ preset: NarrationVoicePreset) throws {
+        try ensureWorkspaceDirectories()
+        guard !preset.isBuiltIn else { return }
+        try write(preset, to: voicePresetURL(preset.id))
+    }
+
+    public func saveGenerationPreset(_ preset: NarrationGenerationPreset) throws {
+        try ensureWorkspaceDirectories()
+        guard !preset.isBuiltIn else { return }
+        try write(preset, to: generationPresetURL(preset.id))
+    }
+
     public func loadProject(id: String) throws -> NarrationProject {
         try read(NarrationProject.self, from: projectURL(id))
     }
@@ -166,6 +253,20 @@ public final class WorkspaceFileStore {
 
     public func loadBatch(id: String) throws -> NarrationBatch {
         try read(NarrationBatch.self, from: batchURL(id))
+    }
+
+    public func loadVoicePreset(id: String) throws -> NarrationVoicePreset {
+        if let builtIn = defaultVoicePresets().first(where: { $0.id == id }) {
+            return builtIn
+        }
+        return try read(NarrationVoicePreset.self, from: voicePresetURL(id))
+    }
+
+    public func loadGenerationPreset(id: String) throws -> NarrationGenerationPreset {
+        if let builtIn = defaultGenerationPresets().first(where: { $0.id == id }) {
+            return builtIn
+        }
+        return try read(NarrationGenerationPreset.self, from: generationPresetURL(id))
     }
 
     public func updateScriptText(id: String, text: String, now: Date = Date()) throws -> NarrationScript {
@@ -294,6 +395,85 @@ public final class WorkspaceFileStore {
 
     private func batchURL(_ id: String) -> URL {
         projectRoot.batchesDirectory.appendingPathComponent("\(id).json", isDirectory: false)
+    }
+
+    private func voicePresetURL(_ id: String) -> URL {
+        projectRoot.voicePresetsDirectory.appendingPathComponent("\(id).json", isDirectory: false)
+    }
+
+    private func generationPresetURL(_ id: String) -> URL {
+        projectRoot.generationPresetsDirectory.appendingPathComponent("\(id).json", isDirectory: false)
+    }
+
+    private func defaultVoicePresets() -> [NarrationVoicePreset] {
+        let date = Date(timeIntervalSince1970: 0)
+        return AppDefaults.availableVoices.map { voiceID in
+            NarrationVoicePreset(
+                id: "builtin_voice_\(voiceID)",
+                displayName: voiceDisplayName(voiceID),
+                voiceID: voiceID,
+                locale: voiceLocale(voiceID),
+                traits: voiceTraits(voiceID),
+                createdAt: date,
+                updatedAt: date,
+                isBuiltIn: true
+            )
+        }
+    }
+
+    private func defaultGenerationPresets() -> [NarrationGenerationPreset] {
+        let date = Date(timeIntervalSince1970: 0)
+        return [
+            NarrationGenerationPreset(
+                id: "builtin_generation_balanced_narration",
+                displayName: "Balanced Narration",
+                voicePresetID: "builtin_voice_\(AppDefaults.defaultVoice)",
+                voiceID: AppDefaults.defaultVoice,
+                settings: GenerationSettings(
+                    cfgScale: AppDefaults.defaultCFGScale,
+                    ddpmInferenceSteps: AppDefaults.defaultDDPMInferenceSteps
+                ),
+                outputFormat: .wav,
+                createdAt: date,
+                updatedAt: date,
+                notes: "Default local narration profile.",
+                isBuiltIn: true
+            )
+        ]
+    }
+
+    private func mergedPresets<T: Identifiable>(
+        _ defaults: [T],
+        custom: [T],
+        sort: (T, T) -> Bool
+    ) -> [T] where T.ID == String {
+        var byID = Dictionary(uniqueKeysWithValues: defaults.map { ($0.id, $0) })
+        for item in custom {
+            byID[item.id] = item
+        }
+        return byID.values.sorted(by: sort)
+    }
+
+    private func voiceDisplayName(_ voiceID: String) -> String {
+        voiceID
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .capitalized
+    }
+
+    private func voiceLocale(_ voiceID: String) -> String? {
+        voiceID.split(separator: "-").first.map(String.init)
+    }
+
+    private func voiceTraits(_ voiceID: String) -> [String] {
+        var traits: [String] = []
+        if voiceID.hasSuffix("_woman") {
+            traits.append("woman")
+        }
+        if voiceID.hasSuffix("_man") {
+            traits.append("man")
+        }
+        return traits
     }
 
     private func read<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {

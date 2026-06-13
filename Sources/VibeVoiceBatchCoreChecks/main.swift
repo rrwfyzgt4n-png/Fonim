@@ -16,6 +16,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkBackendSetupReport()
         try checkBackendManagerOperations()
         try checkWorkspaceDataModel()
+        try checkWorkspacePresets()
         try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkJobQueueCancellationReachesAdapter()
@@ -439,6 +440,49 @@ struct VibeVoiceBatchCoreChecks {
             let batchCount = try workspaceStore.loadBatches().count
             precondition(batchCount == 1)
         }
+    }
+
+    private static func checkWorkspacePresets() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchPresetChecks-\(UUID().uuidString)", isDirectory: true)
+        let workspaceStore = WorkspaceFileStore(projectRoot: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let initial = try workspaceStore.loadSnapshot()
+        precondition(initial.voicePresets.contains { $0.id == "builtin_voice_\(AppDefaults.defaultVoice)" })
+        precondition(initial.generationPresets.contains { $0.id == "builtin_generation_balanced_narration" })
+        precondition(FileManager.default.fileExists(atPath: root.voicePresetsDirectory.path))
+        precondition(FileManager.default.fileExists(atPath: root.generationPresetsDirectory.path))
+
+        let createdAt = Date(timeIntervalSince1970: 1_718_171_695)
+        let voicePreset = try workspaceStore.createVoicePreset(
+            title: "Warm Narrator",
+            voiceID: "en-carter_man",
+            traits: ["warm", "narration"],
+            now: createdAt
+        )
+        precondition(!voicePreset.isBuiltIn)
+        precondition(voicePreset.backendID == BackendProfiles.vibeVoiceTTS.id)
+        precondition(voicePreset.modelID == AppDefaults.modelPath)
+        precondition(FileManager.default.fileExists(atPath: root.voicePresetsDirectory.appendingPathComponent("\(voicePreset.id).json").path))
+
+        let generationPreset = try workspaceStore.createGenerationPreset(
+            title: "Long Form Warm",
+            voicePresetID: voicePreset.id,
+            voiceID: voicePreset.voiceID,
+            settings: GenerationSettings(cfgScale: "1.9", ddpmInferenceSteps: 9),
+            outputFormat: .wav,
+            now: createdAt
+        )
+        precondition(!generationPreset.isBuiltIn)
+        precondition(generationPreset.voicePresetID == voicePreset.id)
+        precondition(generationPreset.settings.cfgScale == "1.9")
+        precondition(generationPreset.settings.ddpmInferenceSteps == 9)
+        precondition(FileManager.default.fileExists(atPath: root.generationPresetsDirectory.appendingPathComponent("\(generationPreset.id).json").path))
+
+        let reloaded = try workspaceStore.loadSnapshot()
+        precondition(reloaded.voicePresets.contains { $0.id == voicePreset.id })
+        precondition(reloaded.generationPresets.contains { $0.id == generationPreset.id })
     }
 
     private static func checkAppSettingsNormalizeInvalidValues() throws {
