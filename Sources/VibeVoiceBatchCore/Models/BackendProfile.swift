@@ -1,6 +1,6 @@
 import Foundation
 
-public enum EngineType: String, Codable, CaseIterable, Equatable {
+public enum EngineType: String, Codable, CaseIterable, Equatable, Sendable {
     case vibeVoiceTTS
     case kokoro
     case comfyUITTS
@@ -10,7 +10,7 @@ public enum EngineType: String, Codable, CaseIterable, Equatable {
     case custom
 }
 
-public enum BackendRuntime: String, Codable, CaseIterable, Equatable {
+public enum BackendRuntime: String, Codable, CaseIterable, Equatable, Sendable {
     case docker
     case localPython
     case comfyUI
@@ -18,7 +18,7 @@ public enum BackendRuntime: String, Codable, CaseIterable, Equatable {
     case externalService
 }
 
-public enum BackendInstallMethod: String, Codable, CaseIterable, Equatable {
+public enum BackendInstallMethod: String, Codable, CaseIterable, Equatable, Sendable {
     case managedDockerImage
     case localPythonEnvironment
     case externalServer
@@ -26,13 +26,13 @@ public enum BackendInstallMethod: String, Codable, CaseIterable, Equatable {
     case manual
 }
 
-public enum SystemArchitecture: String, Codable, CaseIterable, Equatable {
+public enum SystemArchitecture: String, Codable, CaseIterable, Equatable, Sendable {
     case appleSilicon
     case intel
     case universal
 }
 
-public enum AudioOutputFormat: String, Codable, CaseIterable, Equatable {
+public enum AudioOutputFormat: String, Codable, CaseIterable, Equatable, Sendable {
     case wav
     case aiff
     case flac
@@ -40,7 +40,7 @@ public enum AudioOutputFormat: String, Codable, CaseIterable, Equatable {
     case m4a
 }
 
-public struct RequiredModel: Codable, Equatable, Identifiable {
+public struct RequiredModel: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let displayName: String
     public let source: String
@@ -62,7 +62,7 @@ public struct RequiredModel: Codable, Equatable, Identifiable {
     }
 }
 
-public struct BackendProfile: Codable, Equatable, Identifiable {
+public struct BackendProfile: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let displayName: String
     public let engineType: EngineType
