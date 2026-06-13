@@ -31,6 +31,14 @@ final class SettingsStore: ObservableObject {
         settings = .defaults
     }
 
+    func selectSetupMode(_ mode: BackendSetupMode) {
+        update { $0.setupMode = mode }
+    }
+
+    func markSetupAssistantCompleted() {
+        update { $0.hasCompletedSetupAssistant = true }
+    }
+
     private func persist() {
         guard let data = try? JSONEncoder().encode(settings) else { return }
         userDefaults.set(data, forKey: AppSettingsKeys.storageKey)
