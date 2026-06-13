@@ -11,6 +11,11 @@ struct ContentView: View {
                 .frame(minWidth: 340, idealWidth: 390)
         } detail: {
             VStack(spacing: 0) {
+                BackendStatusView()
+                    .padding(.horizontal)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
+
                 Group {
                     if let session = store.selectedSession {
                         SessionDetailView(record: session)
@@ -85,6 +90,7 @@ struct ContentView: View {
         }
         .onAppear {
             store.refreshHistory()
+            store.refreshBackendStatus()
         }
         .alert("VibeVoice Batch", isPresented: alertBinding) {
             Button("OK", role: .cancel) {
