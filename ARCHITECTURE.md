@@ -55,6 +55,8 @@ Backend setup is represented by `BackendSetupReport` and `BackendSetupCheck`. `B
 
 Backend operations are represented by `BackendOperationKind`, `BackendOperationResult`, and `BackendDiskUsageReport`. `BackendManager` owns install, update, prepare, stop, health check, repair, reset, and disk usage operations; SwiftUI calls those operations through observable stores and never runs runtime commands directly.
 
+Packaging is handled by `script/package_app.sh`. The script builds the SwiftPM app in release mode, assembles `dist/VibeVoiceBatch.app`, copies `Resources/AppIcon.icns`, writes bundle metadata, signs ad-hoc by default, verifies the signature and plist, and creates a zip archive for trusted local distribution. Developer ID signing and notarization remain explicit public-distribution steps.
+
 Projects, scripts, batches, voices, and presets are represented by `NarrationProject`, `NarrationScript`, `NarrationBatch`, `NarrationBatchItem`, `NarrationVoicePreset`, and `NarrationGenerationPreset`. `WorkspaceFileStore` persists them under `workspace/projects`, `workspace/scripts`, `workspace/batches`, and `workspace/presets`. A script can reference multiple `history/<session_id>` generations, which lets one editable script produce many immutable generation records without overwriting earlier input, audio, logs, or metadata.
 
 ## Migration Rule

@@ -100,3 +100,11 @@ Current implementation:
 - Generated audio can be played in app.
 - Generated audio can be dragged out of the output browser.
 - Quick Look is available from output rows and details through the native macOS preview panel.
+
+## Distribution
+
+Current implementation:
+
+- The app can be packaged as a real macOS `.app` bundle with app metadata and icon resources.
+- Local packages are ad-hoc signed and verified for trusted direct transfer.
+- Public distribution requires Developer ID signing and notarization.
