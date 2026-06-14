@@ -59,5 +59,7 @@ Details: include the managed operation name, backend id, and captured process ou
 - Never delete failed session folders.
 - Never overwrite logs, input text, metadata, or output audio.
 - Never show raw stack traces as the primary message.
+- Always provide a way to copy user-facing error details.
+- Session input, logs, and metadata should remain copyable from the app.
 - Always preserve enough metadata to reproduce or diagnose the run.
 - Backend reset must not delete history, generated audio, logs, metadata, or model cache.

@@ -18,6 +18,7 @@ Current implementation note:
 - Outputs has its own browser for archived WAV files, with in-app playback, Finder reveal, Quick Look, path copy, drag-out support, and duplicate-as-new.
 - Voices and Presets are library surfaces backed by workspace records, with native apply/save actions instead of model-specific terminal concepts.
 - Backends can show additional registered profiles, including unavailable ones, with plain-language status rather than terminal errors.
+- Core actions are available from native menus and keyboard shortcuts, including New Text, Save Draft, Generate WAV, Cancel Generation, Refresh History, Refresh Backend Status, and Apply Default Generation Settings.
 - The Settings sidebar destination opens toward the native Settings scene instead of replacing preferences with an in-window settings clone.
 
 ## Progressive Disclosure
@@ -92,6 +93,16 @@ Current implementation:
 - Technical details belong behind "Show Details".
 - Raw stack traces must never be the primary user experience.
 - Every failed generation keeps a record, log, and metadata.
+- Error alerts include a Copy Details action.
+- Session input, log, and metadata panes include copy actions for diagnosis and handoff.
+
+## Accessibility
+
+Current implementation:
+
+- Icon-only generation and backend controls include accessibility labels.
+- The text editor has a named accessibility label.
+- Status and ticker surfaces combine their important state into readable accessibility labels.
 
 ## File Behavior
 

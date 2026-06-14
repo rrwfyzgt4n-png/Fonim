@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VibeVoiceBatchCore
 
@@ -46,6 +47,7 @@ struct ContentView: View {
                 } label: {
                     Label("New", systemImage: "doc.badge.plus")
                 }
+                .keyboardShortcut("n", modifiers: [.command])
                 .help("New")
 
                 Button {
@@ -53,6 +55,7 @@ struct ContentView: View {
                 } label: {
                     Label("Save Draft", systemImage: "tray.and.arrow.down")
                 }
+                .keyboardShortcut("s", modifiers: [.command])
                 .disabled(!store.canSaveDraft)
                 .help("Save Draft")
 
@@ -61,6 +64,7 @@ struct ContentView: View {
                 } label: {
                     Label("Cancel", systemImage: "stop.circle")
                 }
+                .keyboardShortcut(".", modifiers: [.command])
                 .disabled(!store.isGenerating)
                 .help("Cancel")
             }
@@ -73,6 +77,7 @@ struct ContentView: View {
                 } label: {
                     Label("Open Session Folder", systemImage: "folder")
                 }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
                 .disabled(store.selectedSession == nil)
                 .help("Open Session Folder")
 
@@ -83,6 +88,7 @@ struct ContentView: View {
                 } label: {
                     Label(playWAVTitle, systemImage: playWAVSystemImage)
                 }
+                .keyboardShortcut(" ", modifiers: [])
                 .disabled(store.selectedSession?.outputURL == nil)
                 .help("Play WAV")
 
@@ -93,6 +99,7 @@ struct ContentView: View {
                 } label: {
                     Label("Duplicate as New", systemImage: "doc.on.doc")
                 }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
                 .disabled(store.selectedSession == nil)
                 .help("Duplicate as New")
             }
@@ -103,6 +110,7 @@ struct ContentView: View {
                 } label: {
                     Label("Inspector", systemImage: "sidebar.right")
                 }
+                .keyboardShortcut("i", modifiers: [.command, .option])
                 .help(showInspector ? "Hide Inspector" : "Show Inspector")
             }
         }
@@ -123,12 +131,15 @@ struct ContentView: View {
             }
         }
         .alert("VibeVoice Batch", isPresented: alertBinding) {
+            Button("Copy Details") {
+                copyAlertDetails()
+            }
             Button("OK", role: .cancel) {
                 store.alertMessage = nil
                 workspaceStore.alertMessage = nil
             }
         } message: {
-            Text(store.alertMessage ?? workspaceStore.alertMessage ?? "")
+            Text(currentAlertMessage)
         }
     }
 
@@ -181,6 +192,16 @@ struct ContentView: View {
                 }
             }
         )
+    }
+
+    private var currentAlertMessage: String {
+        store.alertMessage ?? workspaceStore.alertMessage ?? ""
+    }
+
+    private func copyAlertDetails() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(currentAlertMessage, forType: .string)
+        store.statusMessage = "Copied error details"
     }
 
     private var playWAVTitle: String {

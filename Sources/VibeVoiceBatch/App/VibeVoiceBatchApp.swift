@@ -32,11 +32,19 @@ struct VibeVoiceBatchApp: App {
                 .frame(minWidth: 980, minHeight: 680)
         }
         .commands {
-            CommandGroup(after: .newItem) {
+            CommandGroup(replacing: .newItem) {
+                Button("New Text") {
+                    store.newDocument()
+                }
+                .keyboardShortcut("n", modifiers: [.command])
+
                 Button("Save Draft") {
                     store.saveDraft()
                 }
                 .keyboardShortcut("s", modifiers: [.command])
+                .disabled(!store.canSaveDraft)
+
+                Divider()
 
                 Button("Generate WAV") {
                     store.generate()
@@ -51,7 +59,26 @@ struct VibeVoiceBatchApp: App {
                 .disabled(!store.isGenerating)
             }
 
-            CommandGroup(after: .windowArrangement) {
+            CommandMenu("Narration") {
+                Button("Apply Default Generation Settings") {
+                    store.applyDefaultGenerationSettings()
+                }
+                .keyboardShortcut("d", modifiers: [.command, .option])
+
+                Button("Refresh History") {
+                    store.refreshHistory()
+                    workspaceStore.refresh()
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+
+                Button("Refresh Backend Status") {
+                    store.refreshBackendStatus()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .disabled(store.isRefreshingBackendStatus || store.isGenerating)
+
+                Divider()
+
                 OpenBackendSetupButton()
             }
         }

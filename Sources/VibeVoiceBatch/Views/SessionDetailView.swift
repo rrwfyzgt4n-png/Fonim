@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VibeVoiceBatchCore
 
@@ -91,42 +92,87 @@ struct SessionDetailView: View {
     }
 
     private var textPane: some View {
-        ScrollView {
-            Text(record.inputText.isEmpty ? "No input text saved." : record.inputText)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-        }
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
+        VStack(alignment: .leading, spacing: 8) {
+            CopyPaneHeader(title: "Input") {
+                copyToPasteboard(record.inputText)
+            }
 
-    private var logPane: some View {
-        ScrollViewReader { proxy in
             ScrollView {
-                Text(store.logText(for: record).isEmpty ? "No log yet." : store.logText(for: record))
-                    .font(.system(.caption, design: .monospaced))
+                Text(record.inputText.isEmpty ? "No input text saved." : record.inputText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
-                    .id("log-bottom")
             }
-            .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 8))
-            .foregroundStyle(.white)
-            .onChange(of: store.logText(for: record)) { _ in
-                proxy.scrollTo("log-bottom", anchor: .bottom)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var logPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CopyPaneHeader(title: "Log") {
+                copyToPasteboard(store.logText(for: record))
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(store.logText(for: record).isEmpty ? "No log yet." : store.logText(for: record))
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .id("log-bottom")
+                }
+                .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 8))
+                .foregroundStyle(.white)
+                .onChange(of: store.logText(for: record)) { _ in
+                    proxy.scrollTo("log-bottom", anchor: .bottom)
+                }
             }
         }
     }
 
     private var metadataPane: some View {
-        ScrollView {
-            Text(record.metadataJSON)
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+        VStack(alignment: .leading, spacing: 8) {
+            CopyPaneHeader(title: "Metadata") {
+                copyToPasteboard(record.metadataJSON)
+            }
+
+            ScrollView {
+                Text(record.metadataJSON)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
         }
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        store.statusMessage = "Copied \(record.id)"
+    }
+}
+
+private struct CopyPaneHeader: View {
+    let title: String
+    let copy: () -> Void
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            Spacer()
+            Button {
+                copy()
+            } label: {
+                Label("Copy", systemImage: "doc.on.clipboard")
+            }
+            .buttonStyle(.borderless)
+        }
     }
 }
 

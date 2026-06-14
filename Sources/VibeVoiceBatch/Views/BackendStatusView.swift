@@ -35,6 +35,7 @@ struct BackendStatusView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Show Details")
+                .accessibilityLabel("Show backend details")
             }
 
             Button {
@@ -45,6 +46,7 @@ struct BackendStatusView: View {
             .buttonStyle(.borderless)
             .disabled(store.isRefreshingBackendStatus || store.isGenerating)
             .help("Refresh Backend Status")
+            .accessibilityLabel("Refresh backend status")
         }
         .padding(.horizontal, 10)
         .frame(height: 36)

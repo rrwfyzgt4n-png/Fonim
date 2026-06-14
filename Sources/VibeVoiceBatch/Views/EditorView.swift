@@ -20,12 +20,24 @@ struct EditorView: View {
                 GenerateControl()
             }
 
-            TextEditor(text: Binding(
-                get: { store.editorText },
-                set: { store.updateEditorText($0) }
-            ))
-            .font(.system(.body, design: .serif))
-            .scrollContentBackground(.hidden)
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: Binding(
+                    get: { store.editorText },
+                    set: { store.updateEditorText($0) }
+                ))
+                .font(.system(.body, design: .serif))
+                .scrollContentBackground(.hidden)
+                .accessibilityLabel("Narration text editor")
+
+                if store.editorText.isEmpty {
+                    Text("Narration text")
+                        .font(.system(.body, design: .serif))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .allowsHitTesting(false)
+                }
+            }
             .padding(8)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
             .overlay {
@@ -52,8 +64,9 @@ private struct GenerateControl: View {
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .frame(width: 44, height: 34)
+        .keyboardShortcut(.return, modifiers: [.command])
         .disabled(!store.canGenerate)
-        .help(store.canGenerate ? "Generate WAV" : store.backendStatus.userMessage)
+        .help(store.canGenerate ? "Generate WAV (Command-Return)" : store.backendStatus.userMessage)
         .padding(.leading, 8)
         .accessibilityLabel("Generate WAV")
     }
