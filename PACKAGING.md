@@ -37,6 +37,14 @@ The packaging script runs:
 
 Gatekeeper can still reject ad-hoc local builds. That is expected. Use Developer ID signing and notarization for public distribution.
 
+For a full release-candidate smoke test, run:
+
+```sh
+./script/smoke_test_release.sh
+```
+
+This builds, checks, launches, packages, validates bundle metadata, verifies signing, and confirms the package artifacts exist.
+
 ## Distribution Notes
 
 - Docker and model backends remain external managed infrastructure.
