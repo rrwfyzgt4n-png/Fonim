@@ -2,6 +2,7 @@ import argparse
 import copy
 import glob
 import os
+import threading
 import time
 import traceback
 
@@ -15,6 +16,65 @@ from vibevoice.processor.vibevoice_streaming_processor import VibeVoiceStreaming
 
 logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
+
+
+def clock(seconds):
+    total_seconds = max(0, int(round(seconds)))
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+class GenerationHeartbeat:
+    def __init__(self, phase, estimated_seconds, interval=2.0):
+        self.phase = phase
+        self.estimated_seconds = max(1.0, float(estimated_seconds))
+        self.interval = interval
+        self.started_at = None
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def start(self):
+        self.started_at = time.time()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+        self.emit()
+
+    def stop(self, phase="finalizing", progress=0.96):
+        self.stop_event.set()
+        if self.thread is not None:
+            self.thread.join(timeout=1.0)
+        self.emit(phase=phase, progress=progress)
+
+    def emit(self, phase=None, progress=None):
+        if self.started_at is None:
+            elapsed = 0.0
+        else:
+            elapsed = time.time() - self.started_at
+        fraction = progress if progress is not None else min(0.95, elapsed / self.estimated_seconds)
+        print(
+            "VibeVoiceBatch progress: "
+            f"phase={phase or self.phase} "
+            f"elapsed={clock(elapsed)} "
+            f"estimated={clock(self.estimated_seconds)} "
+            f"progress={fraction * 100:.2f}%",
+            flush=True,
+        )
+
+    def _run(self):
+        while not self.stop_event.wait(self.interval):
+            self.emit()
+
+
+def estimate_generation_seconds(input_tokens, ddpm_steps, text):
+    word_count = max(1, len(text.split()))
+    token_component = max(8.0, float(input_tokens) * 0.75)
+    word_component = float(word_count) * 1.5
+    ddpm_multiplier = max(0.6, float(ddpm_steps) / 8.0)
+    return max(12.0, (token_component + word_component) * ddpm_multiplier)
 
 
 class VoiceMapper:
@@ -229,18 +289,31 @@ def main():
         if torch.is_tensor(v):
             inputs[k] = v.to(target_device)
 
+    input_tokens = inputs["tts_text_ids"].shape[1]
+    estimated_generation_seconds = estimate_generation_seconds(input_tokens, args.ddpm_inference_steps, full_script)
     print(f"Starting generation with cfg_scale: {args.cfg_scale}, ddpm_inference_steps: {args.ddpm_inference_steps}")
+    print(
+        "VibeVoiceBatch progress: "
+        f"phase=starting_generation elapsed=00:00 estimated={clock(estimated_generation_seconds)} progress=0.00%",
+        flush=True,
+    )
 
     start_time = time.time()
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=None,
-        cfg_scale=args.cfg_scale,
-        tokenizer=processor.tokenizer,
-        generation_config={"do_sample": False},
-        verbose=True,
-        all_prefilled_outputs=copy.deepcopy(all_prefilled_outputs) if all_prefilled_outputs is not None else None,
-    )
+    heartbeat = GenerationHeartbeat("generation", estimated_generation_seconds)
+    heartbeat.start()
+    try:
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=None,
+            cfg_scale=args.cfg_scale,
+            tokenizer=processor.tokenizer,
+            generation_config={"do_sample": False},
+            verbose=True,
+            show_progress_bar=True,
+            all_prefilled_outputs=copy.deepcopy(all_prefilled_outputs) if all_prefilled_outputs is not None else None,
+        )
+    finally:
+        heartbeat.stop()
     generation_time = time.time() - start_time
     print(f"Generation time: {generation_time:.2f} seconds")
 
@@ -256,7 +329,6 @@ def main():
         print("No audio output generated")
         return
 
-    input_tokens = inputs["tts_text_ids"].shape[1]
     output_tokens = outputs.sequences.shape[1]
     generated_tokens = output_tokens - input_tokens - all_prefilled_outputs["tts_lm"]["last_hidden_state"].size(1)
 

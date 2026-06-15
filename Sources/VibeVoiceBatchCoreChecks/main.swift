@@ -106,6 +106,15 @@ struct VibeVoiceBatchCoreChecks {
         precondition(coloredProgress.maxSteps == 100)
         precondition(coloredProgress.reportedElapsedSeconds == 10)
 
+        let estimatedProgressText = "VibeVoiceBatch progress: phase=generation elapsed=00:12 estimated=02:00 progress=10.00%"
+        guard let estimatedProgress = GenerationOutputParser.latestEstimatedProgress(in: estimatedProgressText) else {
+            throw CheckError("Expected estimated generation progress")
+        }
+        precondition(estimatedProgress.phase == "generation")
+        precondition(estimatedProgress.fraction == 0.10)
+        precondition(estimatedProgress.elapsedSeconds == 12)
+        precondition(estimatedProgress.estimatedSeconds == 120)
+
         let summaryText = """
         Input file: /app/input.txt
         Output file: /app/outputs/input_generated.wav

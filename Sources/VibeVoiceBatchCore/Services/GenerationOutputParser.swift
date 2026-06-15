@@ -50,6 +50,17 @@ public struct FinalGenerationSummary: Equatable {
     }
 }
 
+public struct EstimatedGenerationProgress: Equatable {
+    public var phase: String
+    public var fraction: Double
+    public var elapsedSeconds: TimeInterval?
+    public var estimatedSeconds: TimeInterval?
+
+    public var percent: Double {
+        fraction * 100
+    }
+}
+
 public enum GenerationOutputParser {
     public static func latestProgress(in logText: String) -> LiveGenerationProgress? {
         let suffix = normalizedSuffix(logText)
@@ -94,6 +105,32 @@ public enum GenerationOutputParser {
         summary.rtf = lastDouble(pattern: #"RTF \(Real Time Factor\):\s+([\d.]+)x"#, in: suffix)
 
         return summary.isEmpty ? nil : summary
+    }
+
+    public static func latestEstimatedProgress(in logText: String) -> EstimatedGenerationProgress? {
+        let suffix = normalizedSuffix(logText)
+        let pattern = #"VibeVoiceBatch progress:\s+phase=([^\s]+)\s+elapsed=([0-9:.]+)\s+estimated=([0-9:.]+)\s+progress=([\d.]+)%"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(suffix.startIndex..<suffix.endIndex, in: suffix)
+        guard let match = regex.matches(in: suffix, range: range).last,
+              let phase = string(at: 1, in: suffix, match: match),
+              let progressText = string(at: 4, in: suffix, match: match),
+              let progress = Double(progressText) else {
+            return nil
+        }
+
+        let elapsed = string(at: 2, in: suffix, match: match).flatMap(parseClock)
+        let estimated = string(at: 3, in: suffix, match: match).flatMap(parseClock)
+        return EstimatedGenerationProgress(
+            phase: phase,
+            fraction: min(1, max(0, progress / 100)),
+            elapsedSeconds: elapsed,
+            estimatedSeconds: estimated
+        )
     }
 
     private static func normalizedSuffix(_ text: String) -> String {
@@ -146,6 +183,11 @@ public enum GenerationOutputParser {
         }
 
         return String(text[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func string(at index: Int, in text: String, match: NSTextCheckingResult) -> String? {
+        guard let range = Range(match.range(at: index), in: text) else { return nil }
+        return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func lastInt(pattern: String, in text: String) -> Int? {

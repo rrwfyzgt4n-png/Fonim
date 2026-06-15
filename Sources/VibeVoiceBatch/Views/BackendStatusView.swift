@@ -102,11 +102,12 @@ struct BackendStatusView: View {
 
     private var generationPrimaryLine: String {
         if store.isPreparingGeneration, !store.isGenerating {
-            return "preparing_backend  status=\(store.latestGenerationLogLine)"
+            return "preparing_backend  progress=\(percentText(visibleGenerationFraction))  phase=\(store.generationPhaseName)"
         }
 
         guard let progress = store.activeGenerationProgress else {
-            return "backend=\(store.latestGenerationLogLine)  elapsed=\(clock(store.elapsedSeconds))  step=--/--  remaining=--:--"
+            let remaining = store.estimatedGenerationRemainingSeconds.map(clock) ?? "--:--"
+            return "progress=\(percentText(visibleGenerationFraction))~  elapsed=\(clock(store.elapsedSeconds))  remaining=\(remaining)  phase=\(store.generationPhaseName)"
         }
 
         let percent = percentText(progress.fractionComplete)
@@ -119,7 +120,8 @@ struct BackendStatusView: View {
     private var generationTickerLine: String {
         guard let progress = store.activeGenerationProgress,
               let fraction = progress.fractionComplete else {
-            return "\(scannerBar(elapsed: store.elapsedSeconds)) \(spinnerFrame(elapsed: store.elapsedSeconds)) \(store.latestGenerationLogLine)  elapsed=\(clock(store.elapsedSeconds))  \(tokenText)"
+            let fraction = visibleGenerationFraction ?? 0
+            return "\(progressBar(fraction: fraction)) \(percentText(fraction))~  \(spinnerFrame(elapsed: store.elapsedSeconds)) \(store.latestGenerationLogLine)  \(tokenText)"
         }
 
         return "\(progressBar(fraction: fraction)) \(percentText(fraction))  \(stepText(progress))  \(tokenText)"
@@ -141,6 +143,10 @@ struct BackendStatusView: View {
             return "text_tokens=--  speech_tokens=--"
         }
         return "text_tokens=\(progress.prefilledTextTokens)  speech_tokens=\(progress.generatedSpeechTokens)"
+    }
+
+    private var visibleGenerationFraction: Double? {
+        store.activeGenerationProgress?.fractionComplete ?? store.estimatedGenerationProgressFraction
     }
 
     private var idleIndicator: String {

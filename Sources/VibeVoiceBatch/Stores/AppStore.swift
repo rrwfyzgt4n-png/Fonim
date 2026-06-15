@@ -30,6 +30,9 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var statusMessage = "Ready"
     @Published var alertMessage: String?
     @Published private(set) var latestGenerationLogLine = "Ready"
+    @Published private(set) var estimatedGenerationProgressFraction: Double?
+    @Published private(set) var estimatedGenerationRemainingSeconds: TimeInterval?
+    @Published private(set) var generationPhaseName = "idle"
     @Published private(set) var requestedSelection: WorkstationSelection?
     @Published private var liveLogBySessionID: [String: String] = [:]
 
@@ -198,7 +201,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         isPreparingGeneration = true
         statusMessage = "Checking backend..."
-        latestGenerationLogLine = "Checking backend"
+        setLatestGenerationLogLine("Checking backend")
         Task {
             let status = await refreshBackendStatusNow()
             guard status.canStartGeneration else {
@@ -331,7 +334,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         selectedSessionID = nil
         hasUnsavedEditorText = false
         statusMessage = isGenerating ? "Queued for generation" : "Queued"
-        latestGenerationLogLine = statusMessage
+        setLatestGenerationLogLine(statusMessage)
         startNextQueuedGenerationIfIdle()
     }
 
@@ -354,9 +357,12 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isGenerating = true
         elapsedSeconds = 0
         activeGenerationProgress = nil
+        estimatedGenerationProgressFraction = 0.02
+        estimatedGenerationRemainingSeconds = nil
+        generationPhaseName = "starting"
         activeStartedAt = Date()
         statusMessage = "Starting queued generation"
-        latestGenerationLogLine = "Starting queued generation"
+        setLatestGenerationLogLine("Starting queued generation")
         updateQueuedGeneration(id: job.id) { item in
             item.status = .running
             item.statusMessage = "Starting"
@@ -392,7 +398,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func cancelGeneration() {
         guard isGenerating, let activeJobID else { return }
         statusMessage = "Cancelling generation..."
-        latestGenerationLogLine = "Cancelling generation"
+        setLatestGenerationLogLine("Cancelling generation")
         backendStatus = backendStatus.replacingState(
             .runningJob,
             userMessage: "Cancelling the current generation.",
@@ -509,7 +515,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         case .sessionStarted(let record):
             activeSessionID = record.id
             liveLogBySessionID[record.id] = ""
-            latestGenerationLogLine = "Session created: \(record.id)"
+            setLatestGenerationLogLine("Session created: \(record.id)")
             if let activeJobID {
                 updateQueuedGeneration(id: activeJobID) { item in
                     item.sessionID = record.id
@@ -526,7 +532,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             )
         case .status(let message):
             statusMessage = message
-            latestGenerationLogLine = message
+            setLatestGenerationLogLine(message)
             if let activeJobID {
                 updateQueuedGeneration(id: activeJobID) { item in
                     item.statusMessage = message
@@ -534,7 +540,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         case .progress(let snapshot):
             activeGenerationProgress = snapshot
-            latestGenerationLogLine = snapshot.message
+            if let fraction = snapshot.fractionComplete {
+                estimatedGenerationProgressFraction = fraction
+            }
+            setLatestGenerationLogLine(snapshot.message)
             updateQueuedGeneration(id: snapshot.jobID) { item in
                 item.status = .running
                 item.progressFraction = snapshot.fractionComplete
@@ -549,7 +558,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             appendLiveLog(chunk, sessionID: activeSessionID)
         case .output(let output):
             statusMessage = "Output ready: \(output.fileURL.lastPathComponent)"
-            latestGenerationLogLine = "Output ready: \(output.fileURL.lastPathComponent)"
+            setLatestGenerationLogLine("Output ready: \(output.fileURL.lastPathComponent)")
         }
     }
 
@@ -557,7 +566,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         liveLogBySessionID[sessionID, default: ""] += chunk
         if sessionID == activeSessionID {
             if let latestLine = latestTerminalLine(from: liveLogBySessionID[sessionID, default: ""]) {
-                latestGenerationLogLine = latestLine
+                setLatestGenerationLogLine(latestLine)
             }
             generationTicker = generationTicker.ingesting(
                 logText: liveLogBySessionID[sessionID, default: ""],
@@ -566,6 +575,77 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         if sessionID == selectedSessionID {
             objectWillChange.send()
+        }
+    }
+
+    private func setLatestGenerationLogLine(_ line: String) {
+        latestGenerationLogLine = line
+        updateEstimatedGenerationProgress(from: line)
+    }
+
+    private func updateEstimatedGenerationProgress(from line: String) {
+        if let estimate = GenerationOutputParser.latestEstimatedProgress(in: line) {
+            generationPhaseName = estimate.phase.replacingOccurrences(of: "_", with: " ")
+            let fraction = normalizedEstimatedGenerationFraction(estimate)
+            estimatedGenerationProgressFraction = max(estimatedGenerationProgressFraction ?? 0, fraction)
+            if let elapsed = estimate.elapsedSeconds,
+               let estimated = estimate.estimatedSeconds,
+               estimated > elapsed {
+                estimatedGenerationRemainingSeconds = estimated - elapsed
+            } else {
+                estimatedGenerationRemainingSeconds = nil
+            }
+            return
+        }
+
+        let phase = generationPhaseEstimate(for: line)
+        generationPhaseName = phase.name
+        estimatedGenerationProgressFraction = max(estimatedGenerationProgressFraction ?? 0, phase.fraction)
+        if phase.fraction < 0.70 {
+            estimatedGenerationRemainingSeconds = nil
+        }
+    }
+
+    private func generationPhaseEstimate(for line: String) -> (name: String, fraction: Double) {
+        let normalized = line.lowercased()
+        if normalized.contains("checking backend") { return ("checking backend", 0.02) }
+        if normalized.contains("queued") { return ("queued", 0.02) }
+        if normalized.contains("session created") { return ("session created", 0.04) }
+        if normalized.contains("staged input") { return ("staging input", 0.06) }
+        if normalized.contains("starting generation...") { return ("starting backend", 0.08) }
+        if normalized.contains("using device:") { return ("device ready", 0.10) }
+        if normalized.contains("found ") && normalized.contains("voice files") { return ("voices loaded", 0.12) }
+        if normalized.contains("reading script") { return ("reading script", 0.14) }
+        if normalized.contains("loading processor") { return ("loading processor", 0.18) }
+        if normalized.contains("loading file") { return ("loading tokenizer", 0.22) }
+        if normalized.contains("loading configuration") { return ("loading config", 0.28) }
+        if normalized.contains("model config") { return ("model config", 0.32) }
+        if normalized.contains("loading weights file") { return ("loading weights", 0.38) }
+        if normalized.contains("instantiating") { return ("instantiating model", 0.48) }
+        if normalized.contains("all model checkpoint weights") { return ("weights loaded", 0.56) }
+        if normalized.contains("some weights") { return ("model initialized", 0.60) }
+        if normalized.contains("ddpm inference steps") { return ("diffusion ready", 0.63) }
+        if normalized.contains("language model attention") { return ("attention ready", 0.65) }
+        if normalized.contains("using voice preset") { return ("voice loaded", 0.68) }
+        if normalized.contains("starting generation with") { return ("generating", 0.70) }
+        if normalized.contains("generation time") { return ("finalizing", 0.95) }
+        if normalized.contains("saved output") || normalized.contains("output ready") { return ("output ready", 0.98) }
+        if normalized.contains("completed") { return ("completed", 1.0) }
+        if normalized.contains("failed") { return ("failed", estimatedGenerationProgressFraction ?? 0) }
+        if normalized.contains("cancel") { return ("cancelled", estimatedGenerationProgressFraction ?? 0) }
+        return ("working", max(0.02, estimatedGenerationProgressFraction ?? 0.02))
+    }
+
+    private func normalizedEstimatedGenerationFraction(_ estimate: EstimatedGenerationProgress) -> Double {
+        switch estimate.phase {
+        case "generation":
+            return min(0.95, 0.70 + estimate.fraction * 0.25)
+        case "starting_generation":
+            return max(0.70, estimate.fraction)
+        case "finalizing":
+            return max(0.96, estimate.fraction)
+        default:
+            return estimate.fraction
         }
     }
 
@@ -641,7 +721,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         refreshHistory()
         pendingScrollSessionID = sessionID
         statusMessage = record.status.displayName
-        latestGenerationLogLine = record.status.displayName
+        estimatedGenerationProgressFraction = record.status == .completed ? 1 : estimatedGenerationProgressFraction
+        estimatedGenerationRemainingSeconds = nil
+        generationPhaseName = record.status.displayName.lowercased()
+        setLatestGenerationLogLine(record.status.displayName)
         if queuedGenerations.contains(where: { $0.status == .queued }) {
             startNextQueuedGenerationIfIdle()
         } else {
@@ -677,7 +760,9 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         refreshHistory()
         alertMessage = userFacingMessage(for: error)
         statusMessage = "Failed"
-        latestGenerationLogLine = "Failed"
+        estimatedGenerationRemainingSeconds = nil
+        generationPhaseName = "failed"
+        setLatestGenerationLogLine("Failed")
         if queuedGenerations.contains(where: { $0.status == .queued }) {
             startNextQueuedGenerationIfIdle()
         } else {
