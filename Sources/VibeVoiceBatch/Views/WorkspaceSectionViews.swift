@@ -268,8 +268,15 @@ struct VoicesView: View {
                 } else {
                     List(selection: $selectedPresetID) {
                         ForEach(workspaceStore.voicePresets) { preset in
-                            VoicePresetRow(preset: preset)
+                            VoicePresetRow(
+                                preset: preset,
+                                isSelected: selectedPresetID == preset.id
+                            )
                                 .tag(Optional(preset.id))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedPresetID = preset.id
+                                }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                     Button {
                                         duplicateVoicePreset(preset)
@@ -396,8 +403,15 @@ struct PresetsView: View {
                 } else {
                     List(selection: $selectedPresetID) {
                         ForEach(workspaceStore.generationPresets) { preset in
-                            GenerationPresetRow(preset: preset)
+                            GenerationPresetRow(
+                                preset: preset,
+                                isSelected: selectedPresetID == preset.id
+                            )
                                 .tag(Optional(preset.id))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedPresetID = preset.id
+                                }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                     Button {
                                         duplicateGenerationPreset(preset)
@@ -507,9 +521,14 @@ struct PresetsView: View {
 
 private struct VoicePresetRow: View {
     let preset: NarrationVoicePreset
+    let isSelected: Bool
 
     var body: some View {
-        Label {
+        HStack(spacing: 10) {
+            Image(systemName: "waveform")
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                .frame(width: 16)
+
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(preset.displayName)
@@ -525,8 +544,35 @@ private struct VoicePresetRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-        } icon: {
-            Image(systemName: "waveform")
+
+            Spacer(minLength: 8)
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                    .imageScale(.small)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selectionBackground)
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: 3)
+                    .padding(.vertical, 5)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    @ViewBuilder
+    private var selectionBackground: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor.opacity(0.16))
         }
     }
 }
@@ -607,9 +653,14 @@ private struct VoicePresetDetailPane: View {
 
 private struct GenerationPresetRow: View {
     let preset: NarrationGenerationPreset
+    let isSelected: Bool
 
     var body: some View {
-        Label {
+        HStack(spacing: 10) {
+            Image(systemName: "slider.horizontal.3")
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                .frame(width: 16)
+
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(preset.displayName)
@@ -625,8 +676,35 @@ private struct GenerationPresetRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-        } icon: {
-            Image(systemName: "slider.horizontal.3")
+
+            Spacer(minLength: 8)
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                    .imageScale(.small)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selectionBackground)
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: 3)
+                    .padding(.vertical, 5)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    @ViewBuilder
+    private var selectionBackground: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor.opacity(0.16))
         }
     }
 }

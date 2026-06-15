@@ -11,43 +11,74 @@ struct SidebarView: View {
             ScrollViewReader { proxy in
                 List(selection: $selection) {
                     Section("Workspace") {
-                        SidebarSectionRow(section: .projects, detail: "\(workspaceStore.projects.count)")
+                        SidebarSectionRow(
+                            section: .projects,
+                            detail: "\(workspaceStore.projects.count)",
+                            isSelected: selection == .section(.projects)
+                        )
                             .tag(WorkstationSelection.section(.projects) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.projects) }
-                        SidebarSectionRow(section: .scripts, detail: "\(workspaceStore.scripts.count)")
+                        SidebarSectionRow(
+                            section: .scripts,
+                            detail: "\(workspaceStore.scripts.count)",
+                            isSelected: selection == .section(.scripts)
+                        )
                             .tag(WorkstationSelection.section(.scripts) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.scripts) }
-                        SidebarSectionRow(section: .batches, detail: batchesDetail)
+                        SidebarSectionRow(
+                            section: .batches,
+                            detail: batchesDetail,
+                            isSelected: selection == .section(.batches)
+                        )
                             .tag(WorkstationSelection.section(.batches) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.batches) }
                     }
 
                     Section("Library") {
-                        SidebarSectionRow(section: .voices, detail: "\(workspaceStore.voicePresets.count)")
+                        SidebarSectionRow(
+                            section: .voices,
+                            detail: "\(workspaceStore.voicePresets.count)",
+                            isSelected: selection == .section(.voices)
+                        )
                             .tag(WorkstationSelection.section(.voices) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.voices) }
-                        SidebarSectionRow(section: .presets, detail: "\(workspaceStore.generationPresets.count)")
+                        SidebarSectionRow(
+                            section: .presets,
+                            detail: "\(workspaceStore.generationPresets.count)",
+                            isSelected: selection == .section(.presets)
+                        )
                             .tag(WorkstationSelection.section(.presets) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.presets) }
                     }
 
                     Section("Generation") {
-                        SidebarSectionRow(section: .outputs, detail: "\(store.outputSessions.count)")
+                        SidebarSectionRow(
+                            section: .outputs,
+                            detail: "\(store.outputSessions.count)",
+                            isSelected: selection == .section(.outputs)
+                        )
                             .tag(WorkstationSelection.section(.outputs) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.outputs) }
-                        SidebarSectionRow(section: .history, detail: "\(store.sessions.count)")
+                        SidebarSectionRow(
+                            section: .history,
+                            detail: "\(store.sessions.count)",
+                            isSelected: selection == .section(.history)
+                        )
                             .tag(WorkstationSelection.section(.history) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.history) }
 
                         ForEach(store.sessions) { record in
-                            HistoryRow(record: record)
+                            HistoryRow(
+                                record: record,
+                                isSelected: selection == .historySession(record.id)
+                            )
                                 .id(record.id)
                                 .tag(WorkstationSelection.historySession(record.id) as WorkstationSelection?)
                                 .contentShape(Rectangle())
@@ -88,11 +119,19 @@ struct SidebarView: View {
                     }
 
                     Section("System") {
-                        SidebarSectionRow(section: .backends, detail: store.backendStatus.state.displayName)
+                        SidebarSectionRow(
+                            section: .backends,
+                            detail: store.backendStatus.state.displayName,
+                            isSelected: selection == .section(.backends)
+                        )
                             .tag(WorkstationSelection.section(.backends) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.backends) }
-                        SidebarSectionRow(section: .settings, detail: nil)
+                        SidebarSectionRow(
+                            section: .settings,
+                            detail: nil,
+                            isSelected: selection == .section(.settings)
+                        )
                             .tag(WorkstationSelection.section(.settings) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.settings) }
@@ -150,11 +189,12 @@ struct SidebarView: View {
 private struct SidebarSectionRow: View {
     let section: WorkstationSection
     let detail: String?
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: section.systemImage)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
                 .frame(width: 16)
 
             Text(section.title)
@@ -169,12 +209,33 @@ private struct SidebarSectionRow: View {
                     .lineLimit(1)
             }
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selectionBackground)
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: 3)
+                    .padding(.vertical, 5)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    @ViewBuilder
+    private var selectionBackground: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor.opacity(0.16))
+        }
     }
 }
 
 private struct HistoryRow: View {
     let record: SessionRecord
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -191,9 +252,36 @@ private struct HistoryRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+
+            Spacer(minLength: 8)
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                    .imageScale(.small)
+            }
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selectionBackground)
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: 3)
+                    .padding(.vertical, 5)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    @ViewBuilder
+    private var selectionBackground: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor.opacity(0.16))
+        }
     }
 }
 
