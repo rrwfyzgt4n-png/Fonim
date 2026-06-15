@@ -537,6 +537,11 @@ private struct KokoroConnectionForm: View {
                         TextField("kokoro image name", text: binding(\.dockerImage))
                             .textFieldStyle(.roundedBorder)
                     }
+                    GridRow {
+                        Text("Container").foregroundStyle(.secondary)
+                        TextField("optional container name", text: optionalBinding(\.containerName))
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
 
                 if connection.connectionKind == .installedDockerImage ||
@@ -583,6 +588,13 @@ private struct KokoroConnectionForm: View {
         Binding(
             get: { connection[keyPath: keyPath] },
             set: { connection[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func optionalBinding(_ keyPath: WritableKeyPath<BackendConnectionSettings, String?>) -> Binding<String> {
+        Binding(
+            get: { connection[keyPath: keyPath] ?? "" },
+            set: { connection[keyPath: keyPath] = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         )
     }
 }

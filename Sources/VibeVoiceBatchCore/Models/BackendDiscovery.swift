@@ -66,6 +66,7 @@ public struct BackendDiscoveryCandidate: Codable, Equatable, Identifiable, Senda
         BackendConnectionSettings(
             connectionKind: connectionKind,
             dockerImage: dockerImage ?? "",
+            containerName: containerName,
             serviceBaseURL: serviceBaseURL ?? "",
             healthPath: healthPath,
             generatePath: generatePath,

@@ -498,6 +498,99 @@ struct VibeVoiceBatchCoreChecks {
 
         let usage = stopManager.diskUsageReport()
         precondition(usage.projectRootBytes >= usage.recoveredBytes)
+
+        let kokoroProfile = BackendProfiles.kokoroTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .installedDockerImage,
+                dockerImage: "ghcr.io/remsky/kokoro-fastapi-cpu:latest",
+                containerName: "vibevoice_batch_kokoro_tts",
+                serviceBaseURL: "http://127.0.0.1:8880",
+                modelID: "tts-1",
+                defaultVoice: "af_heart"
+            )
+        )
+        precondition(kokoroProfile.containerName == "vibevoice_batch_kokoro_tts")
+
+        let kokoroInstallSpy = BackendProcessSpy { arguments in
+            if arguments.contains("info") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+            if arguments.contains("pull") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "Pulled Kokoro")
+            }
+            return BackendProcessResult(exitCode: 0, combinedOutput: "")
+        }
+        let kokoroInstallManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { executable, arguments in
+                kokoroInstallSpy.run(executable: executable, arguments: arguments)
+            }
+        )
+        let kokoroInstall = kokoroInstallManager.performOperation(.install, for: kokoroProfile)
+        precondition(kokoroInstall.status == .succeeded)
+        precondition(kokoroInstallSpy.calls.contains { $0.contains("pull") && $0.contains("ghcr.io/remsky/kokoro-fastapi-cpu:latest") })
+
+        let kokoroPrepareSpy = BackendProcessSpy { arguments in
+            if arguments.contains("info") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+            if arguments.contains("inspect") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro image")
+            }
+            if arguments.contains("ps") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "")
+            }
+            if arguments.contains("run") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "started-kokoro")
+            }
+            return BackendProcessResult(exitCode: 0, combinedOutput: "")
+        }
+        let kokoroPrepareManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { executable, arguments in
+                kokoroPrepareSpy.run(executable: executable, arguments: arguments)
+            },
+            httpRunner: { _ in
+                if kokoroPrepareSpy.calls.contains(where: { $0.contains("run") }) {
+                    return BackendHTTPResult(statusCode: 200, body: "{\"status\":\"ready\"}")
+                }
+                return BackendHTTPResult(errorDescription: "Connection refused")
+            }
+        )
+        let kokoroPrepare = kokoroPrepareManager.performOperation(.prepare, for: kokoroProfile)
+        precondition(kokoroPrepare.status == .succeeded)
+        precondition(kokoroPrepareSpy.calls.contains { call in
+            call.contains("run") &&
+                call.contains("--name") &&
+                call.contains("vibevoice_batch_kokoro_tts") &&
+                call.contains("-p") &&
+                call.contains("8880:8880")
+        })
+
+        let kokoroStopSpy = BackendProcessSpy { arguments in
+            if arguments.contains("info") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+            if arguments.contains("ps") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "vibevoice_batch_kokoro_tts\n")
+            }
+            if arguments.contains("stop") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "vibevoice_batch_kokoro_tts")
+            }
+            return BackendProcessResult(exitCode: 0, combinedOutput: "")
+        }
+        let kokoroStopManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { executable, arguments in
+                kokoroStopSpy.run(executable: executable, arguments: arguments)
+            }
+        )
+        let kokoroStop = kokoroStopManager.performOperation(.stop, for: kokoroProfile)
+        precondition(kokoroStop.status == .succeeded)
+        precondition(kokoroStopSpy.calls.contains { $0.first == "stop" && $0.contains("vibevoice_batch_kokoro_tts") })
     }
 
     private static func checkWorkspaceDataModel() throws {

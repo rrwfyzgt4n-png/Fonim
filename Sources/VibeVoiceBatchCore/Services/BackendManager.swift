@@ -805,7 +805,8 @@ public final class BackendManager: @unchecked Sendable {
 
     private func installBackend(_ profile: BackendProfile) -> BackendOperationResult {
         let startedAt = Date()
-        guard profile.runtime == .docker, profile.installMethod == .managedDockerImage else {
+        guard profile.runtime == .docker,
+              profile.installMethod == .managedDockerImage || profile.engineType == .kokoro else {
             return operationResult(
                 profile: profile,
                 kind: .install,
@@ -896,6 +897,9 @@ public final class BackendManager: @unchecked Sendable {
         guard let docker = dockerRuntimeForOperation(profile: profile, kind: .prepare, startedAt: startedAt) else {
             return missingDockerResult(profile: profile, kind: .prepare, startedAt: startedAt, directoryLog: directoryLog)
         }
+        if profile.engineType == .kokoro {
+            return prepareKokoroDockerBackend(profile, docker: docker, directoryLog: directoryLog, startedAt: startedAt)
+        }
         guard let image = profile.dockerImage else {
             return operationResult(
                 profile: profile,
@@ -932,6 +936,9 @@ public final class BackendManager: @unchecked Sendable {
         }
         guard let docker = dockerRuntimeForOperation(profile: profile, kind: .stop, startedAt: startedAt, requireRunning: false) else {
             return missingDockerResult(profile: profile, kind: .stop, startedAt: startedAt)
+        }
+        if profile.engineType == .kokoro {
+            return stopKokoroDockerBackend(profile, docker: docker, startedAt: startedAt)
         }
 
         let list = runProcess(
@@ -975,6 +982,184 @@ public final class BackendManager: @unchecked Sendable {
             message: ok ? "Stopped \(names.count) app-owned backend container\(names.count == 1 ? "" : "s")." : "Could not stop every app-owned backend container.",
             recoverySuggestion: ok ? nil : "Try cancelling any active generation, then stop the backend again.",
             technicalDetails: [list.combinedOutput, stop.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        )
+    }
+
+    private func prepareKokoroDockerBackend(
+        _ profile: BackendProfile,
+        docker: DockerRuntimeOperationContext,
+        directoryLog: String,
+        startedAt: Date
+    ) -> BackendOperationResult {
+        guard let image = profile.dockerImage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !image.isEmpty else {
+            return operationResult(
+                profile: profile,
+                kind: .prepare,
+                status: .failed,
+                startedAt: startedAt,
+                message: "Kokoro needs a Docker image before it can be prepared.",
+                recoverySuggestion: "Use discovery or enter the image name in the setup assistant.",
+                technicalDetails: directoryLog
+            )
+        }
+
+        let inspect = runProcess(executable: docker.executablePath, arguments: ["image", "inspect", image])
+        guard inspect.exitCode == 0 else {
+            return operationResult(
+                profile: profile,
+                kind: .prepare,
+                status: .failed,
+                startedAt: startedAt,
+                message: "\(image) is not available locally.",
+                recoverySuggestion: "Press Install to pull the configured image, then prepare again.",
+                technicalDetails: [directoryLog, inspect.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            )
+        }
+
+        guard let healthCheckURL = profile.healthCheckURL else {
+            return operationResult(
+                profile: profile,
+                kind: .prepare,
+                status: .failed,
+                startedAt: startedAt,
+                message: "Kokoro needs a local service URL before it can be started.",
+                recoverySuggestion: "Enter a service URL such as http://127.0.0.1:8880 in the setup assistant.",
+                technicalDetails: [directoryLog, inspect.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            )
+        }
+
+        let existingHealth = httpHealthReport(
+            profile: profile,
+            url: healthCheckURL,
+            fallbackDetails: [directoryLog, inspect.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        )
+        if existingHealth.state == .ready {
+            return operationResult(
+                profile: profile,
+                kind: .prepare,
+                status: .succeeded,
+                startedAt: startedAt,
+                message: "\(profile.displayName) is already running.",
+                technicalDetails: existingHealth.technicalDetails
+            )
+        }
+
+        let containerName = kokoroContainerName(for: profile)
+        let startResult: BackendProcessResult
+        let runningContainerList = dockerContainerNames(
+            executable: docker.executablePath,
+            filter: containerName,
+            includeStopped: false
+        )
+        let containerList = dockerContainerNames(
+            executable: docker.executablePath,
+            filter: containerName,
+            includeStopped: true
+        )
+        if runningContainerList.contains(containerName) {
+            startResult = BackendProcessResult(exitCode: 0, combinedOutput: "\(containerName) is already running.")
+        } else if containerList.contains(containerName) {
+            startResult = runProcess(executable: docker.executablePath, arguments: ["start", containerName])
+        } else {
+            guard let hostPort = servicePort(from: healthCheckURL) else {
+                return operationResult(
+                    profile: profile,
+                    kind: .prepare,
+                    status: .failed,
+                    startedAt: startedAt,
+                    message: "Kokoro service URL needs an explicit port.",
+                    recoverySuggestion: "Use a service URL such as http://127.0.0.1:8880.",
+                    technicalDetails: [directoryLog, inspect.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                )
+            }
+            startResult = runProcess(
+                executable: docker.executablePath,
+                arguments: [
+                    "run",
+                    "-d",
+                    "--name",
+                    containerName,
+                    "-p",
+                    "\(hostPort):\(hostPort)",
+                    image
+                ]
+            )
+        }
+
+        guard startResult.exitCode == 0 else {
+            return operationResult(
+                profile: profile,
+                kind: .prepare,
+                status: .failed,
+                startedAt: startedAt,
+                message: "Could not start the Kokoro service container.",
+                recoverySuggestion: "Check whether the port is already in use or remove the old container, then prepare again.",
+                technicalDetails: [directoryLog, inspect.combinedOutput, startResult.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            )
+        }
+
+        let ready = waitForHTTPReady(
+            profile: profile,
+            url: healthCheckURL,
+            fallbackDetails: [directoryLog, inspect.combinedOutput, startResult.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        )
+        return operationResult(
+            profile: profile,
+            kind: .prepare,
+            status: ready.state == .ready ? .succeeded : .failed,
+            startedAt: startedAt,
+            message: ready.state == .ready ? "\(profile.displayName) is ready to generate." : "Kokoro started, but did not become ready yet.",
+            recoverySuggestion: ready.state == .ready ? nil : "Wait a moment, then run Health Check. If it still fails, inspect the backend logs.",
+            technicalDetails: ready.technicalDetails
+        )
+    }
+
+    private func stopKokoroDockerBackend(
+        _ profile: BackendProfile,
+        docker: DockerRuntimeOperationContext,
+        startedAt: Date
+    ) -> BackendOperationResult {
+        let configuredName = profile.containerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let appOwnedName = kokoroContainerName(for: profile)
+        let candidateNames: [String?] = [configuredName, appOwnedName]
+        let namesToInspect = Set<String>(candidateNames.compactMap { name in
+            guard let name, !name.isEmpty else { return nil }
+            return name
+        })
+
+        var runningNames: [String] = []
+        var details: [String] = []
+        for name in namesToInspect {
+            let names = dockerContainerNames(executable: docker.executablePath, filter: name, includeStopped: false)
+            runningNames.append(contentsOf: names.filter { $0 == name })
+            if !names.isEmpty {
+                details.append(names.joined(separator: "\n"))
+            }
+        }
+        runningNames = Array(Set(runningNames)).sorted()
+
+        if runningNames.isEmpty {
+            return operationResult(
+                profile: profile,
+                kind: .stop,
+                status: .succeeded,
+                startedAt: startedAt,
+                message: "No configured Kokoro service container is running.",
+                technicalDetails: details.joined(separator: "\n\n")
+            )
+        }
+
+        let stop = runProcess(executable: docker.executablePath, arguments: ["stop"] + runningNames)
+        let ok = stop.exitCode == 0
+        return operationResult(
+            profile: profile,
+            kind: .stop,
+            status: ok ? .succeeded : .failed,
+            startedAt: startedAt,
+            message: ok ? "Stopped Kokoro service." : "Could not stop the Kokoro service.",
+            recoverySuggestion: ok ? nil : "Check Docker Desktop, then try again.",
+            technicalDetails: (details + [stop.combinedOutput]).filter { !$0.isEmpty }.joined(separator: "\n\n")
         )
     }
 
@@ -1222,8 +1407,9 @@ public final class BackendManager: @unchecked Sendable {
                     confidence: .medium,
                     connectionKind: .installedDockerImage,
                     dockerImage: image,
-                    serviceBaseURL: nil,
-                    notes: "Image found locally. Start it or enter the service URL if it is already running.",
+                    containerName: "vibevoice_batch_kokoro_tts",
+                    serviceBaseURL: "http://127.0.0.1:8880",
+                    notes: "Image found locally. Prepare can start an app-owned Kokoro service on port 8880.",
                     technicalDetails: [imageID, size].filter { !$0.isEmpty }.joined(separator: "  ")
                 )
             }
@@ -1283,6 +1469,75 @@ public final class BackendManager: @unchecked Sendable {
         .joined()
         .split(separator: "-")
         .joined(separator: "-")
+    }
+
+    private func kokoroContainerName(for profile: BackendProfile) -> String {
+        if let configured = profile.containerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !configured.isEmpty {
+            return configured
+        }
+        let suffix = stableIdentifier(profile.id).replacingOccurrences(of: "-", with: "_")
+        return "vibevoice_batch_\(suffix)"
+    }
+
+    private func dockerContainerNames(
+        executable: String,
+        filter: String,
+        includeStopped: Bool
+    ) -> [String] {
+        var arguments = includeStopped ? ["ps", "-a"] : ["ps"]
+        arguments += ["--filter", "name=\(filter)", "--format", "{{.Names}}"]
+        let result = runProcess(executable: executable, arguments: arguments)
+        guard result.exitCode == 0 else { return [] }
+        return result.combinedOutput
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func servicePort(from url: URL) -> Int? {
+        url.port
+    }
+
+    private func waitForHTTPReady(
+        profile: BackendProfile,
+        url: URL,
+        fallbackDetails: String
+    ) -> BackendHealthReport {
+        var lastResponse = BackendHTTPResult()
+        for attempt in 1...12 {
+            let response = httpGet(url: url, timeout: 1)
+            lastResponse = response
+            if let statusCode = response.statusCode, (200..<300).contains(statusCode), response.errorDescription == nil {
+                return BackendHealthReport(
+                    profileID: profile.id,
+                    state: .ready,
+                    userMessage: "\(profile.displayName) answered the health check.",
+                    technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", response.body].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                )
+            }
+            if attempt < 12 {
+                Thread.sleep(forTimeInterval: 1)
+            }
+        }
+
+        return BackendHealthReport(
+            profileID: profile.id,
+            state: .failed,
+            userMessage: "\(profile.displayName) did not answer the health check.",
+            recoverySuggestion: "Start the local service, then refresh backend status.",
+            technicalDetails: [
+                fallbackDetails,
+                "URL: \(url.absoluteString)",
+                lastResponse.errorDescription,
+                lastResponse.statusCode.map { "HTTP status: \($0)" },
+                lastResponse.body
+            ]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        )
     }
 
     private func dockerRuntimeForOperation(

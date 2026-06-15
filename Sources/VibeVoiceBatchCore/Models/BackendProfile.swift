@@ -49,6 +49,7 @@ public enum BackendConnectionKind: String, Codable, CaseIterable, Equatable, Sen
 public struct BackendConnectionSettings: Codable, Equatable, Sendable {
     public var connectionKind: BackendConnectionKind
     public var dockerImage: String
+    public var containerName: String?
     public var serviceBaseURL: String
     public var healthPath: String
     public var generatePath: String
@@ -60,6 +61,7 @@ public struct BackendConnectionSettings: Codable, Equatable, Sendable {
     public init(
         connectionKind: BackendConnectionKind = .managed,
         dockerImage: String = "",
+        containerName: String? = nil,
         serviceBaseURL: String = "",
         healthPath: String = "/health",
         generatePath: String = "/v1/audio/speech",
@@ -70,6 +72,7 @@ public struct BackendConnectionSettings: Codable, Equatable, Sendable {
     ) {
         self.connectionKind = connectionKind
         self.dockerImage = dockerImage
+        self.containerName = containerName
         self.serviceBaseURL = serviceBaseURL
         self.healthPath = healthPath
         self.generatePath = generatePath
@@ -106,6 +109,11 @@ public struct BackendConnectionSettings: Codable, Equatable, Sendable {
 
     public var trimmedDockerImage: String? {
         nonEmpty(dockerImage)
+    }
+
+    public var trimmedContainerName: String? {
+        guard let containerName else { return nil }
+        return nonEmpty(containerName)
     }
 
     public var trimmedServiceBaseURL: String? {
@@ -184,6 +192,7 @@ public struct BackendProfile: Codable, Equatable, Identifiable, Sendable {
     public let installMethod: BackendInstallMethod
     public let runtime: BackendRuntime
     public let dockerImage: String?
+    public let containerName: String?
     public let requiredModels: [RequiredModel]
     public let requiredDiskSpaceGB: Double?
     public let requiredMemoryGB: Double?
@@ -207,6 +216,7 @@ public struct BackendProfile: Codable, Equatable, Identifiable, Sendable {
         installMethod: BackendInstallMethod,
         runtime: BackendRuntime,
         dockerImage: String? = nil,
+        containerName: String? = nil,
         requiredModels: [RequiredModel],
         requiredDiskSpaceGB: Double? = nil,
         requiredMemoryGB: Double? = nil,
@@ -229,6 +239,7 @@ public struct BackendProfile: Codable, Equatable, Identifiable, Sendable {
         self.installMethod = installMethod
         self.runtime = runtime
         self.dockerImage = dockerImage
+        self.containerName = containerName
         self.requiredModels = requiredModels
         self.requiredDiskSpaceGB = requiredDiskSpaceGB
         self.requiredMemoryGB = requiredMemoryGB
@@ -394,6 +405,7 @@ public extension BackendProfile {
             installMethod: installMethod,
             runtime: runtime,
             dockerImage: dockerImage,
+            containerName: connection.trimmedContainerName,
             requiredModels: [model],
             requiredDiskSpaceGB: requiredDiskSpaceGB,
             requiredMemoryGB: requiredMemoryGB,
