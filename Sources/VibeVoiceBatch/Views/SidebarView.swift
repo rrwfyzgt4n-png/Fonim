@@ -13,29 +13,45 @@ struct SidebarView: View {
                     Section("Workspace") {
                         SidebarSectionRow(section: .projects, detail: "\(workspaceStore.projects.count)")
                             .tag(WorkstationSelection.section(.projects) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.projects) }
                         SidebarSectionRow(section: .scripts, detail: "\(workspaceStore.scripts.count)")
                             .tag(WorkstationSelection.section(.scripts) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.scripts) }
                         SidebarSectionRow(section: .batches, detail: batchesDetail)
                             .tag(WorkstationSelection.section(.batches) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.batches) }
                     }
 
                     Section("Library") {
                         SidebarSectionRow(section: .voices, detail: "\(workspaceStore.voicePresets.count)")
                             .tag(WorkstationSelection.section(.voices) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.voices) }
                         SidebarSectionRow(section: .presets, detail: "\(workspaceStore.generationPresets.count)")
                             .tag(WorkstationSelection.section(.presets) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.presets) }
                     }
 
                     Section("Generation") {
                         SidebarSectionRow(section: .outputs, detail: "\(store.outputSessions.count)")
                             .tag(WorkstationSelection.section(.outputs) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.outputs) }
                         SidebarSectionRow(section: .history, detail: "\(store.sessions.count)")
                             .tag(WorkstationSelection.section(.history) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.history) }
 
                         ForEach(store.sessions) { record in
                             HistoryRow(record: record)
                                 .id(record.id)
                                 .tag(WorkstationSelection.historySession(record.id) as WorkstationSelection?)
+                                .contentShape(Rectangle())
+                                .onTapGesture { selectHistory(record) }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                     Button {
                                         store.duplicateAsNew(record)
@@ -74,8 +90,12 @@ struct SidebarView: View {
                     Section("System") {
                         SidebarSectionRow(section: .backends, detail: store.backendStatus.state.displayName)
                             .tag(WorkstationSelection.section(.backends) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.backends) }
                         SidebarSectionRow(section: .settings, detail: nil)
                             .tag(WorkstationSelection.section(.settings) as WorkstationSelection?)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectSection(.settings) }
                     }
                 }
                 .listStyle(.sidebar)
@@ -115,6 +135,16 @@ struct SidebarView: View {
         }
         return "\(workspaceStore.batches.count)"
     }
+
+    private func selectSection(_ section: WorkstationSection) {
+        selection = .section(section)
+        store.selectedSessionID = nil
+    }
+
+    private func selectHistory(_ record: SessionRecord) {
+        selection = .historySession(record.id)
+        store.selectedSessionID = record.id
+    }
 }
 
 private struct SidebarSectionRow: View {
@@ -139,6 +169,7 @@ private struct SidebarSectionRow: View {
                     .lineLimit(1)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -162,6 +193,7 @@ private struct HistoryRow: View {
             }
         }
         .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

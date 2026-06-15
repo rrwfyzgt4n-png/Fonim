@@ -98,6 +98,14 @@ struct VibeVoiceBatchCoreChecks {
         precondition(abs(progress.percent - 3.6376953125) < 0.0001)
         precondition(progress.reportedElapsedSeconds == 27)
 
+        let coloredProgressText = "\u{001B}[32mPrefilled 12 text tokens, generated 34 speech tokens, current step (50 / 100):  50%| | 50/100 [00:10]\u{001B}[0m"
+        guard let coloredProgress = GenerationOutputParser.latestProgress(in: coloredProgressText) else {
+            throw CheckError("Expected ANSI-wrapped live progress")
+        }
+        precondition(coloredProgress.currentStep == 50)
+        precondition(coloredProgress.maxSteps == 100)
+        precondition(coloredProgress.reportedElapsedSeconds == 10)
+
         let summaryText = """
         Input file: /app/input.txt
         Output file: /app/outputs/input_generated.wav

@@ -158,8 +158,8 @@ struct ContentView: View {
             BackendsView()
         case .section(.settings):
             SettingsLandingView()
-        case .historySession:
-            if let session = store.selectedSession {
+        case .historySession(let sessionID):
+            if let session = store.session(id: sessionID) {
                 SessionDetailView(record: session)
             } else {
                 EditorView()

@@ -71,6 +71,9 @@ struct BackendStatusView: View {
         if store.isGenerating {
             return "> GENERATING_WAV  RUNNING  voice=\(store.selectedVoice)  cfg=\(store.cfgScale)  ddpm=\(store.ddpmInferenceSteps)"
         }
+        if store.isPreparingGeneration {
+            return "> GENERATING_WAV  PREPARING  voice=\(store.selectedVoice)  cfg=\(store.cfgScale)  ddpm=\(store.ddpmInferenceSteps)"
+        }
         if store.isPlayingWAV {
             return "> PLAYING_WAV  PLAYING  session=\(store.playingSessionID ?? "output.wav")"
         }
@@ -78,7 +81,7 @@ struct BackendStatusView: View {
     }
 
     private var primaryLine: String {
-        if store.isGenerating {
+        if store.isGenerating || store.isPreparingGeneration {
             return generationPrimaryLine
         }
         if store.isPlayingWAV {
@@ -88,7 +91,7 @@ struct BackendStatusView: View {
     }
 
     private var tickerLine: String {
-        if store.isGenerating {
+        if store.isGenerating || store.isPreparingGeneration {
             return generationTickerLine
         }
         if store.isPlayingWAV {
@@ -98,8 +101,12 @@ struct BackendStatusView: View {
     }
 
     private var generationPrimaryLine: String {
+        if store.isPreparingGeneration, !store.isGenerating {
+            return "preparing_backend  status=\(store.latestGenerationLogLine)"
+        }
+
         guard let progress = store.activeGenerationProgress else {
-            return "waiting_for_progress  elapsed=\(clock(store.elapsedSeconds))  step=--/--  remaining=--:--"
+            return "backend=\(store.latestGenerationLogLine)  elapsed=\(clock(store.elapsedSeconds))  step=--/--  remaining=--:--"
         }
 
         let percent = percentText(progress.fractionComplete)
@@ -112,7 +119,7 @@ struct BackendStatusView: View {
     private var generationTickerLine: String {
         guard let progress = store.activeGenerationProgress,
               let fraction = progress.fractionComplete else {
-            return "\(scannerBar(elapsed: store.elapsedSeconds)) \(spinnerFrame(elapsed: store.elapsedSeconds)) warming_up  elapsed=\(clock(store.elapsedSeconds))  \(tokenText)"
+            return "\(scannerBar(elapsed: store.elapsedSeconds)) \(spinnerFrame(elapsed: store.elapsedSeconds)) \(store.latestGenerationLogLine)  elapsed=\(clock(store.elapsedSeconds))  \(tokenText)"
         }
 
         return "\(progressBar(fraction: fraction)) \(percentText(fraction))  \(stepText(progress))  \(tokenText)"
@@ -194,7 +201,7 @@ struct BackendStatusView: View {
     }
 
     private var terminalAccent: Color {
-        if store.isGenerating {
+        if store.isGenerating || store.isPreparingGeneration {
             return Color(red: 0.18, green: 0.72, blue: 1.0)
         }
         if store.isPlayingWAV {

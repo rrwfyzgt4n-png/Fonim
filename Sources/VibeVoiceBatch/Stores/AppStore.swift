@@ -29,6 +29,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var selectedQueueItemID: String?
     @Published var statusMessage = "Ready"
     @Published var alertMessage: String?
+    @Published private(set) var latestGenerationLogLine = "Ready"
     @Published private var liveLogBySessionID: [String: String] = [:]
 
     private let settingsStore: SettingsStore
@@ -62,7 +63,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     var selectedSession: SessionRecord? {
         guard let selectedSessionID else { return nil }
-        return sessions.first { $0.id == selectedSessionID }
+        return session(id: selectedSessionID)
+    }
+
+    func session(id: String) -> SessionRecord? {
+        sessions.first { $0.id == id }
     }
 
     var outputSessions: [SessionRecord] {
@@ -191,6 +196,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         isPreparingGeneration = true
         statusMessage = "Checking backend..."
+        latestGenerationLogLine = "Checking backend"
         Task {
             let status = await refreshBackendStatusNow()
             guard status.canStartGeneration else {
@@ -322,6 +328,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         selectedSessionID = nil
         hasUnsavedEditorText = false
         statusMessage = isGenerating ? "Queued for generation" : "Queued"
+        latestGenerationLogLine = statusMessage
         startNextQueuedGenerationIfIdle()
     }
 
@@ -346,6 +353,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeGenerationProgress = nil
         activeStartedAt = Date()
         statusMessage = "Starting queued generation"
+        latestGenerationLogLine = "Starting queued generation"
         updateQueuedGeneration(id: job.id) { item in
             item.status = .running
             item.statusMessage = "Starting"
@@ -381,6 +389,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func cancelGeneration() {
         guard isGenerating, let activeJobID else { return }
         statusMessage = "Cancelling generation..."
+        latestGenerationLogLine = "Cancelling generation"
         backendStatus = backendStatus.replacingState(
             .runningJob,
             userMessage: "Cancelling the current generation.",
@@ -492,6 +501,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         case .sessionStarted(let record):
             activeSessionID = record.id
             liveLogBySessionID[record.id] = ""
+            latestGenerationLogLine = "Session created: \(record.id)"
             if let activeJobID {
                 updateQueuedGeneration(id: activeJobID) { item in
                     item.sessionID = record.id
@@ -508,6 +518,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             )
         case .status(let message):
             statusMessage = message
+            latestGenerationLogLine = message
             if let activeJobID {
                 updateQueuedGeneration(id: activeJobID) { item in
                     item.statusMessage = message
@@ -515,6 +526,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         case .progress(let snapshot):
             activeGenerationProgress = snapshot
+            latestGenerationLogLine = snapshot.message
             updateQueuedGeneration(id: snapshot.jobID) { item in
                 item.status = .running
                 item.progressFraction = snapshot.fractionComplete
@@ -529,12 +541,16 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             appendLiveLog(chunk, sessionID: activeSessionID)
         case .output(let output):
             statusMessage = "Output ready: \(output.fileURL.lastPathComponent)"
+            latestGenerationLogLine = "Output ready: \(output.fileURL.lastPathComponent)"
         }
     }
 
     private func appendLiveLog(_ chunk: String, sessionID: String) {
         liveLogBySessionID[sessionID, default: ""] += chunk
         if sessionID == activeSessionID {
+            if let latestLine = latestTerminalLine(from: liveLogBySessionID[sessionID, default: ""]) {
+                latestGenerationLogLine = latestLine
+            }
             generationTicker = generationTicker.ingesting(
                 logText: liveLogBySessionID[sessionID, default: ""],
                 elapsed: elapsedSeconds
@@ -543,6 +559,42 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if sessionID == selectedSessionID {
             objectWillChange.send()
         }
+    }
+
+    private func latestTerminalLine(from text: String) -> String? {
+        let cleaned = removingANSIEscapeSequences(from: text)
+        let parts = cleaned.components(separatedBy: CharacterSet(charactersIn: "\r\n"))
+        guard let line = parts
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .last(where: { !$0.isEmpty }) else {
+            return nil
+        }
+        return String(line.prefix(220))
+    }
+
+    private func removingANSIEscapeSequences(from text: String) -> String {
+        var output = String.UnicodeScalarView()
+        var iterator = text.unicodeScalars.makeIterator()
+
+        while let scalar = iterator.next() {
+            if scalar.value == 0x1B {
+                while let next = iterator.next() {
+                    if next.value >= 0x40, next.value <= 0x7E {
+                        break
+                    }
+                }
+                continue
+            }
+
+            if scalar.value == 0x09 ||
+                scalar.value == 0x0A ||
+                scalar.value == 0x0D ||
+                scalar.value >= 0x20 {
+                output.append(scalar)
+            }
+        }
+
+        return String(output)
     }
 
     private func completeGeneration(record: GenerationRecord) {
@@ -581,6 +633,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         refreshHistory()
         pendingScrollSessionID = sessionID
         statusMessage = record.status.displayName
+        latestGenerationLogLine = record.status.displayName
         if queuedGenerations.contains(where: { $0.status == .queued }) {
             startNextQueuedGenerationIfIdle()
         } else {
@@ -616,6 +669,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         refreshHistory()
         alertMessage = userFacingMessage(for: error)
         statusMessage = "Failed"
+        latestGenerationLogLine = "Failed"
         if queuedGenerations.contains(where: { $0.status == .queued }) {
             startNextQueuedGenerationIfIdle()
         } else {

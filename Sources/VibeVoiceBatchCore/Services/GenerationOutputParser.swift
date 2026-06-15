@@ -52,7 +52,7 @@ public struct FinalGenerationSummary: Equatable {
 
 public enum GenerationOutputParser {
     public static func latestProgress(in logText: String) -> LiveGenerationProgress? {
-        let suffix = String(logText.suffix(64_000))
+        let suffix = normalizedSuffix(logText)
         let pattern = #"Prefilled\s+(\d+)\s+text tokens,\s+generated\s+(\d+)\s+speech tokens,\s+current step\s+\(\s*(\d+)\s*/\s*(\d+)\s*\)"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -78,7 +78,7 @@ public enum GenerationOutputParser {
     }
 
     public static func latestSummary(in logText: String) -> FinalGenerationSummary? {
-        let suffix = String(logText.suffix(64_000))
+        let suffix = normalizedSuffix(logText)
         var summary = FinalGenerationSummary()
 
         summary.inputFile = lastString(pattern: #"Input file:\s+(.+)"#, in: suffix)
@@ -94,6 +94,35 @@ public enum GenerationOutputParser {
         summary.rtf = lastDouble(pattern: #"RTF \(Real Time Factor\):\s+([\d.]+)x"#, in: suffix)
 
         return summary.isEmpty ? nil : summary
+    }
+
+    private static func normalizedSuffix(_ text: String) -> String {
+        String(removingANSIEscapeSequences(from: text).suffix(64_000))
+    }
+
+    private static func removingANSIEscapeSequences(from text: String) -> String {
+        var output = String.UnicodeScalarView()
+        var iterator = text.unicodeScalars.makeIterator()
+
+        while let scalar = iterator.next() {
+            if scalar.value == 0x1B {
+                while let next = iterator.next() {
+                    if next.value >= 0x40, next.value <= 0x7E {
+                        break
+                    }
+                }
+                continue
+            }
+
+            if scalar.value == 0x09 ||
+                scalar.value == 0x0A ||
+                scalar.value == 0x0D ||
+                scalar.value >= 0x20 {
+                output.append(scalar)
+            }
+        }
+
+        return String(output)
     }
 
     private static func reportedElapsedSeconds(after match: NSTextCheckingResult, in text: String) -> TimeInterval? {
