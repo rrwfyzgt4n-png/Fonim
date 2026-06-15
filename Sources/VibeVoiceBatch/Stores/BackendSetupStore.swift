@@ -4,7 +4,9 @@ import VibeVoiceBatchCore
 @MainActor
 final class BackendSetupStore: ObservableObject {
     @Published private(set) var report: BackendSetupReport?
+    @Published private(set) var discoveryReport: BackendDiscoveryReport?
     @Published private(set) var isChecking = false
+    @Published private(set) var isDiscovering = false
     @Published var selectedStage: BackendSetupStage = .welcome
 
     private let backendManager: BackendManager
@@ -23,9 +25,24 @@ final class BackendSetupStore: ObservableObject {
         }
     }
 
+    func runDiscovery(profile: BackendProfile) {
+        guard !isDiscovering else { return }
+        isDiscovering = true
+        Task {
+            let report = await backendManager.discoveryReportAsync(for: profile)
+            self.discoveryReport = report
+            self.isDiscovering = false
+        }
+    }
+
     func reset() {
         report = nil
+        discoveryReport = nil
         selectedStage = .welcome
+    }
+
+    func clearDiscovery() {
+        discoveryReport = nil
     }
 }
 

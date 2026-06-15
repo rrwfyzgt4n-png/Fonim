@@ -422,6 +422,66 @@ public final class BackendManager: @unchecked Sendable {
         }
     }
 
+    public func discoveryReport(for profile: BackendProfile, generatedAt: Date = Date()) -> BackendDiscoveryReport {
+        guard profile.engineType == .kokoro else {
+            return BackendDiscoveryReport(
+                profileID: profile.id,
+                generatedAt: generatedAt,
+                candidates: [],
+                message: "Automatic discovery is not available for \(profile.displayName) yet."
+            )
+        }
+
+        let docker = dockerRuntimeReport()
+        guard docker.isInstalled, docker.isRunning, let dockerExecutable = docker.executablePath else {
+            return BackendDiscoveryReport(
+                profileID: profile.id,
+                generatedAt: generatedAt,
+                candidates: [],
+                message: docker.isInstalled ? "Docker Desktop is not running." : "Docker Desktop was not found.",
+                technicalDetails: docker.details
+            )
+        }
+
+        let images = runProcess(
+            executable: dockerExecutable,
+            arguments: ["images", "--format", "{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}"]
+        )
+        let containers = runProcess(
+            executable: dockerExecutable,
+            arguments: ["ps", "--format", "{{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}"]
+        )
+
+        var candidates = dockerContainerDiscoveryCandidates(from: containers.combinedOutput)
+        let runningImages = Set(candidates.compactMap(\.dockerImage))
+        candidates.append(
+            contentsOf: dockerImageDiscoveryCandidates(from: images.combinedOutput)
+                .filter { candidate in
+                    guard let image = candidate.dockerImage else { return true }
+                    return !runningImages.contains(image)
+                }
+        )
+
+        return BackendDiscoveryReport(
+            profileID: profile.id,
+            generatedAt: generatedAt,
+            candidates: candidates,
+            message: candidates.isEmpty ? "No likely Kokoro runtime was found." : "Found \(candidates.count) likely Kokoro runtime\(candidates.count == 1 ? "" : "s").",
+            technicalDetails: [docker.details, images.combinedOutput, containers.combinedOutput]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
+        )
+    }
+
+    public func discoveryReportAsync(for profile: BackendProfile, generatedAt: Date = Date()) async -> BackendDiscoveryReport {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: self.discoveryReport(for: profile, generatedAt: generatedAt))
+            }
+        }
+    }
+
     private func kokoroDockerHealthReport(
         profile: BackendProfile,
         docker: DockerRuntimeReport
@@ -945,6 +1005,88 @@ public final class BackendManager: @unchecked Sendable {
             recoverySuggestion: health.recoverySuggestion,
             technicalDetails: health.technicalDetails
         )
+    }
+
+    private func dockerImageDiscoveryCandidates(from output: String) -> [BackendDiscoveryCandidate] {
+        output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> BackendDiscoveryCandidate? in
+                let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                guard let image = fields.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !image.isEmpty,
+                      !image.contains("<none>"),
+                      isLikelyKokoro(text: image) else {
+                    return nil
+                }
+                let imageID = fields.dropFirst().first ?? ""
+                let size = fields.dropFirst(2).first ?? ""
+                return BackendDiscoveryCandidate(
+                    id: "image-\(stableIdentifier(image))",
+                    title: image,
+                    confidence: .medium,
+                    connectionKind: .installedDockerImage,
+                    dockerImage: image,
+                    serviceBaseURL: nil,
+                    notes: "Image found locally. Start it or enter the service URL if it is already running.",
+                    technicalDetails: [imageID, size].filter { !$0.isEmpty }.joined(separator: "  ")
+                )
+            }
+    }
+
+    private func dockerContainerDiscoveryCandidates(from output: String) -> [BackendDiscoveryCandidate] {
+        output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> BackendDiscoveryCandidate? in
+                let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                guard fields.count >= 4 else { return nil }
+                let name = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let image = fields[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                let ports = fields[2].trimmingCharacters(in: .whitespacesAndNewlines)
+                let status = fields[3].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard isLikelyKokoro(text: [name, image].joined(separator: " ")) else { return nil }
+
+                let serviceBaseURL = serviceURL(fromDockerPorts: ports)
+                return BackendDiscoveryCandidate(
+                    id: "container-\(stableIdentifier(name))",
+                    title: name.isEmpty ? image : name,
+                    confidence: serviceBaseURL == nil ? .medium : .high,
+                    connectionKind: .installedDockerImage,
+                    dockerImage: image.isEmpty ? nil : image,
+                    containerName: name.isEmpty ? nil : name,
+                    serviceBaseURL: serviceBaseURL,
+                    notes: serviceBaseURL == nil ?
+                        "Running container found. Enter its local service address if it is not published to the Mac." :
+                        "Running container found and a local service address was detected.",
+                    technicalDetails: [image, ports, status].filter { !$0.isEmpty }.joined(separator: "\n")
+                )
+            }
+    }
+
+    private func serviceURL(fromDockerPorts ports: String) -> String? {
+        for mapping in ports.split(separator: ",") {
+            let text = mapping.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let arrow = text.range(of: "->") else { continue }
+            let hostSide = text[..<arrow.lowerBound]
+            guard let colon = hostSide.lastIndex(of: ":") else { continue }
+            let port = String(hostSide[hostSide.index(after: colon)...])
+            guard Int(port) != nil else { continue }
+            return "http://127.0.0.1:\(port)"
+        }
+        return nil
+    }
+
+    private func isLikelyKokoro(text: String) -> Bool {
+        text.localizedCaseInsensitiveContains("kokoro")
+    }
+
+    private func stableIdentifier(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics
+        return value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar).lowercased() : "-"
+        }
+        .joined()
+        .split(separator: "-")
+        .joined(separator: "-")
     }
 
     private func dockerRuntimeForOperation(

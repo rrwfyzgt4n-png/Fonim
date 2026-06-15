@@ -14,6 +14,7 @@ struct VibeVoiceBatchCoreChecks {
         try await checkBackendProfilesAndAdapterContracts()
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
+        try checkKokoroDiscoveryReport()
         try checkBackendManagerOperations()
         try checkWorkspaceDataModel()
         try checkWorkspacePresets()
@@ -295,6 +296,42 @@ struct VibeVoiceBatchCoreChecks {
         precondition(kokoroStatus.userMessage.contains("kokoro-local"))
         let kokoroReport = kokoroManager.setupReport(for: kokoroProfile)
         precondition(kokoroReport.checks.contains { $0.id == "docker-image-\(kokoroProfile.id)" && $0.state == .passed })
+    }
+
+    private static func checkKokoroDiscoveryReport() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchDiscoveryChecks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let image = "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
+        let manager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, arguments in
+                if arguments.contains("info") {
+                    return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+                }
+                if arguments.contains("images") {
+                    return BackendProcessResult(exitCode: 0, combinedOutput: "\(image)\tbcf38f9bf7f0\t5.41GB\n")
+                }
+                if arguments.contains("ps") {
+                    return BackendProcessResult(
+                        exitCode: 0,
+                        combinedOutput: "kokoro-fastapi\t\(image)\t0.0.0.0:8880->8880/tcp, [::]:8880->8880/tcp\tUp 12 hours\n"
+                    )
+                }
+                return BackendProcessResult(exitCode: 0, combinedOutput: "")
+            }
+        )
+
+        let discovery = manager.discoveryReport(for: BackendProfiles.kokoroTTS)
+        precondition(discovery.candidates.count == 1)
+        let candidate = try unwrap(discovery.candidates.first, "Expected Kokoro discovery candidate")
+        precondition(candidate.title == "kokoro-fastapi")
+        precondition(candidate.confidence == .high)
+        precondition(candidate.dockerImage == image)
+        precondition(candidate.serviceBaseURL == "http://127.0.0.1:8880")
+        precondition(candidate.connectionSettings.healthCheckURL?.absoluteString == "http://127.0.0.1:8880/health")
     }
 
     private static func checkBackendManagerOperations() throws {
@@ -775,6 +812,13 @@ private struct CheckError: Error, CustomStringConvertible {
     init(_ description: String) {
         self.description = description
     }
+}
+
+private func unwrap<Value>(_ value: Value?, _ message: String) throws -> Value {
+    guard let value else {
+        throw CheckError(message)
+    }
+    return value
 }
 
 private extension Data {

@@ -20,57 +20,65 @@ struct BackendSetupAssistantView: View {
             }
             .navigationTitle("Setup")
         } detail: {
-            VStack(alignment: .leading, spacing: 18) {
-                SetupBackendSelector(
-                    selectedBackendID: backendBinding,
-                    statusText: appStore.backendStatus.state.displayName
-                )
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    SetupBackendSelector(
+                        selectedBackendID: backendBinding,
+                        statusText: appStore.backendStatus.state.displayName
+                    )
 
-                switch setupStore.selectedStage {
-                case .welcome:
-                    WelcomeSetupPane(onContinue: { setupStore.selectedStage = .mode })
-                case .mode:
-                    ModeSetupPane(mode: modeBinding, onContinue: { setupStore.selectedStage = .checks })
-                case .checks:
-                    ChecksSetupPane(
-                        profile: selectedBackend,
-                        report: setupStore.report,
-                        isChecking: setupStore.isChecking,
-                        runChecks: { setupStore.runChecks(profile: selectedBackend) },
-                        onContinue: { setupStore.selectedStage = .install }
-                    )
-                case .install:
-                    BackendInstallSetupPane(
-                        profile: selectedBackend,
-                        report: setupStore.report,
-                        operationResult: operationsStore.latestResult,
-                        isOperationRunning: operationsStore.isRunning,
-                        activeOperation: operationsStore.activeOperation,
-                        connection: selectedConnectionBinding,
-                        install: { runBackendOperation(.install) },
-                        repair: { runBackendOperation(.repair) },
-                        prepare: { runBackendOperation(.prepare) },
-                        runChecks: { setupStore.runChecks(profile: selectedBackend) },
-                        onContinue: { setupStore.selectedStage = .test }
-                    )
-                case .test:
-                    TestVoiceSetupPane(
-                        canGenerate: appStore.backendStatus.canStartGeneration && !appStore.isGenerating,
-                        prepareTest: prepareTestVoice,
-                        onContinue: { setupStore.selectedStage = .confirm }
-                    )
-                case .confirm:
-                    ConfirmSetupPane(
-                        isReady: setupStore.report?.isReady == true,
-                        complete: completeSetup,
-                        rerunChecks: {
-                            setupStore.selectedStage = .checks
-                            setupStore.runChecks(profile: selectedBackend)
-                        }
-                    )
+                    switch setupStore.selectedStage {
+                    case .welcome:
+                        WelcomeSetupPane(onContinue: { setupStore.selectedStage = .mode })
+                    case .mode:
+                        ModeSetupPane(mode: modeBinding, onContinue: { setupStore.selectedStage = .checks })
+                    case .checks:
+                        ChecksSetupPane(
+                            profile: selectedBackend,
+                            report: setupStore.report,
+                            isChecking: setupStore.isChecking,
+                            runChecks: { setupStore.runChecks(profile: selectedBackend) },
+                            onContinue: { setupStore.selectedStage = .install }
+                        )
+                    case .install:
+                        BackendInstallSetupPane(
+                            profile: selectedBackend,
+                            report: setupStore.report,
+                            discoveryReport: setupStore.discoveryReport,
+                            operationResult: operationsStore.latestResult,
+                            isChecking: setupStore.isChecking,
+                            isDiscovering: setupStore.isDiscovering,
+                            isOperationRunning: operationsStore.isRunning,
+                            activeOperation: operationsStore.activeOperation,
+                            connection: selectedConnectionBinding,
+                            discover: { setupStore.runDiscovery(profile: selectedBackend) },
+                            applyCandidate: applyDiscoveryCandidate,
+                            install: { runBackendOperation(.install) },
+                            repair: { runBackendOperation(.repair) },
+                            prepare: { runBackendOperation(.prepare) },
+                            runChecks: { setupStore.runChecks(profile: selectedBackend) },
+                            onContinue: { setupStore.selectedStage = .test }
+                        )
+                    case .test:
+                        TestVoiceSetupPane(
+                            canGenerate: appStore.backendStatus.canStartGeneration && !appStore.isGenerating,
+                            prepareTest: prepareTestVoice,
+                            onContinue: { setupStore.selectedStage = .confirm }
+                        )
+                    case .confirm:
+                        ConfirmSetupPane(
+                            isReady: setupStore.report?.isReady == true,
+                            complete: completeSetup,
+                            rerunChecks: {
+                                setupStore.selectedStage = .checks
+                                setupStore.runChecks(profile: selectedBackend)
+                            }
+                        )
+                    }
                 }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle("Backend Setup Assistant")
         }
@@ -97,7 +105,8 @@ struct BackendSetupAssistantView: View {
             get: { settingsStore.settings.defaultBackendID },
             set: { backendID in
                 appStore.selectBackend(backendID)
-                setupStore.runChecks(profile: selectedBackend)
+                setupStore.clearDiscovery()
+                setupStore.runChecks(profile: settingsStore.selectedBackendProfile)
             }
         )
     }
@@ -122,6 +131,14 @@ struct BackendSetupAssistantView: View {
     private func completeSetup() {
         settingsStore.markSetupAssistantCompleted()
         dismiss()
+    }
+
+    private func applyDiscoveryCandidate(_ candidate: BackendDiscoveryCandidate) {
+        settingsStore.update { settings in
+            settings.backendConnections[selectedBackend.id] = candidate.connectionSettings
+        }
+        appStore.refreshBackendStatus()
+        setupStore.runChecks(profile: settingsStore.selectedBackendProfile)
     }
 
     private func runBackendOperation(_ kind: BackendOperationKind) {
@@ -230,10 +247,15 @@ private struct ChecksSetupPane: View {
 private struct BackendInstallSetupPane: View {
     let profile: BackendProfile
     let report: BackendSetupReport?
+    let discoveryReport: BackendDiscoveryReport?
     let operationResult: BackendOperationResult?
+    let isChecking: Bool
+    let isDiscovering: Bool
     let isOperationRunning: Bool
     let activeOperation: BackendOperationKind?
     @Binding var connection: BackendConnectionSettings
+    let discover: () -> Void
+    let applyCandidate: (BackendDiscoveryCandidate) -> Void
     let install: () -> Void
     let repair: () -> Void
     let prepare: () -> Void
@@ -253,6 +275,13 @@ private struct BackendInstallSetupPane: View {
             .formStyle(.grouped)
 
             if profile.engineType == .kokoro {
+                KokoroDiscoveryPanel(
+                    report: discoveryReport,
+                    isDiscovering: isDiscovering,
+                    discover: discover,
+                    applyCandidate: applyCandidate
+                )
+
                 KokoroConnectionForm(connection: $connection)
             }
 
@@ -284,13 +313,123 @@ private struct BackendInstallSetupPane: View {
                 }
                 .disabled(isOperationRunning)
 
-                Button("Refresh Checks", action: runChecks)
-                    .disabled(isOperationRunning)
+                Button(isChecking ? "Checking..." : "Refresh Checks", action: runChecks)
+                    .disabled(isOperationRunning || isChecking)
                 Spacer()
                 Button("Continue", action: onContinue)
                     .buttonStyle(.borderedProminent)
             }
         }
+    }
+}
+
+private struct KokoroDiscoveryPanel: View {
+    let report: BackendDiscoveryReport?
+    let isDiscovering: Bool
+    let discover: () -> Void
+    let applyCandidate: (BackendDiscoveryCandidate) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Installed Kokoro")
+                        .font(.headline)
+                    Text("Find local Kokoro images and running services on this Mac.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    discover()
+                } label: {
+                    Label(isDiscovering ? "Finding..." : "Find Kokoro", systemImage: isDiscovering ? "hourglass" : "magnifyingglass")
+                }
+                .disabled(isDiscovering)
+            }
+
+            if isDiscovering {
+                ProgressView("Looking for installed Kokoro runtimes...")
+            } else if let report {
+                Text(report.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if report.candidates.isEmpty {
+                    Text("Start your Kokoro container or enter its details manually below.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(report.candidates) { candidate in
+                            KokoroDiscoveryCandidateRow(
+                                candidate: candidate,
+                                apply: { applyCandidate(candidate) }
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text("Use discovery if you already have Kokoro installed and running.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct KokoroDiscoveryCandidateRow: View {
+    let candidate: BackendDiscoveryCandidate
+    let apply: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: candidate.serviceBaseURL == nil ? "shippingbox" : "server.rack")
+                .foregroundStyle(candidate.confidence.tint)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(candidate.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(candidate.confidence.displayName)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(candidate.confidence.tint)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(candidate.confidence.tint.opacity(0.14), in: Capsule())
+                }
+
+                if let image = candidate.dockerImage {
+                    Text(image)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                if let serviceBaseURL = candidate.serviceBaseURL {
+                    Text(serviceBaseURL)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                Text(candidate.notes)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button("Use", action: apply)
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(10)
+        .background(.background, in: RoundedRectangle(cornerRadius: 7))
     }
 }
 
@@ -528,6 +667,16 @@ private extension BackendRuntime {
         case .comfyUI: "ComfyUI"
         case .native: "Native"
         case .externalService: "External service"
+        }
+    }
+}
+
+private extension BackendDiscoveryConfidence {
+    var tint: Color {
+        switch self {
+        case .high: .green
+        case .medium: .blue
+        case .low: .secondary
         }
     }
 }
