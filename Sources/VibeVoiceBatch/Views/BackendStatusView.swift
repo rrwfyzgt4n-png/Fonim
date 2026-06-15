@@ -102,12 +102,11 @@ struct BackendStatusView: View {
 
     private var generationPrimaryLine: String {
         if store.isPreparingGeneration, !store.isGenerating {
-            return "preparing_backend  progress=\(percentText(visibleGenerationFraction))  phase=\(store.generationPhaseName)"
+            return "elapsed=\(clock(store.elapsedSeconds))  phase=\(store.generationPhaseName)  status=preparing_backend"
         }
 
         guard let progress = store.activeGenerationProgress else {
-            let remaining = store.estimatedGenerationRemainingSeconds.map(clock) ?? "--:--"
-            return "progress=\(percentText(visibleGenerationFraction))~  elapsed=\(clock(store.elapsedSeconds))  remaining=\(remaining)  phase=\(store.generationPhaseName)"
+            return "elapsed=\(clock(store.elapsedSeconds))  phase=\(store.generationPhaseName)  backend=\(displayGenerationLine)"
         }
 
         let percent = percentText(progress.fractionComplete)
@@ -120,8 +119,7 @@ struct BackendStatusView: View {
     private var generationTickerLine: String {
         guard let progress = store.activeGenerationProgress,
               let fraction = progress.fractionComplete else {
-            let fraction = visibleGenerationFraction ?? 0
-            return "\(progressBar(fraction: fraction)) \(percentText(fraction))~  \(spinnerFrame(elapsed: store.elapsedSeconds)) \(store.latestGenerationLogLine)  \(tokenText)"
+            return "\(activitySweepBar(elapsed: store.elapsedSeconds)) \(spinnerFrame(elapsed: store.elapsedSeconds)) elapsed=\(clock(store.elapsedSeconds))  \(tokenText)"
         }
 
         return "\(progressBar(fraction: fraction)) \(percentText(fraction))  \(stepText(progress))  \(tokenText)"
@@ -145,8 +143,12 @@ struct BackendStatusView: View {
         return "text_tokens=\(progress.prefilledTextTokens)  speech_tokens=\(progress.generatedSpeechTokens)"
     }
 
-    private var visibleGenerationFraction: Double? {
-        store.activeGenerationProgress?.fractionComplete ?? store.estimatedGenerationProgressFraction
+    private var displayGenerationLine: String {
+        let line = store.latestGenerationLogLine
+        if line.hasPrefix("VibeVoiceBatch progress:") {
+            return "generation heartbeat"
+        }
+        return line
     }
 
     private var idleIndicator: String {
@@ -187,6 +189,20 @@ struct BackendStatusView: View {
         let body = (0..<width).map { index in
             if index == position { return spinnerFrame(elapsed: elapsed) }
             return index < position ? "." : " "
+        }.joined()
+        return "[\(body)]"
+    }
+
+    private func activitySweepBar(elapsed: TimeInterval) -> String {
+        let width = 32
+        let cycle = max(1, (width - 1) * 2)
+        let raw = Int((elapsed * 8).rounded(.down)) % cycle
+        let position = raw < width ? raw : cycle - raw
+        let body = (0..<width).map { index in
+            let distance = abs(index - position)
+            if distance == 0 { return "|" }
+            if distance == 1 { return "." }
+            return " "
         }.joined()
         return "[\(body)]"
     }

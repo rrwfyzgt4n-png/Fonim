@@ -199,6 +199,12 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
 
+        elapsedSeconds = 0
+        activeStartedAt = Date()
+        startElapsedTimer()
+        estimatedGenerationProgressFraction = nil
+        estimatedGenerationRemainingSeconds = nil
+        generationPhaseName = "checking backend"
         isPreparingGeneration = true
         statusMessage = "Checking backend..."
         setLatestGenerationLogLine("Checking backend")
@@ -206,6 +212,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let status = await refreshBackendStatusNow()
             guard status.canStartGeneration else {
                 isPreparingGeneration = false
+                stopElapsedTimer()
                 presentBlockedBackend(status)
                 return
             }
@@ -355,7 +362,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeSessionID = nil
         activeJobID = job.id
         isGenerating = true
-        elapsedSeconds = 0
+        if activeStartedAt == nil {
+            elapsedSeconds = 0
+            activeStartedAt = Date()
+        }
         activeGenerationProgress = nil
         estimatedGenerationProgressFraction = 0.02
         estimatedGenerationRemainingSeconds = nil
@@ -830,13 +840,16 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private func startElapsedTimer() {
-        stopElapsedTimer()
+        elapsedTimer?.invalidate()
+        if activeStartedAt == nil {
+            activeStartedAt = Date()
+        }
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let activeStartedAt = self.activeStartedAt else { return }
                 let elapsed = Date().timeIntervalSince(activeStartedAt)
                 self.elapsedSeconds = elapsed
-                if self.isGenerating {
+                if self.isGenerating || self.isPreparingGeneration {
                     self.generationTicker = self.generationTicker.ticking(elapsed: elapsed)
                     if let activeJobID = self.activeJobID {
                         self.updateQueuedGeneration(id: activeJobID) { item in
