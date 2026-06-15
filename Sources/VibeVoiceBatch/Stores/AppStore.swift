@@ -14,11 +14,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var hasUnsavedEditorText = false
     @Published private(set) var isGenerating = false
     @Published private(set) var elapsedSeconds: TimeInterval = 0
+    @Published private(set) var activeGenerationProgress: GenerationProgressSnapshot?
     @Published private(set) var activeSessionID: String?
     @Published var pendingScrollSessionID: String?
     @Published private(set) var generationTicker = GenerationTickerState.idle
     @Published private(set) var isPlayingWAV = false
     @Published private(set) var playingSessionID: String?
+    @Published private(set) var playbackElapsedSeconds: TimeInterval = 0
+    @Published private(set) var playbackDurationSeconds: TimeInterval = 0
     @Published private(set) var backendStatus = BackendStatusSnapshot.unknown(profile: BackendProfiles.vibeVoiceTTS)
     @Published private(set) var isRefreshingBackendStatus = false
     @Published private(set) var isPreparingGeneration = false
@@ -40,6 +43,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
     private var audioPlayer: AVAudioPlayer?
+    private var playbackTimer: Timer?
 
     init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
@@ -86,6 +90,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     var canSaveDraft: Bool {
         !isGenerating && !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var playbackProgressFraction: Double? {
+        guard playbackDurationSeconds > 0 else { return nil }
+        return min(1, max(0, playbackElapsedSeconds / playbackDurationSeconds))
     }
 
     func refreshHistory() {
@@ -334,6 +343,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeJobID = job.id
         isGenerating = true
         elapsedSeconds = 0
+        activeGenerationProgress = nil
         activeStartedAt = Date()
         statusMessage = "Starting queued generation"
         updateQueuedGeneration(id: job.id) { item in
@@ -446,13 +456,19 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         guard let outputURL = record.outputURL else { return }
 
         do {
+            if isPlayingWAV {
+                stopWAVPlayback()
+            }
             let player = try AVAudioPlayer(contentsOf: outputURL)
             player.delegate = self
             player.prepareToPlay()
             player.play()
             audioPlayer = player
             playingSessionID = record.id
+            playbackElapsedSeconds = player.currentTime
+            playbackDurationSeconds = player.duration
             isPlayingWAV = true
+            startPlaybackTimer()
             statusMessage = "Playing \(record.id)"
         } catch {
             alertMessage = "Could not play WAV: \(error.localizedDescription)"
@@ -498,6 +514,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 }
             }
         case .progress(let snapshot):
+            activeGenerationProgress = snapshot
             updateQueuedGeneration(id: snapshot.jobID) { item in
                 item.status = .running
                 item.progressFraction = snapshot.fractionComplete
@@ -540,6 +557,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeJobID = nil
         activeSessionID = nil
         elapsedSeconds = finalElapsed
+        activeGenerationProgress = nil
         if let completedJobID {
             queuedJobPayloads[completedJobID] = nil
             updateQueuedGeneration(id: completedJobID) { item in
@@ -577,6 +595,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeTask = nil
         activeJobID = nil
         activeSessionID = nil
+        activeGenerationProgress = nil
         let finalElapsed = elapsedSeconds
         if let failedJobID {
             updateQueuedGeneration(id: failedJobID) { item in
@@ -690,11 +709,34 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeStartedAt = nil
     }
 
+    private func startPlaybackTimer() {
+        stopPlaybackTimer(reset: false)
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let audioPlayer = self.audioPlayer else { return }
+                self.playbackElapsedSeconds = audioPlayer.currentTime
+                self.playbackDurationSeconds = audioPlayer.duration
+            }
+        }
+        playbackTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopPlaybackTimer(reset: Bool) {
+        playbackTimer?.invalidate()
+        playbackTimer = nil
+        if reset {
+            playbackElapsedSeconds = 0
+            playbackDurationSeconds = 0
+        }
+    }
+
     private func stopWAVPlayback(status: String? = nil) {
         audioPlayer?.stop()
         audioPlayer = nil
         playingSessionID = nil
         isPlayingWAV = false
+        stopPlaybackTimer(reset: true)
         if let status {
             statusMessage = status
         }

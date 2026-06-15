@@ -25,13 +25,7 @@ struct ContentView: View {
                         .padding(.bottom, 8)
 
                     detailView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if showsGenerationTicker {
-                        GenerationTickerView()
-                            .padding(.horizontal)
-                            .padding(.bottom)
-                    }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
                 if showInspector {
@@ -170,15 +164,6 @@ struct ContentView: View {
             } else {
                 EditorView()
             }
-        }
-    }
-
-    private var showsGenerationTicker: Bool {
-        switch selection ?? .section(.history) {
-        case .section(.history), .section(.outputs), .historySession:
-            return true
-        case .section:
-            return store.isGenerating
         }
     }
 

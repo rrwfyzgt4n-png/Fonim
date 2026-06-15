@@ -248,29 +248,16 @@ private struct QueueItemCard: View {
 struct VoicesView: View {
     @EnvironmentObject private var appStore: AppStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @State private var selectedPresetID: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        HSplitView {
+            VStack(alignment: .leading, spacing: 12) {
                 SectionHeader(
                     title: "Voices",
                     subtitle: "Reusable voice profiles across backends."
                 )
-
-                HStack {
-                    Button {
-                        if let preset = workspaceStore.saveCurrentVoicePreset(voiceID: appStore.selectedVoice) {
-                            appStore.statusMessage = "Saved voice preset: \(preset.displayName)"
-                        }
-                    } label: {
-                        Label("Save Current Voice", systemImage: "plus")
-                    }
-
-                    Spacer()
-
-                    Text("\(workspaceStore.voicePresets.count) voices")
-                        .foregroundStyle(.secondary)
-                }
+                .padding([.horizontal, .top])
 
                 if workspaceStore.voicePresets.isEmpty {
                     EmptyWorkspaceView(
@@ -279,14 +266,59 @@ struct VoicesView: View {
                         message: "No voice presets are available."
                     )
                 } else {
-                    ForEach(workspaceStore.voicePresets) { preset in
-                        VoicePresetCard(preset: preset)
+                    List(selection: $selectedPresetID) {
+                        ForEach(workspaceStore.voicePresets) { preset in
+                            VoicePresetRow(preset: preset)
+                                .tag(Optional(preset.id))
+                        }
+                    }
+                    .listStyle(.sidebar)
+                }
+
+                HStack {
+                    Text("\(workspaceStore.voicePresets.count) voices")
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button {
+                        if let preset = workspaceStore.saveCurrentVoicePreset(voiceID: appStore.selectedVoice) {
+                            selectedPresetID = preset.id
+                            appStore.statusMessage = "Saved voice preset: \(preset.displayName)"
+                        }
+                    } label: {
+                        Label("Save Current Voice", systemImage: "plus")
                     }
                 }
+                .padding([.horizontal, .bottom])
             }
-            .padding()
+            .frame(minWidth: 260, idealWidth: 320)
+
+            VoicePresetDetailPane(preset: selectedPreset)
+                .frame(minWidth: 360)
+        }
+        .onAppear(perform: ensureVoiceSelection)
+        .onChange(of: workspaceStore.voicePresets) { _ in
+            ensureVoiceSelection()
         }
         .navigationTitle("Voices")
+    }
+
+    private var selectedPreset: NarrationVoicePreset? {
+        guard let selectedPresetID else { return workspaceStore.voicePresets.first }
+        return workspaceStore.voicePresets.first { $0.id == selectedPresetID }
+    }
+
+    private func ensureVoiceSelection() {
+        guard !workspaceStore.voicePresets.isEmpty else {
+            selectedPresetID = nil
+            return
+        }
+        if let selectedPresetID,
+           workspaceStore.voicePresets.contains(where: { $0.id == selectedPresetID }) {
+            return
+        }
+        selectedPresetID = workspaceStore.voicePresets.first?.id
     }
 }
 
@@ -294,55 +326,16 @@ struct PresetsView: View {
     @EnvironmentObject private var appStore: AppStore
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @State private var selectedPresetID: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        HSplitView {
+            VStack(alignment: .leading, spacing: 12) {
                 SectionHeader(
                     title: "Presets",
                     subtitle: "Reusable generation settings."
                 )
-
-                WorkspaceCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Current Editor Settings")
-                                .font(.headline)
-                            Spacer()
-                            Button {
-                                if let preset = workspaceStore.saveGenerationPreset(
-                                    voiceID: appStore.selectedVoice,
-                                    cfgScale: appStore.cfgScale,
-                                    ddpmInferenceSteps: appStore.ddpmInferenceSteps,
-                                    outputFormat: settingsStore.settings.exportFormat
-                                ) {
-                                    appStore.statusMessage = "Saved generation preset: \(preset.displayName)"
-                                }
-                            } label: {
-                                Label("Save Current Preset", systemImage: "plus")
-                            }
-                        }
-
-                        Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 10) {
-                            GridRow {
-                                Text("Voice").foregroundStyle(.secondary)
-                                Text(appStore.selectedVoice)
-                            }
-                            GridRow {
-                                Text("CFG").foregroundStyle(.secondary)
-                                Text(appStore.cfgScale)
-                            }
-                            GridRow {
-                                Text("DDPM steps").foregroundStyle(.secondary)
-                                Text("\(appStore.ddpmInferenceSteps)")
-                            }
-                            GridRow {
-                                Text("Format").foregroundStyle(.secondary)
-                                Text(settingsStore.settings.exportFormat.rawValue.uppercased())
-                            }
-                        }
-                    }
-                }
+                .padding([.horizontal, .top])
 
                 if workspaceStore.generationPresets.isEmpty {
                     EmptyWorkspaceView(
@@ -351,117 +344,283 @@ struct PresetsView: View {
                         message: "No generation presets are available."
                     )
                 } else {
-                    ForEach(workspaceStore.generationPresets) { preset in
-                        GenerationPresetCard(preset: preset)
-                    }
-                }
-            }
-            .padding()
-        }
-        .navigationTitle("Presets")
-    }
-}
-
-private struct VoicePresetCard: View {
-    @EnvironmentObject private var appStore: AppStore
-    let preset: NarrationVoicePreset
-
-    var body: some View {
-        WorkspaceCard {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "waveform")
-                    .foregroundStyle(.blue)
-                    .frame(width: 18)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(preset.displayName)
-                            .font(.headline)
-                        if preset.isBuiltIn {
-                            Text("Built-in")
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .foregroundStyle(.secondary)
-                                .background(.secondary.opacity(0.14), in: Capsule())
+                    List(selection: $selectedPresetID) {
+                        ForEach(workspaceStore.generationPresets) { preset in
+                            GenerationPresetRow(preset: preset)
+                                .tag(Optional(preset.id))
                         }
                     }
+                    .listStyle(.sidebar)
+                }
 
-                    Text("\(backendName(preset.backendID))  \(preset.voiceID)")
+                HStack {
+                    Text("\(workspaceStore.generationPresets.count) presets")
                         .foregroundStyle(.secondary)
-
-                    if !preset.traits.isEmpty {
-                        Text(preset.traits.joined(separator: "  "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                Button {
-                    appStore.applyVoicePreset(preset)
-                } label: {
-                    Label("Apply", systemImage: "checkmark.circle")
-                }
-            }
-        }
-    }
-}
-
-private struct GenerationPresetCard: View {
-    @EnvironmentObject private var appStore: AppStore
-    let preset: NarrationGenerationPreset
-
-    var body: some View {
-        WorkspaceCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text(preset.displayName)
-                                .font(.headline)
-                            if preset.isBuiltIn {
-                                Text("Built-in")
-                                    .font(.caption2.weight(.semibold))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .foregroundStyle(.secondary)
-                                    .background(.secondary.opacity(0.14), in: Capsule())
-                            }
-                        }
-                        Text(backendName(preset.backendID))
-                            .foregroundStyle(.secondary)
-                    }
 
                     Spacer()
 
                     Button {
-                        appStore.applyGenerationPreset(preset)
+                        if let preset = workspaceStore.saveGenerationPreset(
+                            voiceID: appStore.selectedVoice,
+                            cfgScale: appStore.cfgScale,
+                            ddpmInferenceSteps: appStore.ddpmInferenceSteps,
+                            outputFormat: settingsStore.settings.exportFormat
+                        ) {
+                            selectedPresetID = preset.id
+                            appStore.statusMessage = "Saved generation preset: \(preset.displayName)"
+                        }
                     } label: {
-                        Label("Apply", systemImage: "checkmark.circle")
+                        Label("Save Current Preset", systemImage: "plus")
                     }
                 }
-
-                Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Voice").foregroundStyle(.secondary)
-                        Text(preset.voiceID ?? "Current")
-                    }
-                    GridRow {
-                        Text("CFG").foregroundStyle(.secondary)
-                        Text(preset.settings.cfgScale)
-                    }
-                    GridRow {
-                        Text("DDPM steps").foregroundStyle(.secondary)
-                        Text(preset.settings.ddpmInferenceSteps.map(String.init) ?? "--")
-                    }
-                    GridRow {
-                        Text("Format").foregroundStyle(.secondary)
-                        Text(preset.outputFormat.rawValue.uppercased())
-                    }
-                }
+                .padding([.horizontal, .bottom])
             }
+            .frame(minWidth: 280, idealWidth: 340)
+
+            GenerationPresetDetailPane(preset: selectedPreset)
+                .frame(minWidth: 380)
+        }
+        .onAppear(perform: ensureGenerationPresetSelection)
+        .onChange(of: workspaceStore.generationPresets) { _ in
+            ensureGenerationPresetSelection()
+        }
+        .navigationTitle("Presets")
+    }
+
+    private var selectedPreset: NarrationGenerationPreset? {
+        guard let selectedPresetID else { return workspaceStore.generationPresets.first }
+        return workspaceStore.generationPresets.first { $0.id == selectedPresetID }
+    }
+
+    private func ensureGenerationPresetSelection() {
+        guard !workspaceStore.generationPresets.isEmpty else {
+            selectedPresetID = nil
+            return
+        }
+        if let selectedPresetID,
+           workspaceStore.generationPresets.contains(where: { $0.id == selectedPresetID }) {
+            return
+        }
+        selectedPresetID = workspaceStore.generationPresets.first?.id
+    }
+}
+
+private struct VoicePresetRow: View {
+    let preset: NarrationVoicePreset
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(preset.displayName)
+                        .lineLimit(1)
+                    if preset.isBuiltIn {
+                        Text("Built-in")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(preset.voiceID)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: "waveform")
+        }
+    }
+}
+
+private struct VoicePresetDetailPane: View {
+    @EnvironmentObject private var appStore: AppStore
+    let preset: NarrationVoicePreset?
+
+    var body: some View {
+        ScrollView {
+            if let preset {
+                VStack(alignment: .leading, spacing: 16) {
+                    WorkspaceCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(preset.displayName)
+                                    .font(.title3.weight(.semibold))
+                                if preset.isBuiltIn {
+                                    Text("Built-in")
+                                        .font(.caption2.weight(.semibold))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .foregroundStyle(.secondary)
+                                        .background(.secondary.opacity(0.14), in: Capsule())
+                                }
+                                Spacer()
+                                Button {
+                                    appStore.applyVoicePreset(preset)
+                                } label: {
+                                    Label("Apply", systemImage: "checkmark.circle")
+                                }
+                            }
+
+                            DetailGrid {
+                                DetailGridRow("Backend", backendName(preset.backendID))
+                                DetailGridRow("Model", preset.modelID)
+                                DetailGridRow("Voice", preset.voiceID)
+                                DetailGridRow("Locale", preset.locale ?? "n/a")
+                                DetailGridRow("Updated", SessionFormatters.displayDateFormatter.string(from: preset.updatedAt))
+                            }
+                        }
+                    }
+
+                    if !preset.traits.isEmpty {
+                        WorkspaceCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Traits")
+                                    .font(.headline)
+                                Text(preset.traits.joined(separator: "  "))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    if !preset.notes.isEmpty {
+                        WorkspaceCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Notes")
+                                    .font(.headline)
+                                Text(preset.notes)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding()
+            } else {
+                EmptyWorkspaceView(
+                    systemImage: "waveform",
+                    title: "No Voice Selected",
+                    message: "Choose a voice preset from the list."
+                )
+                .padding()
+            }
+        }
+    }
+}
+
+private struct GenerationPresetRow: View {
+    let preset: NarrationGenerationPreset
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(preset.displayName)
+                        .lineLimit(1)
+                    if preset.isBuiltIn {
+                        Text("Built-in")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("CFG \(preset.settings.cfgScale)  \(preset.settings.ddpmInferenceSteps.map(String.init) ?? "--") steps")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: "slider.horizontal.3")
+        }
+    }
+}
+
+private struct GenerationPresetDetailPane: View {
+    @EnvironmentObject private var appStore: AppStore
+    let preset: NarrationGenerationPreset?
+
+    var body: some View {
+        ScrollView {
+            if let preset {
+                VStack(alignment: .leading, spacing: 16) {
+                    WorkspaceCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(preset.displayName)
+                                    .font(.title3.weight(.semibold))
+                                if preset.isBuiltIn {
+                                    Text("Built-in")
+                                        .font(.caption2.weight(.semibold))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .foregroundStyle(.secondary)
+                                        .background(.secondary.opacity(0.14), in: Capsule())
+                                }
+                                Spacer()
+                                Button {
+                                    appStore.applyGenerationPreset(preset)
+                                } label: {
+                                    Label("Apply", systemImage: "checkmark.circle")
+                                }
+                            }
+
+                            DetailGrid {
+                                DetailGridRow("Backend", backendName(preset.backendID))
+                                DetailGridRow("Model", preset.modelID)
+                                DetailGridRow("Voice", preset.voiceID ?? "Current")
+                                DetailGridRow("CFG", preset.settings.cfgScale)
+                                DetailGridRow("DDPM steps", preset.settings.ddpmInferenceSteps.map(String.init) ?? "n/a")
+                                DetailGridRow("Format", preset.outputFormat.rawValue.uppercased())
+                                DetailGridRow("Updated", SessionFormatters.displayDateFormatter.string(from: preset.updatedAt))
+                            }
+                        }
+                    }
+
+                    if !preset.notes.isEmpty {
+                        WorkspaceCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Notes")
+                                    .font(.headline)
+                                Text(preset.notes)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding()
+            } else {
+                EmptyWorkspaceView(
+                    systemImage: "slider.horizontal.3",
+                    title: "No Preset Selected",
+                    message: "Choose a generation preset from the list."
+                )
+                .padding()
+            }
+        }
+    }
+}
+
+private struct DetailGrid<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+            content
+        }
+    }
+}
+
+private struct DetailGridRow: View {
+    let label: String
+    let value: String
+
+    init(_ label: String, _ value: String) {
+        self.label = label
+        self.value = value
+    }
+
+    var body: some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
         }
     }
 }
