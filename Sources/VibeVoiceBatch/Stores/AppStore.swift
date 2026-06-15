@@ -120,6 +120,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
+    func revealGenerationRecord(_ record: GenerationRecord, status: String = "Generation complete") {
+        refreshHistory()
+        selectedSessionID = record.id
+        pendingScrollSessionID = record.id
+        requestedSelection = .section(.history)
+        statusMessage = status
+    }
+
     func refreshBackendStatus() {
         guard !isRefreshingBackendStatus else { return }
         Task {
@@ -349,7 +357,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             settings: GenerationSettings(
                 cfgScale: cfgScale,
                 ddpmInferenceSteps: ddpmInferenceSteps,
-                extraParameters: generationExtraParameters(for: selectedBackendProfile)
+                extraParameters: selectedBackendProfile.generationExtraParameters
             )
         )
         queuedJobPayloads[job.id] = job
@@ -872,23 +880,6 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         ].joined(separator: "\n\n")
     }
 
-    private func generationExtraParameters(for profile: BackendProfile) -> [String: String] {
-        guard profile.engineType == .kokoro else { return [:] }
-        var parameters: [String: String] = [:]
-        if let generateEndpoint = profile.generateEndpoint {
-            parameters["generate_endpoint"] = generateEndpoint.absoluteString
-        }
-        if let healthCheckURL = profile.healthCheckURL {
-            parameters["health_url"] = healthCheckURL.absoluteString
-        }
-        if let dockerImage = profile.dockerImage {
-            parameters["docker_image"] = dockerImage
-        }
-        parameters["backend_display_name"] = profile.displayName
-        parameters["response_format"] = "wav"
-        return parameters
-    }
-
     private func startElapsedTimer() {
         elapsedTimer?.invalidate()
         if activeStartedAt == nil {
@@ -976,16 +967,6 @@ private extension GenerationRecordStatus {
         case .cancelled: .cancelled
         case .running: .running
         case .queued: .running
-        }
-    }
-
-    var displayName: String {
-        switch self {
-        case .queued: "Queued"
-        case .running: "Running"
-        case .completed: "Completed"
-        case .failed: "Failed"
-        case .cancelled: "Cancelled"
         }
     }
 }

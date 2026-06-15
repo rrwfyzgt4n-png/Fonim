@@ -6,6 +6,21 @@ public enum GenerationRecordStatus: String, Codable, CaseIterable, Equatable {
     case completed
     case failed
     case cancelled
+
+    public var displayName: String {
+        switch self {
+        case .queued:
+            return "Queued"
+        case .running:
+            return "Running"
+        case .completed:
+            return "Completed"
+        case .failed:
+            return "Failed"
+        case .cancelled:
+            return "Cancelled"
+        }
+    }
 }
 
 public struct GenerationErrorRecord: Codable, Equatable {

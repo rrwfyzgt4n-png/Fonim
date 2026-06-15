@@ -22,6 +22,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
+        try await checkBackendVoiceTestRunnerUsesAdapterQueue()
         try await checkJobQueueCancellationReachesAdapter()
         print("VibeVoiceBatchCoreChecks passed")
     }
@@ -172,6 +173,17 @@ struct VibeVoiceBatchCoreChecks {
         precondition(BackendProfiles.kokoroTTS.engineType == .kokoro)
         precondition(BackendProfiles.kokoroTTS.requiredModels.first?.id == "kokoro/default")
         precondition(BackendProfiles.kokoroTTS.progressParser == "KokoroHTTPAdapter.progress")
+        let connectedKokoro = BackendProfiles.kokoroTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .installedDockerImage,
+                dockerImage: "kokoro-local",
+                serviceBaseURL: "http://127.0.0.1:8880",
+                modelID: "tts-1",
+                defaultVoice: "af_heart"
+            )
+        )
+        precondition(connectedKokoro.generationExtraParameters["generate_endpoint"] == "http://127.0.0.1:8880/v1/audio/speech")
+        precondition(connectedKokoro.generationExtraParameters["docker_image"] == "kokoro-local")
 
         let manager = BackendManager(projectRoot: FileManager.default.temporaryDirectory)
         precondition(manager.registeredProfiles().contains(profile))
@@ -935,6 +947,83 @@ struct VibeVoiceBatchCoreChecks {
                 return false
             }
         })
+    }
+
+    private static func checkBackendVoiceTestRunnerUsesAdapterQueue() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchVoiceTestRunnerChecks-\(UUID().uuidString)", isDirectory: true)
+        let fileStore = SessionFileStore(projectRoot: root)
+        try fileStore.ensureBaseDirectories()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let image = "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
+        let profile = BackendProfiles.kokoroTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .installedDockerImage,
+                dockerImage: image,
+                serviceBaseURL: "http://127.0.0.1:8880",
+                modelID: "tts-1",
+                defaultVoice: "af_heart"
+            )
+        )
+        let manager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, arguments in
+                if arguments.contains("inspect") {
+                    return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro image")
+                }
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            },
+            httpRunner: { url in
+                precondition(url.absoluteString == "http://127.0.0.1:8880/health")
+                return BackendHTTPResult(statusCode: 200, body: "{\"status\":\"ready\"}")
+            }
+        )
+        let client = FakeKokoroSpeechClient(
+            response: KokoroSpeechResponse(
+                data: makePCM16MonoWav(durationSeconds: 1.0, sampleRate: 8_000),
+                contentType: "audio/wav"
+            )
+        )
+        var factoryProfileID: String?
+        let runner = BackendVoiceTestRunner(
+            projectRoot: root,
+            backendManager: manager,
+            adapterFactory: { profile, projectRoot in
+                factoryProfileID = profile.id
+                return KokoroHTTPAdapter(profile: profile, projectRoot: projectRoot, fileStore: fileStore, client: client)
+            }
+        )
+        let request = BackendVoiceTestRequest(
+            profile: profile,
+            modelID: "tts-1",
+            voiceID: "af_heart",
+            cfgScale: "1.0",
+            ddpmInferenceSteps: nil,
+            sampleText: "Setup assistant test."
+        )
+
+        var events: [GenerationEvent] = []
+        let record = try await runner.run(request) { event in
+            events.append(event)
+        }
+
+        precondition(factoryProfileID == profile.id)
+        precondition(record.status == .completed)
+        precondition(record.inputText == "Setup assistant test.")
+        precondition(record.exportPath?.hasSuffix("/output.wav") == true)
+        precondition(client.requests.first?.endpoint.absoluteString == "http://127.0.0.1:8880/v1/audio/speech")
+        precondition(client.requests.first?.modelID == "tts-1")
+        precondition(client.requests.first?.voiceID == "af_heart")
+        precondition(events.contains { event in
+            if case .sessionStarted = event { return true }
+            return false
+        })
+        let sessions = try fileStore.loadSessions()
+        precondition(sessions.count == 1)
+        precondition(sessions[0].metadata.status == .completed)
+        precondition(sessions[0].metadata.dockerImage == image)
     }
 
     private static func checkJobQueueCancellationReachesAdapter() async throws {

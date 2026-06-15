@@ -65,8 +65,19 @@ struct BackendSetupAssistantView: View {
                         )
                     case .test:
                         TestVoiceSetupPane(
-                            canGenerate: appStore.backendStatus.canStartGeneration && !appStore.isGenerating,
-                            prepareTest: prepareTestVoice,
+                            profile: selectedBackend,
+                            modelID: selectedSetupModelID,
+                            voiceID: selectedSetupVoiceID,
+                            isTesting: setupStore.isTestingVoice,
+                            statusMessage: setupStore.testStatusMessage,
+                            progress: setupStore.testProgress,
+                            logText: setupStore.testLogText,
+                            record: setupStore.testRecord,
+                            error: setupStore.testError,
+                            canTest: !appStore.isGenerating,
+                            runTest: prepareTestVoice,
+                            cancelTest: setupStore.cancelVoiceTest,
+                            openResult: openTestResult,
                             onContinue: { setupStore.selectedStage = .confirm }
                         )
                     case .confirm:
@@ -127,10 +138,40 @@ struct BackendSetupAssistantView: View {
         )
     }
 
+    private var selectedSetupModelID: String {
+        if settingsStore.modelOptions(for: selectedBackend).contains(where: { $0.id == settingsStore.settings.defaultModelID }) {
+            return settingsStore.settings.defaultModelID
+        }
+        return settingsStore.modelOptions(for: selectedBackend).first?.id ?? selectedBackend.requiredModels.first?.id ?? settingsStore.settings.defaultModelID
+    }
+
+    private var selectedSetupVoiceID: String {
+        if settingsStore.voiceOptions(for: selectedBackend).contains(where: { $0.id == settingsStore.settings.defaultVoice }) {
+            return settingsStore.settings.defaultVoice
+        }
+        return settingsStore.voiceOptions(for: selectedBackend).first?.id ?? settingsStore.settings.defaultVoice
+    }
+
     private func prepareTestVoice() {
-        appStore.updateEditorText("This is a short local narration test.")
-        appStore.applyDefaultGenerationSettings()
-        appStore.generate()
+        setupStore.runVoiceTest(
+            profile: selectedBackend,
+            modelID: selectedSetupModelID,
+            voiceID: selectedSetupVoiceID,
+            cfgScale: settingsStore.settings.defaultCFGScale,
+            ddpmInferenceSteps: settingsStore.settings.defaultDDPMInferenceSteps
+        ) { record in
+            if let record {
+                appStore.revealGenerationRecord(record, status: "Test voice complete")
+            } else {
+                appStore.refreshHistory()
+            }
+            appStore.refreshBackendStatus()
+        }
+    }
+
+    private func openTestResult() {
+        guard let record = setupStore.testRecord else { return }
+        appStore.revealGenerationRecord(record, status: "Opened test voice in history")
     }
 
     private func completeSetup() {
@@ -707,25 +748,98 @@ private struct SetupOperationResult: View {
 }
 
 private struct TestVoiceSetupPane: View {
-    let canGenerate: Bool
-    let prepareTest: () -> Void
+    let profile: BackendProfile
+    let modelID: String
+    let voiceID: String
+    let isTesting: Bool
+    let statusMessage: String
+    let progress: GenerationProgressSnapshot?
+    let logText: String
+    let record: GenerationRecord?
+    let error: GenerationErrorRecord?
+    let canTest: Bool
+    let runTest: () -> Void
+    let cancelTest: () -> Void
+    let openResult: () -> Void
     let onContinue: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Header(title: "Test Voice", subtitle: "Generate a short sample through the normal queue.")
+            Header(title: "Test Voice", subtitle: "Generate a short sample through the selected backend.")
 
-            Text("The test uses the same no-overwrite session history and metadata path as any other generation.")
-                .foregroundStyle(.secondary)
+            Form {
+                LabeledContent("Backend", value: profile.displayName)
+                LabeledContent("Model", value: modelID)
+                LabeledContent("Voice", value: voiceID)
+                LabeledContent("Status", value: statusMessage)
+                if let outputPath = record?.exportPath {
+                    LabeledContent("Output", value: outputPath)
+                }
+            }
+            .formStyle(.grouped)
+
+            if isTesting {
+                if let fraction = progress?.fractionComplete {
+                    ProgressView(value: fraction)
+                } else {
+                    ProgressView()
+                }
+            } else if record?.status == .completed {
+                ProgressView(value: 1)
+            }
+
+            if let progress {
+                Text(progressLine(progress))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            if let error {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(error.title, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text(error.explanation)
+                    if let recovery = error.recoverySuggestion {
+                        Text(recovery)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.callout)
+            }
+
+            if !logText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                DisclosureGroup("Details") {
+                    ScrollView {
+                        Text(logText)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 150)
+                }
+            }
 
             HStack {
-                Button("Generate Test Voice", action: prepareTest)
+                Button {
+                    isTesting ? cancelTest() : runTest()
+                } label: {
+                    Label(isTesting ? "Cancel Test" : "Run Test Voice", systemImage: isTesting ? "xmark.circle" : "waveform")
+                }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!canGenerate)
-                Button("Skip Test", action: onContinue)
+                    .disabled(!canTest)
+                Button("Open in History", action: openResult)
+                    .disabled(record == nil)
+                Button("Continue", action: onContinue)
                 Spacer()
             }
         }
+    }
+
+    private func progressLine(_ progress: GenerationProgressSnapshot) -> String {
+        let percent = progress.fractionComplete.map { String(format: "%.0f%%", $0 * 100) } ?? "--"
+        let elapsed = progress.elapsedSeconds.map(GenerationTickerState.clock) ?? "--:--"
+        return "\(percent)  elapsed \(elapsed)  \(progress.message)"
     }
 }
 

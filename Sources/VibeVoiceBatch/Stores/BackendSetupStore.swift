@@ -9,12 +9,23 @@ final class BackendSetupStore: ObservableObject {
     @Published private(set) var isChecking = false
     @Published private(set) var isDiscovering = false
     @Published private(set) var isLoadingCatalog = false
+    @Published private(set) var isTestingVoice = false
+    @Published private(set) var testStatusMessage = "No voice test has been run yet."
+    @Published private(set) var testLogText = ""
+    @Published private(set) var testProgress: GenerationProgressSnapshot?
+    @Published private(set) var testRecord: GenerationRecord?
+    @Published private(set) var testError: GenerationErrorRecord?
     @Published var selectedStage: BackendSetupStage = .welcome
 
     private let backendManager: BackendManager
+    private let voiceTestRunner: BackendVoiceTestRunner
 
-    init(backendManager: BackendManager = BackendManager()) {
+    init(
+        backendManager: BackendManager = BackendManager(),
+        voiceTestRunner: BackendVoiceTestRunner = BackendVoiceTestRunner()
+    ) {
         self.backendManager = backendManager
+        self.voiceTestRunner = voiceTestRunner
     }
 
     func runChecks(profile: BackendProfile) {
@@ -47,10 +58,65 @@ final class BackendSetupStore: ObservableObject {
         }
     }
 
+    func runVoiceTest(
+        profile: BackendProfile,
+        modelID: String,
+        voiceID: String,
+        cfgScale: String,
+        ddpmInferenceSteps: Int?,
+        completion: @escaping (GenerationRecord?) -> Void = { _ in }
+    ) {
+        guard !isTestingVoice else { return }
+        isTestingVoice = true
+        testRecord = nil
+        testError = nil
+        testProgress = nil
+        testLogText = ""
+        testStatusMessage = "Checking backend..."
+
+        let request = BackendVoiceTestRequest(
+            profile: profile,
+            modelID: modelID,
+            voiceID: voiceID,
+            cfgScale: cfgScale,
+            ddpmInferenceSteps: ddpmInferenceSteps
+        )
+
+        Task {
+            do {
+                let record = try await voiceTestRunner.run(request) { event in
+                    Task { @MainActor in
+                        self.handleTestEvent(event)
+                    }
+                }
+                testRecord = record
+                testError = record.error
+                testStatusMessage = record.status == .completed ? "Test voice complete" : record.status.displayName
+                isTestingVoice = false
+                completion(record)
+            } catch {
+                let errorRecord = generationError(from: error)
+                testError = errorRecord
+                testStatusMessage = errorRecord.explanation
+                isTestingVoice = false
+                completion(nil)
+            }
+        }
+    }
+
+    func cancelVoiceTest() {
+        guard isTestingVoice else { return }
+        testStatusMessage = "Cancelling test..."
+        Task {
+            await voiceTestRunner.cancelActiveTest()
+        }
+    }
+
     func reset() {
         report = nil
         discoveryReport = nil
         catalogReport = nil
+        clearTest()
         selectedStage = .welcome
     }
 
@@ -60,6 +126,47 @@ final class BackendSetupStore: ObservableObject {
 
     func clearCatalog() {
         catalogReport = nil
+    }
+
+    func clearTest() {
+        isTestingVoice = false
+        testStatusMessage = "No voice test has been run yet."
+        testLogText = ""
+        testProgress = nil
+        testRecord = nil
+        testError = nil
+    }
+
+    private func handleTestEvent(_ event: GenerationEvent) {
+        switch event {
+        case .sessionStarted(let record):
+            testStatusMessage = "Created test session \(record.id)"
+        case .status(let status):
+            testStatusMessage = status
+        case .progress(let progress):
+            testProgress = progress
+            testStatusMessage = progress.message
+        case .log(let text):
+            testLogText += text
+        case .output(let output):
+            testStatusMessage = output.durationSeconds.map {
+                String(format: "Generated %.2f seconds of audio", $0)
+            } ?? "Generated audio"
+        }
+    }
+
+    private func generationError(from error: Error) -> GenerationErrorRecord {
+        if let backendError = error as? BackendError {
+            switch backendError {
+            case .backendUnavailable(let record), .operationUnavailable(let record), .generationFailed(let record):
+                return record
+            }
+        }
+        return GenerationErrorRecord(
+            title: "Voice test failed",
+            explanation: error.localizedDescription,
+            recoverySuggestion: "Check the backend status, then run the test again."
+        )
     }
 }
 

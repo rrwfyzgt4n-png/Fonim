@@ -531,19 +531,4 @@ private extension GenerationRecordStatus {
             self = .cancelled
         }
     }
-
-    var displayName: String {
-        switch self {
-        case .queued:
-            return "Queued"
-        case .running:
-            return "Running"
-        case .completed:
-            return "Completed"
-        case .failed:
-            return "Failed"
-        case .cancelled:
-            return "Cancelled"
-        }
-    }
 }
