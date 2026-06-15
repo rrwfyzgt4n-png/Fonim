@@ -162,6 +162,15 @@ public final class SessionFileStore {
         return output
     }
 
+    public func writeOutputWAV(_ data: Data, to folderURL: URL) throws -> URL {
+        let output = folderURL.appendingPathComponent("output.wav", isDirectory: false)
+        guard !fileManager.fileExists(atPath: output.path) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+        try data.write(to: output, options: .atomic)
+        return output
+    }
+
     public func archiveDeletedSession(_ record: SessionRecord) throws -> URL {
         try ensureBaseDirectories()
         let deletedRoot = projectRoot.recoveredDirectory.appendingPathComponent("deleted_sessions", isDirectory: true)

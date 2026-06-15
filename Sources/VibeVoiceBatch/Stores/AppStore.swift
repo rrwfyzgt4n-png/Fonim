@@ -41,7 +41,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private let quickLookPreviewer = QuickLookPreviewer()
     private let backendManager = BackendManager()
     private let vibeVoiceAdapter: VibeVoiceDockerAdapter
-    private let kokoroAdapter: UnavailableEngineAdapter
+    private let kokoroAdapter: KokoroHTTPAdapter
     private lazy var jobQueue = JobQueue(adapters: [vibeVoiceAdapter, kokoroAdapter])
     private var activeTask: Task<Void, Never>?
     private var activeJobID: String?
@@ -54,11 +54,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
         vibeVoiceAdapter = VibeVoiceDockerAdapter()
-        kokoroAdapter = UnavailableEngineAdapter(
-            profile: BackendProfiles.kokoroTTS,
-            explanation: "Kokoro setup details can be checked in the assistant, but generation is not connected to the editor yet.",
-            recoverySuggestion: "Use the assistant to save the Kokoro image or service details, then keep using VibeVoice for generation until the Kokoro adapter is mapped."
-        )
+        kokoroAdapter = KokoroHTTPAdapter()
         super.init()
         selectedVoice = settingsStore.settings.defaultVoice
         cfgScale = settingsStore.settings.defaultCFGScale
@@ -352,7 +348,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             voiceID: voice,
             settings: GenerationSettings(
                 cfgScale: cfgScale,
-                ddpmInferenceSteps: ddpmInferenceSteps
+                ddpmInferenceSteps: ddpmInferenceSteps,
+                extraParameters: generationExtraParameters(for: selectedBackendProfile)
             )
         )
         queuedJobPayloads[job.id] = job
@@ -848,7 +845,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private var selectedBackendHasGenerationAdapter: Bool {
-        selectedBackendProfile.id == BackendProfiles.vibeVoiceTTS.id
+        selectedBackendProfile.id == BackendProfiles.vibeVoiceTTS.id ||
+            selectedBackendProfile.id == BackendProfiles.kokoroTTS.id
     }
 
     private func adapter(for backendID: String) -> (any EngineAdapter)? {
@@ -872,6 +870,23 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             "\(profile.displayName) setup can be checked now, but generation is not connected yet.",
             "Next we need the running image or service contract: image name, launch command or port, voices endpoint, generation endpoint, and output format behavior."
         ].joined(separator: "\n\n")
+    }
+
+    private func generationExtraParameters(for profile: BackendProfile) -> [String: String] {
+        guard profile.engineType == .kokoro else { return [:] }
+        var parameters: [String: String] = [:]
+        if let generateEndpoint = profile.generateEndpoint {
+            parameters["generate_endpoint"] = generateEndpoint.absoluteString
+        }
+        if let healthCheckURL = profile.healthCheckURL {
+            parameters["health_url"] = healthCheckURL.absoluteString
+        }
+        if let dockerImage = profile.dockerImage {
+            parameters["docker_image"] = dockerImage
+        }
+        parameters["backend_display_name"] = profile.displayName
+        parameters["response_format"] = "wav"
+        return parameters
     }
 
     private func startElapsedTimer() {

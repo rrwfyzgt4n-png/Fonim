@@ -311,10 +311,10 @@ public enum BackendProfiles {
         healthCheckURL: nil,
         generateEndpoint: nil,
         cancelEndpoint: nil,
-        progressParser: "UnavailableEngineAdapter",
-        logParser: "UnavailableEngineAdapter",
+        progressParser: "KokoroHTTPAdapter.progress",
+        logParser: "KokoroHTTPAdapter.log",
         outputFormatSupport: [.wav],
-        licenseNotes: "Kokoro support is a backend profile placeholder until installer/runtime integration is implemented.",
+        licenseNotes: "Kokoro support can connect to an installed local service. Model and voice license terms must be reviewed before managed install or redistribution.",
         role: "Fast clean narration preview",
         strengths: [
             "Fast preview target",
@@ -323,8 +323,8 @@ public enum BackendProfiles {
         ],
         risks: [
             "Managed install not implemented yet",
-            "Voice inventory not connected yet",
-            "Generation adapter is not active yet"
+            "Runtime must expose an HTTP service before generation",
+            "Streaming progress depends on the running Kokoro service contract"
         ]
     )
 

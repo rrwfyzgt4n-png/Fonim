@@ -605,9 +605,9 @@ public final class BackendManager: @unchecked Sendable {
 
         return BackendHealthReport(
             profileID: profile.id,
-            state: .ready,
-            userMessage: "\(image) is available locally.",
-            recoverySuggestion: "Add the service address or launch details when you are ready to connect Kokoro generation.",
+            state: .stopped,
+            userMessage: "\(image) is available locally, but no Kokoro service address is configured.",
+            recoverySuggestion: "Use Find Kokoro in the setup assistant, or enter the service URL before generating.",
             technicalDetails: [docker.details, inspect.combinedOutput].compactMap { $0 }.joined(separator: "\n\n")
         )
     }

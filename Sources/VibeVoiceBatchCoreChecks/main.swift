@@ -21,6 +21,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkWorkspacePresets()
         try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
+        try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
         try await checkJobQueueCancellationReachesAdapter()
         print("VibeVoiceBatchCoreChecks passed")
     }
@@ -170,6 +171,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(BackendProfiles.all.contains(BackendProfiles.kokoroTTS))
         precondition(BackendProfiles.kokoroTTS.engineType == .kokoro)
         precondition(BackendProfiles.kokoroTTS.requiredModels.first?.id == "kokoro/default")
+        precondition(BackendProfiles.kokoroTTS.progressParser == "KokoroHTTPAdapter.progress")
 
         let manager = BackendManager(projectRoot: FileManager.default.temporaryDirectory)
         precondition(manager.registeredProfiles().contains(profile))
@@ -192,10 +194,10 @@ struct VibeVoiceBatchCoreChecks {
         precondition(command.arguments.contains("--ddpm_inference_steps"))
         precondition(command.arguments.contains("8"))
 
-        let unavailable = UnavailableEngineAdapter(profile: BackendProfiles.kokoroTTS)
-        let unavailableReport = await unavailable.healthCheck()
-        precondition(unavailableReport.profileID == BackendProfiles.kokoroTTS.id)
-        precondition(unavailableReport.state == .unknown)
+        let kokoroAdapter = KokoroHTTPAdapter(projectRoot: FileManager.default.temporaryDirectory)
+        let kokoroHealth = await kokoroAdapter.healthCheck()
+        precondition(kokoroHealth.profileID == BackendProfiles.kokoroTTS.id)
+        precondition(kokoroHealth.state == .unknown)
     }
 
     private static func checkBackendStatusSnapshots() throws {
@@ -293,10 +295,37 @@ struct VibeVoiceBatchCoreChecks {
             }
         )
         let kokoroStatus = kokoroManager.statusSnapshot(for: kokoroProfile)
-        precondition(kokoroStatus.state == .ready)
-        precondition(kokoroStatus.userMessage.contains("kokoro-local"))
+        precondition(kokoroStatus.state == .stopped)
+        precondition(kokoroStatus.userMessage.contains("no Kokoro service address"))
         let kokoroReport = kokoroManager.setupReport(for: kokoroProfile)
         precondition(kokoroReport.checks.contains { $0.id == "docker-image-\(kokoroProfile.id)" && $0.state == .passed })
+
+        let kokoroServiceProfile = BackendProfiles.kokoroTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .installedDockerImage,
+                dockerImage: "kokoro-local",
+                serviceBaseURL: "http://127.0.0.1:8880",
+                modelID: "tts-1",
+                defaultVoice: "af_heart"
+            )
+        )
+        let kokoroServiceManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, arguments in
+                if arguments.contains("inspect") {
+                    return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro image")
+                }
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            },
+            httpRunner: { url in
+                precondition(url.absoluteString == "http://127.0.0.1:8880/health")
+                return BackendHTTPResult(statusCode: 200, body: "{\"status\":\"ready\"}")
+            }
+        )
+        let kokoroServiceStatus = kokoroServiceManager.statusSnapshot(for: kokoroServiceProfile)
+        precondition(kokoroServiceStatus.state == .ready)
+        precondition(kokoroServiceStatus.userMessage.contains("health check"))
     }
 
     private static func checkKokoroDiscoveryReport() throws {
@@ -805,6 +834,109 @@ struct VibeVoiceBatchCoreChecks {
         })
     }
 
+    private static func checkKokoroHTTPAdapterGeneratesThroughSessionStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchKokoroAdapterChecks-\(UUID().uuidString)", isDirectory: true)
+        let fileStore = SessionFileStore(projectRoot: root)
+        try fileStore.ensureBaseDirectories()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data([8, 8, 8]).write(to: root.generatedWAVFile)
+
+        let endpoint = URL(string: "http://127.0.0.1:8880/v1/audio/speech")!
+        let image = "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
+        let profile = BackendProfiles.kokoroTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .installedDockerImage,
+                dockerImage: image,
+                serviceBaseURL: "http://127.0.0.1:8880",
+                modelID: "tts-1",
+                defaultVoice: "af_heart"
+            )
+        )
+        let client = FakeKokoroSpeechClient(
+            response: KokoroSpeechResponse(
+                data: makePCM16MonoWav(durationSeconds: 1.5, sampleRate: 8_000),
+                contentType: "audio/wav"
+            )
+        )
+        let adapter = KokoroHTTPAdapter(profile: profile, projectRoot: root, fileStore: fileStore, client: client)
+        let job = GenerationJob(
+            id: "kokoro-adapter-job",
+            createdAt: Date(timeIntervalSince1970: 1_718_171_895),
+            inputText: "Hello Kokoro adapter.",
+            backendID: profile.id,
+            modelID: "tts-1",
+            voiceID: "af_heart",
+            settings: GenerationSettings(
+                cfgScale: "1.0",
+                ddpmInferenceSteps: nil,
+                extraParameters: [
+                    "generate_endpoint": endpoint.absoluteString,
+                    "docker_image": image
+                ]
+            )
+        )
+
+        var events: [GenerationEvent] = []
+        let record = try await adapter.generate(job) { event in
+            events.append(event)
+        }
+
+        precondition(record.status == .completed)
+        precondition(record.backendID == profile.id)
+        precondition(record.backendDisplayName == "Kokoro TTS")
+        precondition(record.modelID == "tts-1")
+        precondition(record.voiceID == "af_heart")
+        precondition(record.exportPath?.hasSuffix("/output.wav") == true)
+        precondition(record.durationSeconds == 1.5)
+        precondition(!FileManager.default.fileExists(atPath: root.generatedWAVFile.path))
+
+        precondition(client.requests.count == 1)
+        let request = try unwrap(client.requests.first, "Expected Kokoro request")
+        precondition(request.endpoint == endpoint)
+        precondition(request.modelID == "tts-1")
+        precondition(request.voiceID == "af_heart")
+        precondition(request.inputText == "Hello Kokoro adapter.")
+        precondition(request.responseFormat == "wav")
+
+        let sessions = try fileStore.loadSessions()
+        precondition(sessions.count == 1)
+        let session = sessions[0]
+        precondition(session.metadata.status == .completed)
+        precondition(session.metadata.voice == "af_heart")
+        precondition(session.metadata.dockerImage == image)
+        precondition(session.metadata.dockerCommand == "POST \(endpoint.absoluteString)")
+        precondition(session.metadata.inputWordCount == 3)
+        precondition(session.metadata.audioDurationSeconds == 1.5)
+        precondition(session.metadata.outputFile?.hasSuffix("/output.wav") == true)
+        precondition(session.logText.contains("Runtime: Kokoro HTTP service"))
+        precondition(session.logText.contains("Saved output:"))
+        precondition(session.outputURL?.lastPathComponent == "output.wav")
+
+        let recoveredFiles = try FileManager.default.contentsOfDirectory(
+            at: root.recoveredDirectory,
+            includingPropertiesForKeys: nil
+        )
+        precondition(recoveredFiles.contains { $0.lastPathComponent.hasSuffix("_pre_run_kokoro_input_generated.wav") })
+        precondition(events.contains { event in
+            switch event {
+            case .progress(let snapshot):
+                return snapshot.message == "sending request to Kokoro"
+            case .sessionStarted, .status, .log, .output:
+                return false
+            }
+        })
+        precondition(events.contains { event in
+            switch event {
+            case .output:
+                return true
+            case .sessionStarted, .status, .progress, .log:
+                return false
+            }
+        })
+    }
+
     private static func checkJobQueueCancellationReachesAdapter() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("VibeVoiceBatchCancelChecks-\(UUID().uuidString)", isDirectory: true)
@@ -926,6 +1058,43 @@ private final class FakeDockerRunner: DockerGenerationRunning {
 
     func cancel() {
         didCancel = true
+    }
+}
+
+private final class FakeKokoroSpeechClient: KokoroSpeechGenerating, @unchecked Sendable {
+    private let response: KokoroSpeechResponse
+    private let error: Error?
+    private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.checks.kokoro-client")
+    private var recordedRequests: [KokoroSpeechRequest] = []
+    private var cancelFlag = false
+
+    init(response: KokoroSpeechResponse, error: Error? = nil) {
+        self.response = response
+        self.error = error
+    }
+
+    var requests: [KokoroSpeechRequest] {
+        stateQueue.sync { recordedRequests }
+    }
+
+    var didCancel: Bool {
+        stateQueue.sync { cancelFlag }
+    }
+
+    func generateSpeech(_ request: KokoroSpeechRequest) async throws -> KokoroSpeechResponse {
+        stateQueue.sync {
+            recordedRequests.append(request)
+        }
+        if let error {
+            throw error
+        }
+        return response
+    }
+
+    func cancel() {
+        stateQueue.sync {
+            cancelFlag = true
+        }
     }
 }
 
