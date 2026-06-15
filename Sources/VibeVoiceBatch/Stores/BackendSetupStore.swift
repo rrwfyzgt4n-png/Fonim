@@ -5,8 +5,10 @@ import VibeVoiceBatchCore
 final class BackendSetupStore: ObservableObject {
     @Published private(set) var report: BackendSetupReport?
     @Published private(set) var discoveryReport: BackendDiscoveryReport?
+    @Published private(set) var catalogReport: BackendCatalogReport?
     @Published private(set) var isChecking = false
     @Published private(set) var isDiscovering = false
+    @Published private(set) var isLoadingCatalog = false
     @Published var selectedStage: BackendSetupStage = .welcome
 
     private let backendManager: BackendManager
@@ -35,14 +37,29 @@ final class BackendSetupStore: ObservableObject {
         }
     }
 
+    func loadCatalog(profile: BackendProfile) {
+        guard !isLoadingCatalog else { return }
+        isLoadingCatalog = true
+        Task {
+            let report = await backendManager.catalogReportAsync(for: profile)
+            self.catalogReport = report
+            self.isLoadingCatalog = false
+        }
+    }
+
     func reset() {
         report = nil
         discoveryReport = nil
+        catalogReport = nil
         selectedStage = .welcome
     }
 
     func clearDiscovery() {
         discoveryReport = nil
+    }
+
+    func clearCatalog() {
+        catalogReport = nil
     }
 }
 

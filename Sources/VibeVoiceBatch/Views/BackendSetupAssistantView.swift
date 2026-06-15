@@ -45,14 +45,18 @@ struct BackendSetupAssistantView: View {
                             profile: selectedBackend,
                             report: setupStore.report,
                             discoveryReport: setupStore.discoveryReport,
+                            catalogReport: setupStore.catalogReport,
                             operationResult: operationsStore.latestResult,
                             isChecking: setupStore.isChecking,
                             isDiscovering: setupStore.isDiscovering,
+                            isLoadingCatalog: setupStore.isLoadingCatalog,
                             isOperationRunning: operationsStore.isRunning,
                             activeOperation: operationsStore.activeOperation,
                             connection: selectedConnectionBinding,
                             discover: { setupStore.runDiscovery(profile: selectedBackend) },
                             applyCandidate: applyDiscoveryCandidate,
+                            loadCatalog: { setupStore.loadCatalog(profile: selectedBackend) },
+                            applyCatalog: applyCatalogDefaults,
                             install: { runBackendOperation(.install) },
                             repair: { runBackendOperation(.repair) },
                             prepare: { runBackendOperation(.prepare) },
@@ -106,6 +110,7 @@ struct BackendSetupAssistantView: View {
             set: { backendID in
                 appStore.selectBackend(backendID)
                 setupStore.clearDiscovery()
+                setupStore.clearCatalog()
                 setupStore.runChecks(profile: settingsStore.selectedBackendProfile)
             }
         )
@@ -139,6 +144,27 @@ struct BackendSetupAssistantView: View {
         }
         appStore.refreshBackendStatus()
         setupStore.runChecks(profile: settingsStore.selectedBackendProfile)
+    }
+
+    private func applyCatalogDefaults(
+        _ catalog: BackendCatalogReport,
+        model: BackendCatalogModel?,
+        voice: BackendCatalogVoice?
+    ) {
+        settingsStore.update { settings in
+            settings.backendCatalogs[selectedBackend.id] = catalog
+            var connection = settings.backendConnection(for: selectedBackend.id)
+            if let model {
+                connection.modelID = model.id
+                settings.defaultModelID = model.id
+            }
+            if let voice {
+                connection.defaultVoice = voice.id
+                settings.defaultVoice = voice.id
+            }
+            settings.backendConnections[selectedBackend.id] = connection
+        }
+        appStore.applyDefaultGenerationSettings()
     }
 
     private func runBackendOperation(_ kind: BackendOperationKind) {
@@ -248,14 +274,18 @@ private struct BackendInstallSetupPane: View {
     let profile: BackendProfile
     let report: BackendSetupReport?
     let discoveryReport: BackendDiscoveryReport?
+    let catalogReport: BackendCatalogReport?
     let operationResult: BackendOperationResult?
     let isChecking: Bool
     let isDiscovering: Bool
+    let isLoadingCatalog: Bool
     let isOperationRunning: Bool
     let activeOperation: BackendOperationKind?
     @Binding var connection: BackendConnectionSettings
     let discover: () -> Void
     let applyCandidate: (BackendDiscoveryCandidate) -> Void
+    let loadCatalog: () -> Void
+    let applyCatalog: (BackendCatalogReport, BackendCatalogModel?, BackendCatalogVoice?) -> Void
     let install: () -> Void
     let repair: () -> Void
     let prepare: () -> Void
@@ -283,6 +313,13 @@ private struct BackendInstallSetupPane: View {
                 )
 
                 KokoroConnectionForm(connection: $connection)
+
+                KokoroCatalogPanel(
+                    report: catalogReport,
+                    isLoading: isLoadingCatalog,
+                    loadCatalog: loadCatalog,
+                    applyCatalog: applyCatalog
+                )
             }
 
             CheckList(report: report, isChecking: false)
@@ -506,6 +543,145 @@ private struct KokoroConnectionForm: View {
             get: { connection[keyPath: keyPath] },
             set: { connection[keyPath: keyPath] = $0 }
         )
+    }
+}
+
+private struct KokoroCatalogPanel: View {
+    let report: BackendCatalogReport?
+    let isLoading: Bool
+    let loadCatalog: () -> Void
+    let applyCatalog: (BackendCatalogReport, BackendCatalogModel?, BackendCatalogVoice?) -> Void
+    @State private var selectedModelID = ""
+    @State private var selectedVoiceID = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Models and Voices")
+                        .font(.headline)
+                    Text("Read the choices exposed by the running Kokoro service.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    loadCatalog()
+                } label: {
+                    Label(isLoading ? "Reading..." : "Read Choices", systemImage: isLoading ? "hourglass" : "list.bullet.rectangle")
+                }
+                .disabled(isLoading)
+            }
+
+            if isLoading {
+                ProgressView("Reading Kokoro models and voices...")
+            } else if let report {
+                Text(report.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if report.models.isEmpty && report.voices.isEmpty {
+                    Text("No model or voice choices were returned. Check the service URL above.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    catalogPickers(report: report)
+                }
+            } else {
+                Text("After discovery fills the service URL, read choices to populate the app menus.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func catalogPickers(report: BackendCatalogReport) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            if !report.models.isEmpty {
+                GridRow {
+                    Text("Model").foregroundStyle(.secondary)
+                    Picker("Model", selection: modelBinding(report.models)) {
+                        ForEach(report.models) { model in
+                            Text(model.displayName).tag(model.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+            }
+
+            if !report.voices.isEmpty {
+                GridRow {
+                    Text("Voice").foregroundStyle(.secondary)
+                    Picker("Voice", selection: voiceBinding(report.voices)) {
+                        ForEach(report.voices) { voice in
+                            Text(voice.displayName).tag(voice.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+            }
+        }
+
+        HStack {
+            Text("\(report.models.count) models  \(report.voices.count) voices")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Apply Defaults") {
+                applyCatalog(
+                    report,
+                    selectedModel(in: report.models),
+                    selectedVoice(in: report.voices)
+                )
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(report.models.isEmpty && report.voices.isEmpty)
+        }
+    }
+
+    private func modelBinding(_ models: [BackendCatalogModel]) -> Binding<String> {
+        Binding(
+            get: { normalizedModelID(in: models) },
+            set: { selectedModelID = $0 }
+        )
+    }
+
+    private func voiceBinding(_ voices: [BackendCatalogVoice]) -> Binding<String> {
+        Binding(
+            get: { normalizedVoiceID(in: voices) },
+            set: { selectedVoiceID = $0 }
+        )
+    }
+
+    private func normalizedModelID(in models: [BackendCatalogModel]) -> String {
+        if models.contains(where: { $0.id == selectedModelID }) {
+            return selectedModelID
+        }
+        return models.first?.id ?? ""
+    }
+
+    private func normalizedVoiceID(in voices: [BackendCatalogVoice]) -> String {
+        if voices.contains(where: { $0.id == selectedVoiceID }) {
+            return selectedVoiceID
+        }
+        return voices.first?.id ?? ""
+    }
+
+    private func selectedModel(in models: [BackendCatalogModel]) -> BackendCatalogModel? {
+        let id = normalizedModelID(in: models)
+        return models.first { $0.id == id }
+    }
+
+    private func selectedVoice(in voices: [BackendCatalogVoice]) -> BackendCatalogVoice? {
+        let id = normalizedVoiceID(in: voices)
+        return voices.first { $0.id == id }
     }
 }
 

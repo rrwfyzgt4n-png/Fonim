@@ -183,6 +183,25 @@ public struct BackendProcessResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct BackendHTTPResult: Codable, Equatable, Sendable {
+    public var statusCode: Int?
+    public var body: String
+    public var errorDescription: String?
+    public var timedOut: Bool
+
+    public init(
+        statusCode: Int? = nil,
+        body: String = "",
+        errorDescription: String? = nil,
+        timedOut: Bool = false
+    ) {
+        self.statusCode = statusCode
+        self.body = body
+        self.errorDescription = errorDescription
+        self.timedOut = timedOut
+    }
+}
+
 private struct DockerRuntimeOperationContext {
     var executablePath: String
     var report: DockerRuntimeReport
@@ -191,22 +210,26 @@ private struct DockerRuntimeOperationContext {
 public final class BackendManager: @unchecked Sendable {
     public typealias DockerExecutableResolver = @Sendable () -> String?
     public typealias ProcessRunner = @Sendable (_ executable: String, _ arguments: [String]) -> BackendProcessResult
+    public typealias HTTPRunner = @Sendable (_ url: URL) -> BackendHTTPResult?
 
     private let projectRoot: URL
     private let fileManager: FileManager
     private let dockerExecutableResolver: DockerExecutableResolver?
     private let processRunner: ProcessRunner?
+    private let httpRunner: HTTPRunner?
 
     public init(
         projectRoot: URL = AppDefaults.projectRoot,
         fileManager: FileManager = .default,
         dockerExecutableResolver: DockerExecutableResolver? = nil,
-        processRunner: ProcessRunner? = nil
+        processRunner: ProcessRunner? = nil,
+        httpRunner: HTTPRunner? = nil
     ) {
         self.projectRoot = projectRoot
         self.fileManager = fileManager
         self.dockerExecutableResolver = dockerExecutableResolver
         self.processRunner = processRunner
+        self.httpRunner = httpRunner
     }
 
     public func registeredProfiles() -> [BackendProfile] {
@@ -482,6 +505,61 @@ public final class BackendManager: @unchecked Sendable {
         }
     }
 
+    public func catalogReport(for profile: BackendProfile, generatedAt: Date = Date()) -> BackendCatalogReport {
+        guard profile.engineType == .kokoro else {
+            return BackendCatalogReport(
+                profileID: profile.id,
+                generatedAt: generatedAt,
+                models: [],
+                voices: [],
+                message: "Model and voice catalog is not available for \(profile.displayName) yet."
+            )
+        }
+        guard let modelsURL = serviceURL(for: profile, path: "/v1/models"),
+              let voicesURL = serviceURL(for: profile, path: "/v1/audio/voices") else {
+            return BackendCatalogReport(
+                profileID: profile.id,
+                generatedAt: generatedAt,
+                models: [],
+                voices: [],
+                message: "Kokoro needs a service address before models and voices can be read.",
+                technicalDetails: "Add a service URL in the setup assistant."
+            )
+        }
+
+        let modelsResponse = httpGet(url: modelsURL)
+        let voicesResponse = httpGet(url: voicesURL)
+        let models = parseKokoroModels(from: modelsResponse.body)
+        let voices = parseKokoroVoices(from: voicesResponse.body)
+        let ok = isSuccessfulHTTP(modelsResponse) && isSuccessfulHTTP(voicesResponse)
+
+        return BackendCatalogReport(
+            profileID: profile.id,
+            generatedAt: generatedAt,
+            models: models,
+            voices: voices,
+            message: ok ?
+                "Loaded \(models.count) model\(models.count == 1 ? "" : "s") and \(voices.count) voice\(voices.count == 1 ? "" : "s")." :
+                "Could not read every Kokoro model and voice list.",
+            technicalDetails: [
+                "Models URL: \(modelsURL.absoluteString)",
+                httpDetails(modelsResponse),
+                "Voices URL: \(voicesURL.absoluteString)",
+                httpDetails(voicesResponse)
+            ]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        )
+    }
+
+    public func catalogReportAsync(for profile: BackendProfile, generatedAt: Date = Date()) async -> BackendCatalogReport {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: self.catalogReport(for: profile, generatedAt: generatedAt))
+            }
+        }
+    }
+
     private func kokoroDockerHealthReport(
         profile: BackendProfile,
         docker: DockerRuntimeReport
@@ -551,25 +629,9 @@ public final class BackendManager: @unchecked Sendable {
         url: URL,
         fallbackDetails: String? = nil
     ) -> BackendHealthReport {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5
+        let response = httpGet(url: url)
 
-        let semaphore = DispatchSemaphore(value: 0)
-        var statusCode: Int?
-        var body = ""
-        var requestError: Error?
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            requestError = error
-            statusCode = (response as? HTTPURLResponse)?.statusCode
-            if let data {
-                body = String(decoding: data.prefix(2_000), as: UTF8.self)
-            }
-            semaphore.signal()
-        }
-        .resume()
-
-        if semaphore.wait(timeout: .now() + 6) == .timedOut {
+        if response.timedOut {
             return BackendHealthReport(
                 profileID: profile.id,
                 state: .failed,
@@ -579,23 +641,23 @@ public final class BackendManager: @unchecked Sendable {
             )
         }
 
-        if let requestError {
+        if let errorDescription = response.errorDescription {
             return BackendHealthReport(
                 profileID: profile.id,
                 state: .failed,
                 userMessage: "\(profile.displayName) could not be reached.",
                 recoverySuggestion: "Check the service address, port, and whether the backend is running.",
-                technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", requestError.localizedDescription, body].compactMap { $0 }.joined(separator: "\n\n")
+                technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", errorDescription, response.body].compactMap { $0 }.joined(separator: "\n\n")
             )
         }
 
-        guard let statusCode, (200..<300).contains(statusCode) else {
+        guard let statusCode = response.statusCode, (200..<300).contains(statusCode) else {
             return BackendHealthReport(
                 profileID: profile.id,
                 state: .failed,
                 userMessage: "\(profile.displayName) answered, but did not report ready.",
                 recoverySuggestion: "Check the health path and backend logs.",
-                technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", "HTTP status: \(statusCode.map(String.init) ?? "unknown")", body].compactMap { $0 }.joined(separator: "\n\n")
+                technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", "HTTP status: \(response.statusCode.map(String.init) ?? "unknown")", response.body].compactMap { $0 }.joined(separator: "\n\n")
             )
         }
 
@@ -603,8 +665,142 @@ public final class BackendManager: @unchecked Sendable {
             profileID: profile.id,
             state: .ready,
             userMessage: "\(profile.displayName) answered the health check.",
-            technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", body].compactMap { $0 }.joined(separator: "\n\n")
+            technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", response.body].compactMap { $0 }.joined(separator: "\n\n")
         )
+    }
+
+    private func httpGet(url: URL, timeout: TimeInterval = 5) -> BackendHTTPResult {
+        if let override = httpRunner?(url) {
+            return override
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var statusCode: Int?
+        var body = ""
+        var errorDescription: String?
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            errorDescription = error?.localizedDescription
+            statusCode = (response as? HTTPURLResponse)?.statusCode
+            if let data {
+                body = String(decoding: data.prefix(100_000), as: UTF8.self)
+            }
+            semaphore.signal()
+        }
+        .resume()
+
+        let timedOut = semaphore.wait(timeout: .now() + timeout + 1) == .timedOut
+        return BackendHTTPResult(
+            statusCode: statusCode,
+            body: body,
+            errorDescription: errorDescription,
+            timedOut: timedOut
+        )
+    }
+
+    private func isSuccessfulHTTP(_ response: BackendHTTPResult) -> Bool {
+        guard !response.timedOut, response.errorDescription == nil, let statusCode = response.statusCode else {
+            return false
+        }
+        return (200..<300).contains(statusCode)
+    }
+
+    private func httpDetails(_ response: BackendHTTPResult) -> String {
+        var lines: [String] = []
+        if response.timedOut {
+            lines.append("Timed out")
+        }
+        if let statusCode = response.statusCode {
+            lines.append("HTTP status: \(statusCode)")
+        }
+        if let errorDescription = response.errorDescription {
+            lines.append(errorDescription)
+        }
+        if !response.body.isEmpty {
+            lines.append(response.body)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func serviceURL(for profile: BackendProfile, path: String) -> URL? {
+        let referenceURL = profile.healthCheckURL ?? profile.generateEndpoint
+        guard let referenceURL,
+              var components = URLComponents(url: referenceURL, resolvingAgainstBaseURL: false),
+              components.scheme != nil,
+              components.host != nil else {
+            return nil
+        }
+        components.path = path
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
+    private func parseKokoroModels(from body: String) -> [BackendCatalogModel] {
+        parseCatalogEntries(from: body, preferredCollectionKey: "data").map { entry in
+            BackendCatalogModel(id: entry.id, displayName: entry.name ?? entry.id, owner: entry.owner)
+        }
+    }
+
+    private func parseKokoroVoices(from body: String) -> [BackendCatalogVoice] {
+        parseCatalogEntries(from: body, preferredCollectionKey: "voices").map { entry in
+            BackendCatalogVoice(id: entry.id, displayName: entry.name ?? entry.id)
+        }
+    }
+
+    private struct CatalogEntry {
+        var id: String
+        var name: String?
+        var owner: String?
+    }
+
+    private func parseCatalogEntries(from body: String, preferredCollectionKey: String) -> [CatalogEntry] {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) else {
+            return []
+        }
+
+        if let dictionary = json as? [String: Any] {
+            if let preferred = dictionary[preferredCollectionKey] {
+                return parseCatalogCollection(preferred)
+            }
+            if let dataCollection = dictionary["data"] {
+                return parseCatalogCollection(dataCollection)
+            }
+            if let voicesCollection = dictionary["voices"] {
+                return parseCatalogCollection(voicesCollection)
+            }
+        }
+
+        return parseCatalogCollection(json)
+    }
+
+    private func parseCatalogCollection(_ value: Any) -> [CatalogEntry] {
+        if let strings = value as? [String] {
+            return strings.map { CatalogEntry(id: $0, name: $0, owner: nil) }
+        }
+
+        guard let array = value as? [Any] else { return [] }
+        return array.compactMap { item in
+            if let string = item as? String {
+                return CatalogEntry(id: string, name: string, owner: nil)
+            }
+            guard let dictionary = item as? [String: Any] else { return nil }
+            let id = dictionary["id"] as? String ??
+                dictionary["name"] as? String ??
+                dictionary["model"] as? String
+            guard let id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return CatalogEntry(
+                id: id,
+                name: dictionary["name"] as? String ?? dictionary["displayName"] as? String,
+                owner: dictionary["owned_by"] as? String ?? dictionary["owner"] as? String
+            )
+        }
     }
 
     private func installBackend(_ profile: BackendProfile) -> BackendOperationResult {

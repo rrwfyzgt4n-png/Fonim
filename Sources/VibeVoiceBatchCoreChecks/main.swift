@@ -15,6 +15,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
         try checkKokoroDiscoveryReport()
+        try checkKokoroCatalogReport()
         try checkBackendManagerOperations()
         try checkWorkspaceDataModel()
         try checkWorkspacePresets()
@@ -334,6 +335,45 @@ struct VibeVoiceBatchCoreChecks {
         precondition(candidate.connectionSettings.healthCheckURL?.absoluteString == "http://127.0.0.1:8880/health")
     }
 
+    private static func checkKokoroCatalogReport() throws {
+        let profile = BackendProfiles.kokoroTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .installedDockerImage,
+                dockerImage: "ghcr.io/remsky/kokoro-fastapi-cpu:latest",
+                serviceBaseURL: "http://127.0.0.1:8880",
+                modelID: "tts-1",
+                defaultVoice: "af_heart"
+            )
+        )
+        let manager = BackendManager(
+            httpRunner: { url in
+                switch url.path {
+                case "/v1/models":
+                    return BackendHTTPResult(
+                        statusCode: 200,
+                        body: """
+                        {"object":"list","data":[{"id":"tts-1","owned_by":"kokoro"},{"id":"tts-1-hd","owned_by":"kokoro"}]}
+                        """
+                    )
+                case "/v1/audio/voices":
+                    return BackendHTTPResult(
+                        statusCode: 200,
+                        body: """
+                        {"voices":[{"id":"af_heart","name":"af_heart"},{"id":"am_adam","name":"am_adam"}]}
+                        """
+                    )
+                default:
+                    return BackendHTTPResult(statusCode: 404, body: "{}")
+                }
+            }
+        )
+
+        let catalog = manager.catalogReport(for: profile)
+        precondition(catalog.models.map(\.id) == ["tts-1", "tts-1-hd"])
+        precondition(catalog.voices.map(\.id) == ["af_heart", "am_adam"])
+        precondition(catalog.message.contains("Loaded 2 models and 2 voices"))
+    }
+
     private static func checkBackendManagerOperations() throws {
         let profile = BackendProfiles.vibeVoiceTTS
         let root = FileManager.default.temporaryDirectory
@@ -636,6 +676,37 @@ struct VibeVoiceBatchCoreChecks {
         precondition(kokoroProfile.dockerImage == "kokoro-local")
         precondition(kokoroProfile.healthCheckURL?.absoluteString == "http://127.0.0.1:8880/health")
         precondition(configuredKokoro.defaultModelID == "kokoro/custom")
+
+        let catalogBackedKokoro = AppSettings(
+            defaultBackendID: BackendProfiles.kokoroTTS.id,
+            defaultModelID: "missing",
+            defaultVoice: "missing",
+            backendConnections: [
+                BackendProfiles.kokoroTTS.id: BackendConnectionSettings(
+                    connectionKind: .installedDockerImage,
+                    dockerImage: "kokoro-local",
+                    serviceBaseURL: "http://127.0.0.1:8880",
+                    modelID: "tts-1",
+                    defaultVoice: "af_heart"
+                )
+            ],
+            backendCatalogs: [
+                BackendProfiles.kokoroTTS.id: BackendCatalogReport(
+                    profileID: BackendProfiles.kokoroTTS.id,
+                    models: [
+                        BackendCatalogModel(id: "tts-1"),
+                        BackendCatalogModel(id: "tts-1-hd")
+                    ],
+                    voices: [
+                        BackendCatalogVoice(id: "af_heart"),
+                        BackendCatalogVoice(id: "am_adam")
+                    ],
+                    message: "Loaded"
+                )
+            ]
+        ).normalized
+        precondition(catalogBackedKokoro.defaultModelID == "tts-1")
+        precondition(catalogBackedKokoro.defaultVoice == "af_heart")
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {

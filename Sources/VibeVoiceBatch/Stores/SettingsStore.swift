@@ -33,6 +33,33 @@ final class SettingsStore: ObservableObject {
         settings.backendConnection(for: profileID)
     }
 
+    func backendCatalog(for profileID: String) -> BackendCatalogReport? {
+        settings.backendCatalog(for: profileID)
+    }
+
+    func modelOptions(for profile: BackendProfile) -> [BackendCatalogModel] {
+        if let catalog = settings.backendCatalog(for: profile.id),
+           !catalog.models.isEmpty {
+            return catalog.models
+        }
+        return profile.requiredModels.map { model in
+            BackendCatalogModel(id: model.id, displayName: model.displayName)
+        }
+    }
+
+    func voiceOptions(for profile: BackendProfile) -> [BackendCatalogVoice] {
+        if let catalog = settings.backendCatalog(for: profile.id),
+           !catalog.voices.isEmpty {
+            return catalog.voices
+        }
+        if profile.engineType == .kokoro {
+            let connection = settings.backendConnection(for: profile.id)
+            let voice = connection.trimmedDefaultVoice ?? settings.defaultVoice
+            return [BackendCatalogVoice(id: voice, displayName: voice)]
+        }
+        return AppDefaults.availableVoices.map { BackendCatalogVoice(id: $0, displayName: $0) }
+    }
+
     func update(_ edit: (inout AppSettings) -> Void) {
         var copy = settings
         edit(&copy)
@@ -65,6 +92,30 @@ final class SettingsStore: ObservableObject {
                 let resolved = settings.backendProfile(id: profileID)
                 if !resolved.requiredModels.contains(where: { $0.id == settings.defaultModelID }) {
                     settings.defaultModelID = resolved.requiredModels.first?.id ?? settings.defaultModelID
+                }
+            }
+        }
+    }
+
+    func saveBackendCatalog(_ catalog: BackendCatalogReport, for profileID: String) {
+        update { settings in
+            settings.backendCatalogs[profileID] = catalog
+            var connection = settings.backendConnection(for: profileID)
+            if !catalog.models.isEmpty {
+                connection.modelID = catalog.models[0].id
+            }
+            if !catalog.voices.isEmpty {
+                connection.defaultVoice = catalog.voices[0].id
+            }
+            settings.backendConnections[profileID] = connection
+            if settings.defaultBackendID == profileID {
+                if !catalog.models.isEmpty,
+                   !catalog.models.contains(where: { $0.id == settings.defaultModelID }) {
+                    settings.defaultModelID = catalog.models[0].id
+                }
+                if !catalog.voices.isEmpty,
+                   !catalog.voices.contains(where: { $0.id == settings.defaultVoice }) {
+                    settings.defaultVoice = catalog.voices[0].id
                 }
             }
         }

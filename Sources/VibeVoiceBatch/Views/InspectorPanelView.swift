@@ -34,8 +34,8 @@ struct InspectorPanelView: View {
     private var generationSection: some View {
         InspectorGroup(title: "Generation") {
             Picker("Voice", selection: $store.selectedVoice) {
-                ForEach(AppDefaults.availableVoices, id: \.self) { voice in
-                    Text(voice).tag(voice)
+                ForEach(store.availableVoiceOptions) { voice in
+                    Text(voice.displayName).tag(voice.id)
                 }
             }
             .pickerStyle(.menu)
@@ -66,7 +66,7 @@ struct InspectorPanelView: View {
             .pickerStyle(.menu)
 
             Picker("Model", selection: settingsBinding(\.defaultModelID)) {
-                ForEach(store.selectedBackendProfile.requiredModels) { model in
+                ForEach(store.availableModelOptions) { model in
                     Text(model.displayName).tag(model.id)
                 }
             }

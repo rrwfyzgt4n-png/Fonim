@@ -17,6 +17,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var hasCompletedSetupAssistant: Bool
     public var setupMode: BackendSetupMode
     public var backendConnections: [String: BackendConnectionSettings]
+    public var backendCatalogs: [String: BackendCatalogReport]
 
     public init(
         defaultBackendID: String = BackendProfiles.vibeVoiceTTS.id,
@@ -30,7 +31,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         refreshBackendStatusOnLaunch: Bool = true,
         hasCompletedSetupAssistant: Bool = false,
         setupMode: BackendSetupMode = .simple,
-        backendConnections: [String: BackendConnectionSettings] = BackendConnectionSettings.defaultConfigurations
+        backendConnections: [String: BackendConnectionSettings] = BackendConnectionSettings.defaultConfigurations,
+        backendCatalogs: [String: BackendCatalogReport] = [:]
     ) {
         self.defaultBackendID = defaultBackendID
         self.defaultModelID = defaultModelID
@@ -44,6 +46,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.hasCompletedSetupAssistant = hasCompletedSetupAssistant
         self.setupMode = setupMode
         self.backendConnections = backendConnections
+        self.backendCatalogs = backendCatalogs
     }
 
     public static let defaults = AppSettings()
@@ -60,10 +63,26 @@ public struct AppSettings: Codable, Equatable, Sendable {
             copy.defaultBackendID = BackendProfiles.vibeVoiceTTS.id
         }
         let selectedProfile = copy.backendProfile(id: copy.defaultBackendID)
-        if !selectedProfile.requiredModels.contains(where: { $0.id == copy.defaultModelID }) {
+        let selectedCatalog = copy.backendCatalog(for: copy.defaultBackendID)
+        let catalogModels = selectedCatalog?.models ?? []
+        if !catalogModels.isEmpty {
+            if !catalogModels.contains(where: { $0.id == copy.defaultModelID }) {
+                copy.defaultModelID = catalogModels[0].id
+            }
+        } else if !selectedProfile.requiredModels.contains(where: { $0.id == copy.defaultModelID }) {
             copy.defaultModelID = selectedProfile.requiredModels.first?.id ?? AppDefaults.modelPath
         }
-        if !AppDefaults.availableVoices.contains(copy.defaultVoice) {
+        let selectedConnection = copy.backendConnection(for: copy.defaultBackendID)
+        if selectedProfile.engineType == .kokoro {
+            let catalogVoices = selectedCatalog?.voices ?? []
+            if !catalogVoices.isEmpty {
+                if !catalogVoices.contains(where: { $0.id == copy.defaultVoice }) {
+                    copy.defaultVoice = catalogVoices[0].id
+                }
+            } else if copy.defaultVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                copy.defaultVoice = selectedConnection.trimmedDefaultVoice ?? "af_heart"
+            }
+        } else if !AppDefaults.availableVoices.contains(copy.defaultVoice) {
             copy.defaultVoice = AppDefaults.defaultVoice
         }
         if !AppDefaults.availableCFGScales.contains(copy.defaultCFGScale) {
@@ -95,6 +114,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
             BackendConnectionSettings()
     }
 
+    public func backendCatalog(for profileID: String) -> BackendCatalogReport? {
+        backendCatalogs[profileID]
+    }
+
     private enum CodingKeys: String, CodingKey {
         case defaultBackendID
         case defaultModelID
@@ -108,6 +131,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case hasCompletedSetupAssistant
         case setupMode
         case backendConnections
+        case backendCatalogs
     }
 
     public init(from decoder: Decoder) throws {
@@ -125,6 +149,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         hasCompletedSetupAssistant = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedSetupAssistant) ?? defaults.hasCompletedSetupAssistant
         setupMode = try container.decodeIfPresent(BackendSetupMode.self, forKey: .setupMode) ?? defaults.setupMode
         backendConnections = try container.decodeIfPresent([String: BackendConnectionSettings].self, forKey: .backendConnections) ?? defaults.backendConnections
+        backendCatalogs = try container.decodeIfPresent([String: BackendCatalogReport].self, forKey: .backendCatalogs) ?? defaults.backendCatalogs
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -141,5 +166,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         try container.encode(hasCompletedSetupAssistant, forKey: .hasCompletedSetupAssistant)
         try container.encode(setupMode, forKey: .setupMode)
         try container.encode(backendConnections, forKey: .backendConnections)
+        try container.encode(backendCatalogs, forKey: .backendCatalogs)
     }
 }

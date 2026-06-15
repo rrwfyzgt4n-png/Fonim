@@ -231,7 +231,7 @@ private struct ModelsSettingsPane: View {
     var body: some View {
         Form {
             Picker("Default model", selection: binding(\.defaultModelID)) {
-                ForEach(selectedBackend.requiredModels) { model in
+                ForEach(settingsStore.modelOptions(for: selectedBackend)) { model in
                     Text(model.displayName).tag(model.id)
                 }
             }
@@ -259,17 +259,18 @@ private struct ModelsSettingsPane: View {
 
 private struct VoicesSettingsPane: View {
     @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var appStore: AppStore
 
     var body: some View {
         Form {
             Picker("Default voice", selection: binding(\.defaultVoice)) {
-                ForEach(AppDefaults.availableVoices, id: \.self) { voice in
-                    Text(voice).tag(voice)
+                ForEach(settingsStore.voiceOptions(for: appStore.selectedBackendProfile)) { voice in
+                    Text(voice.displayName).tag(voice.id)
                 }
             }
             .pickerStyle(.menu)
 
-            LabeledContent("Available voices", value: "\(AppDefaults.availableVoices.count)")
+            LabeledContent("Available voices", value: "\(settingsStore.voiceOptions(for: appStore.selectedBackendProfile).count)")
             LabeledContent("Current default", value: settingsStore.settings.defaultVoice)
         }
         .formStyle(.grouped)

@@ -85,10 +85,18 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     var selectedModelID: String {
         let profile = selectedBackendProfile
-        if profile.requiredModels.contains(where: { $0.id == settingsStore.settings.defaultModelID }) {
+        if settingsStore.modelOptions(for: profile).contains(where: { $0.id == settingsStore.settings.defaultModelID }) {
             return settingsStore.settings.defaultModelID
         }
-        return profile.requiredModels.first?.id ?? settingsStore.settings.defaultModelID
+        return settingsStore.modelOptions(for: profile).first?.id ?? settingsStore.settings.defaultModelID
+    }
+
+    var availableVoiceOptions: [BackendCatalogVoice] {
+        settingsStore.voiceOptions(for: selectedBackendProfile)
+    }
+
+    var availableModelOptions: [BackendCatalogModel] {
+        settingsStore.modelOptions(for: selectedBackendProfile)
     }
 
     var canGenerate: Bool {
@@ -317,11 +325,16 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         settingsStore.update {
             $0.defaultBackendID = backendID
             let profile = $0.backendProfile(id: backendID)
-            $0.defaultModelID = profile.requiredModels.first?.id ?? $0.defaultModelID
+            let catalog = $0.backendCatalog(for: backendID)
+            $0.defaultModelID = catalog?.models.first?.id ?? profile.requiredModels.first?.id ?? $0.defaultModelID
+            if profile.engineType == .kokoro {
+                $0.defaultVoice = catalog?.voices.first?.id ?? $0.backendConnection(for: backendID).trimmedDefaultVoice ?? $0.defaultVoice
+            }
             if !profile.outputFormatSupport.contains($0.exportFormat) {
                 $0.exportFormat = profile.outputFormatSupport.first ?? .wav
             }
         }
+        selectedVoice = settingsStore.settings.defaultVoice
         backendStatus = BackendStatusSnapshot.unknown(profile: selectedBackendProfile)
         refreshBackendStatus()
     }
