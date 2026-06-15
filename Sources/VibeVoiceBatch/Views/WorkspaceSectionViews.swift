@@ -270,6 +270,36 @@ struct VoicesView: View {
                         ForEach(workspaceStore.voicePresets) { preset in
                             VoicePresetRow(preset: preset)
                                 .tag(Optional(preset.id))
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    Button {
+                                        duplicateVoicePreset(preset)
+                                    } label: {
+                                        Label("Duplicate", systemImage: "doc.on.doc")
+                                    }
+                                    .tint(.blue)
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: !preset.isBuiltIn) {
+                                    Button(role: .destructive) {
+                                        deleteVoicePreset(preset)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    .disabled(preset.isBuiltIn)
+                                }
+                                .contextMenu {
+                                    Button {
+                                        duplicateVoicePreset(preset)
+                                    } label: {
+                                        Label("Duplicate", systemImage: "doc.on.doc")
+                                    }
+
+                                    Button(role: .destructive) {
+                                        deleteVoicePreset(preset)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    .disabled(preset.isBuiltIn)
+                                }
                         }
                     }
                     .listStyle(.sidebar)
@@ -320,6 +350,26 @@ struct VoicesView: View {
         }
         selectedPresetID = workspaceStore.voicePresets.first?.id
     }
+
+    private func duplicateVoicePreset(_ preset: NarrationVoicePreset) {
+        if let copy = workspaceStore.duplicateVoicePreset(preset) {
+            selectedPresetID = copy.id
+            appStore.statusMessage = "Duplicated voice: \(copy.displayName)"
+        }
+    }
+
+    private func deleteVoicePreset(_ preset: NarrationVoicePreset) {
+        guard !preset.isBuiltIn else {
+            workspaceStore.deleteVoicePreset(preset)
+            return
+        }
+        let deletedID = preset.id
+        workspaceStore.deleteVoicePreset(preset)
+        if selectedPresetID == deletedID {
+            selectedPresetID = workspaceStore.voicePresets.first?.id
+        }
+        appStore.statusMessage = "Deleted voice: \(preset.displayName)"
+    }
 }
 
 struct PresetsView: View {
@@ -348,6 +398,36 @@ struct PresetsView: View {
                         ForEach(workspaceStore.generationPresets) { preset in
                             GenerationPresetRow(preset: preset)
                                 .tag(Optional(preset.id))
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    Button {
+                                        duplicateGenerationPreset(preset)
+                                    } label: {
+                                        Label("Duplicate", systemImage: "doc.on.doc")
+                                    }
+                                    .tint(.blue)
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: !preset.isBuiltIn) {
+                                    Button(role: .destructive) {
+                                        deleteGenerationPreset(preset)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    .disabled(preset.isBuiltIn)
+                                }
+                                .contextMenu {
+                                    Button {
+                                        duplicateGenerationPreset(preset)
+                                    } label: {
+                                        Label("Duplicate", systemImage: "doc.on.doc")
+                                    }
+
+                                    Button(role: .destructive) {
+                                        deleteGenerationPreset(preset)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    .disabled(preset.isBuiltIn)
+                                }
                         }
                     }
                     .listStyle(.sidebar)
@@ -402,6 +482,26 @@ struct PresetsView: View {
             return
         }
         selectedPresetID = workspaceStore.generationPresets.first?.id
+    }
+
+    private func duplicateGenerationPreset(_ preset: NarrationGenerationPreset) {
+        if let copy = workspaceStore.duplicateGenerationPreset(preset) {
+            selectedPresetID = copy.id
+            appStore.statusMessage = "Duplicated preset: \(copy.displayName)"
+        }
+    }
+
+    private func deleteGenerationPreset(_ preset: NarrationGenerationPreset) {
+        guard !preset.isBuiltIn else {
+            workspaceStore.deleteGenerationPreset(preset)
+            return
+        }
+        let deletedID = preset.id
+        workspaceStore.deleteGenerationPreset(preset)
+        if selectedPresetID == deletedID {
+            selectedPresetID = workspaceStore.generationPresets.first?.id
+        }
+        appStore.statusMessage = "Deleted preset: \(preset.displayName)"
     }
 }
 

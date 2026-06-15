@@ -269,6 +269,51 @@ public final class WorkspaceFileStore {
         return try read(NarrationGenerationPreset.self, from: generationPresetURL(id))
     }
 
+    public func duplicateVoicePreset(id: String, now: Date = Date()) throws -> NarrationVoicePreset {
+        let source = try loadVoicePreset(id: id)
+        return try createVoicePreset(
+            title: "\(source.displayName) Copy",
+            voiceID: source.voiceID,
+            backendID: source.backendID,
+            modelID: source.modelID,
+            locale: source.locale,
+            traits: source.traits,
+            notes: source.notes,
+            now: now
+        )
+    }
+
+    public func duplicateGenerationPreset(id: String, now: Date = Date()) throws -> NarrationGenerationPreset {
+        let source = try loadGenerationPreset(id: id)
+        return try createGenerationPreset(
+            title: "\(source.displayName) Copy",
+            backendID: source.backendID,
+            modelID: source.modelID,
+            voicePresetID: source.voicePresetID,
+            voiceID: source.voiceID,
+            settings: source.settings,
+            outputFormat: source.outputFormat,
+            notes: source.notes,
+            now: now
+        )
+    }
+
+    public func deleteVoicePreset(id: String) throws {
+        let preset = try loadVoicePreset(id: id)
+        guard !preset.isBuiltIn else {
+            throw CocoaError(.userCancelled)
+        }
+        try fileManager.removeItem(at: voicePresetURL(id))
+    }
+
+    public func deleteGenerationPreset(id: String) throws {
+        let preset = try loadGenerationPreset(id: id)
+        guard !preset.isBuiltIn else {
+            throw CocoaError(.userCancelled)
+        }
+        try fileManager.removeItem(at: generationPresetURL(id))
+    }
+
     public func updateScriptText(id: String, text: String, now: Date = Date()) throws -> NarrationScript {
         var script = try loadScript(id: id)
         script.text = text

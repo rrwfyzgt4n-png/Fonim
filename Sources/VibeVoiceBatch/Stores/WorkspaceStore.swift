@@ -85,4 +85,60 @@ final class WorkspaceStore: ObservableObject {
             return nil
         }
     }
+
+    @discardableResult
+    func duplicateVoicePreset(_ preset: NarrationVoicePreset) -> NarrationVoicePreset? {
+        do {
+            let copy = try fileStore.duplicateVoicePreset(id: preset.id)
+            refresh()
+            alertMessage = nil
+            return copy
+        } catch {
+            alertMessage = "Could not duplicate voice: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func deleteVoicePreset(_ preset: NarrationVoicePreset) {
+        guard !preset.isBuiltIn else {
+            alertMessage = "Built-in voices cannot be deleted. Duplicate it first if you want a custom copy."
+            return
+        }
+
+        do {
+            try fileStore.deleteVoicePreset(id: preset.id)
+            refresh()
+            alertMessage = nil
+        } catch {
+            alertMessage = "Could not delete voice: \(error.localizedDescription)"
+        }
+    }
+
+    @discardableResult
+    func duplicateGenerationPreset(_ preset: NarrationGenerationPreset) -> NarrationGenerationPreset? {
+        do {
+            let copy = try fileStore.duplicateGenerationPreset(id: preset.id)
+            refresh()
+            alertMessage = nil
+            return copy
+        } catch {
+            alertMessage = "Could not duplicate preset: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func deleteGenerationPreset(_ preset: NarrationGenerationPreset) {
+        guard !preset.isBuiltIn else {
+            alertMessage = "Built-in presets cannot be deleted. Duplicate it first if you want a custom copy."
+            return
+        }
+
+        do {
+            try fileStore.deleteGenerationPreset(id: preset.id)
+            refresh()
+            alertMessage = nil
+        } catch {
+            alertMessage = "Could not delete preset: \(error.localizedDescription)"
+        }
+    }
 }

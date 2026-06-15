@@ -500,6 +500,23 @@ struct VibeVoiceBatchCoreChecks {
         let reloaded = try workspaceStore.loadSnapshot()
         precondition(reloaded.voicePresets.contains { $0.id == voicePreset.id })
         precondition(reloaded.generationPresets.contains { $0.id == generationPreset.id })
+
+        let voiceCopy = try workspaceStore.duplicateVoicePreset(id: voicePreset.id, now: createdAt)
+        precondition(voiceCopy.id != voicePreset.id)
+        precondition(voiceCopy.voiceID == voicePreset.voiceID)
+        precondition(voiceCopy.traits == voicePreset.traits)
+        precondition(FileManager.default.fileExists(atPath: root.voicePresetsDirectory.appendingPathComponent("\(voiceCopy.id).json").path))
+
+        let generationCopy = try workspaceStore.duplicateGenerationPreset(id: generationPreset.id, now: createdAt)
+        precondition(generationCopy.id != generationPreset.id)
+        precondition(generationCopy.voiceID == generationPreset.voiceID)
+        precondition(generationCopy.settings == generationPreset.settings)
+        precondition(FileManager.default.fileExists(atPath: root.generationPresetsDirectory.appendingPathComponent("\(generationCopy.id).json").path))
+
+        try workspaceStore.deleteVoicePreset(id: voiceCopy.id)
+        try workspaceStore.deleteGenerationPreset(id: generationCopy.id)
+        precondition(!FileManager.default.fileExists(atPath: root.voicePresetsDirectory.appendingPathComponent("\(voiceCopy.id).json").path))
+        precondition(!FileManager.default.fileExists(atPath: root.generationPresetsDirectory.appendingPathComponent("\(generationCopy.id).json").path))
     }
 
     private static func checkAppSettingsNormalizeInvalidValues() throws {

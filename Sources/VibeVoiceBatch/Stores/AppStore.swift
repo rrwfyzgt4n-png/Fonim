@@ -30,6 +30,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var statusMessage = "Ready"
     @Published var alertMessage: String?
     @Published private(set) var latestGenerationLogLine = "Ready"
+    @Published private(set) var requestedSelection: WorkstationSelection?
     @Published private var liveLogBySessionID: [String: String] = [:]
 
     private let settingsStore: SettingsStore
@@ -139,6 +140,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         hasUnsavedEditorText = false
         selectedSessionID = nil
         statusMessage = "New blank editor"
+        requestedSelection = .section(.history)
         if !isGenerating {
             generationTicker = .idle
         }
@@ -250,6 +252,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         hasUnsavedEditorText = !item.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         selectedSessionID = nil
         statusMessage = "Duplicated queued item as new unsaved text"
+        requestedSelection = .section(.history)
     }
 
     func applyVoicePreset(_ preset: NarrationVoicePreset) {
@@ -409,6 +412,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         hasUnsavedEditorText = !record.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         selectedSessionID = nil
         statusMessage = "Duplicated \(record.id) as new unsaved text"
+        requestedSelection = .section(.history)
     }
 
     func archiveDeleteSession(_ record: SessionRecord) {
@@ -494,6 +498,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func clearPendingScrollRequest() {
         pendingScrollSessionID = nil
+    }
+
+    func clearRequestedSelection() {
+        requestedSelection = nil
     }
 
     private func handleGenerationEvent(_ event: GenerationEvent) {

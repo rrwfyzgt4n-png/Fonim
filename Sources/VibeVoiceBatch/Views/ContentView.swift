@@ -124,6 +124,11 @@ struct ContentView: View {
                 store.selectedSessionID = nil
             }
         }
+        .onChange(of: store.requestedSelection) { requestedSelection in
+            guard let requestedSelection else { return }
+            selection = requestedSelection
+            store.clearRequestedSelection()
+        }
         .alert("VibeVoice Batch", isPresented: alertBinding) {
             Button("Copy Details") {
                 copyAlertDetails()
