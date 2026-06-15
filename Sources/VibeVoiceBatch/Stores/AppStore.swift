@@ -39,6 +39,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private let settingsStore: SettingsStore
     private let fileStore = SessionFileStore()
     private let quickLookPreviewer = QuickLookPreviewer()
+    private let backendManager = BackendManager()
     private let vibeVoiceAdapter: VibeVoiceDockerAdapter
     private let kokoroAdapter: UnavailableEngineAdapter
     private lazy var jobQueue = JobQueue(adapters: [vibeVoiceAdapter, kokoroAdapter])
@@ -55,8 +56,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         vibeVoiceAdapter = VibeVoiceDockerAdapter()
         kokoroAdapter = UnavailableEngineAdapter(
             profile: BackendProfiles.kokoroTTS,
-            explanation: "Kokoro is available as a backend profile, but managed install and generation are not implemented yet.",
-            recoverySuggestion: "Choose VibeVoice TTS for local generation while Kokoro support is completed."
+            explanation: "Kokoro setup details can be checked in the assistant, but generation is not connected to the editor yet.",
+            recoverySuggestion: "Use the assistant to save the Kokoro image or service details, then keep using VibeVoice for generation until the Kokoro adapter is mapped."
         )
         super.init()
         selectedVoice = settingsStore.settings.defaultVoice
@@ -79,7 +80,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     var selectedBackendProfile: BackendProfile {
-        BackendProfiles.all.first { $0.id == settingsStore.settings.defaultBackendID } ?? BackendProfiles.vibeVoiceTTS
+        settingsStore.selectedBackendProfile
     }
 
     var selectedModelID: String {
@@ -94,6 +95,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         !isPreparingGeneration &&
             backendStatus.profileID == selectedBackendProfile.id &&
             (isGenerating || backendStatus.canStartGeneration) &&
+            selectedBackendHasGenerationAdapter &&
             !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -216,6 +218,12 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 presentBlockedBackend(status)
                 return
             }
+            guard selectedBackendHasGenerationAdapter else {
+                isPreparingGeneration = false
+                stopElapsedTimer()
+                presentBackendNeedsGenerationAdapter(selectedBackendProfile)
+                return
+            }
             isPreparingGeneration = false
             enqueueGeneration(
                 text: text,
@@ -308,11 +316,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func selectBackend(_ backendID: String) {
         settingsStore.update {
             $0.defaultBackendID = backendID
-            if let profile = BackendProfiles.all.first(where: { $0.id == backendID }) {
-                $0.defaultModelID = profile.requiredModels.first?.id ?? $0.defaultModelID
-                if !profile.outputFormatSupport.contains($0.exportFormat) {
-                    $0.exportFormat = profile.outputFormatSupport.first ?? .wav
-                }
+            let profile = $0.backendProfile(id: backendID)
+            $0.defaultModelID = profile.requiredModels.first?.id ?? $0.defaultModelID
+            if !profile.outputFormatSupport.contains($0.exportFormat) {
+                $0.exportFormat = profile.outputFormatSupport.first ?? .wav
             }
         }
         backendStatus = BackendStatusSnapshot.unknown(profile: selectedBackendProfile)
@@ -808,8 +815,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         defer { isRefreshingBackendStatus = false }
         let profile = selectedBackendProfile
         let report: BackendHealthReport
-        if let adapter = adapter(for: profile.id) {
+        if profile.id == BackendProfiles.vibeVoiceTTS.id,
+           let adapter = adapter(for: profile.id) {
             report = await adapter.healthCheck()
+        } else if BackendProfiles.baseProfile(id: profile.id) != nil {
+            report = await backendManager.healthReportAsync(for: profile)
         } else {
             report = BackendHealthReport(
                 profileID: profile.id,
@@ -822,6 +832,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         backendStatus = snapshot
         statusMessage = snapshot.state == .ready ? "Backend ready" : snapshot.state.displayName
         return snapshot
+    }
+
+    private var selectedBackendHasGenerationAdapter: Bool {
+        selectedBackendProfile.id == BackendProfiles.vibeVoiceTTS.id
     }
 
     private func adapter(for backendID: String) -> (any EngineAdapter)? {
@@ -837,6 +851,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func presentBlockedBackend(_ status: BackendStatusSnapshot) {
         statusMessage = status.state.displayName
         alertMessage = status.alertMessage
+    }
+
+    private func presentBackendNeedsGenerationAdapter(_ profile: BackendProfile) {
+        statusMessage = "Adapter needed"
+        alertMessage = [
+            "\(profile.displayName) setup can be checked now, but generation is not connected yet.",
+            "Next we need the running image or service contract: image name, launch command or port, voices endpoint, generation endpoint, and output format behavior."
+        ].joined(separator: "\n\n")
     }
 
     private func startElapsedTimer() {

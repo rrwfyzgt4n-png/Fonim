@@ -9,7 +9,7 @@ struct BackendSetupAssistantView: View {
     @StateObject private var operationsStore = BackendOperationsStore()
 
     private var selectedBackend: BackendProfile {
-        BackendProfiles.all.first { $0.id == settingsStore.settings.defaultBackendID } ?? BackendProfiles.vibeVoiceTTS
+        settingsStore.selectedBackendProfile
     }
 
     var body: some View {
@@ -21,6 +21,11 @@ struct BackendSetupAssistantView: View {
             .navigationTitle("Setup")
         } detail: {
             VStack(alignment: .leading, spacing: 18) {
+                SetupBackendSelector(
+                    selectedBackendID: backendBinding,
+                    statusText: appStore.backendStatus.state.displayName
+                )
+
                 switch setupStore.selectedStage {
                 case .welcome:
                     WelcomeSetupPane(onContinue: { setupStore.selectedStage = .mode })
@@ -41,6 +46,7 @@ struct BackendSetupAssistantView: View {
                         operationResult: operationsStore.latestResult,
                         isOperationRunning: operationsStore.isRunning,
                         activeOperation: operationsStore.activeOperation,
+                        connection: selectedConnectionBinding,
                         install: { runBackendOperation(.install) },
                         repair: { runBackendOperation(.repair) },
                         prepare: { runBackendOperation(.prepare) },
@@ -74,12 +80,36 @@ struct BackendSetupAssistantView: View {
                 setupStore.runChecks(profile: selectedBackend)
             }
         }
+        .onChange(of: settingsStore.settings.defaultBackendID) { _ in
+            setupStore.runChecks(profile: selectedBackend)
+        }
     }
 
     private var modeBinding: Binding<BackendSetupMode> {
         Binding(
             get: { settingsStore.settings.setupMode },
             set: { settingsStore.selectSetupMode($0) }
+        )
+    }
+
+    private var backendBinding: Binding<String> {
+        Binding(
+            get: { settingsStore.settings.defaultBackendID },
+            set: { backendID in
+                appStore.selectBackend(backendID)
+                setupStore.runChecks(profile: selectedBackend)
+            }
+        )
+    }
+
+    private var selectedConnectionBinding: Binding<BackendConnectionSettings> {
+        Binding(
+            get: { settingsStore.backendConnection(for: selectedBackend.id) },
+            set: { connection in
+                settingsStore.update { settings in
+                    settings.backendConnections[selectedBackend.id] = connection
+                }
+            }
         )
     }
 
@@ -99,6 +129,32 @@ struct BackendSetupAssistantView: View {
             appStore.statusMessage = result.message
             appStore.refreshBackendStatus()
             setupStore.runChecks(profile: selectedBackend)
+        }
+    }
+}
+
+private struct SetupBackendSelector: View {
+    @Binding var selectedBackendID: String
+    let statusText: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Picker("Backend", selection: $selectedBackendID) {
+                ForEach(BackendProfiles.all) { profile in
+                    Text(profile.displayName).tag(profile.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 280)
+
+            Text(statusText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary, in: Capsule())
+
+            Spacer()
         }
     }
 }
@@ -177,6 +233,7 @@ private struct BackendInstallSetupPane: View {
     let operationResult: BackendOperationResult?
     let isOperationRunning: Bool
     let activeOperation: BackendOperationKind?
+    @Binding var connection: BackendConnectionSettings
     let install: () -> Void
     let repair: () -> Void
     let prepare: () -> Void
@@ -194,6 +251,10 @@ private struct BackendInstallSetupPane: View {
                 LabeledContent("Memory", value: profile.requiredMemoryGB.map { "\(Int($0)) GB" } ?? "Not specified")
             }
             .formStyle(.grouped)
+
+            if profile.engineType == .kokoro {
+                KokoroConnectionForm(connection: $connection)
+            }
 
             CheckList(report: report, isChecking: false)
 
@@ -230,6 +291,82 @@ private struct BackendInstallSetupPane: View {
                     .buttonStyle(.borderedProminent)
             }
         }
+    }
+}
+
+private struct KokoroConnectionForm: View {
+    @Binding var connection: BackendConnectionSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Kokoro Connection")
+                .font(.headline)
+
+            Text("Save the details for the Kokoro install you already have. The assistant will verify what it can and clearly mark anything still missing.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Connection", selection: binding(\.connectionKind)) {
+                ForEach(BackendConnectionKind.allCases, id: \.self) { kind in
+                    Text(kind.displayName).tag(kind)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                if connection.connectionKind == .installedDockerImage {
+                    GridRow {
+                        Text("Image").foregroundStyle(.secondary)
+                        TextField("kokoro image name", text: binding(\.dockerImage))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                if connection.connectionKind == .installedDockerImage ||
+                    connection.connectionKind == .externalService {
+                    GridRow {
+                        Text("Service URL").foregroundStyle(.secondary)
+                        TextField("http://127.0.0.1:PORT", text: binding(\.serviceBaseURL))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    GridRow {
+                        Text("Health").foregroundStyle(.secondary)
+                        TextField("/health", text: binding(\.healthPath))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    GridRow {
+                        Text("Generate").foregroundStyle(.secondary)
+                        TextField("/v1/audio/speech", text: binding(\.generatePath))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                GridRow {
+                    Text("Model").foregroundStyle(.secondary)
+                    TextField("kokoro/default", text: binding(\.modelID))
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Voice").foregroundStyle(.secondary)
+                    TextField("default voice", text: binding(\.defaultVoice))
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Notes").foregroundStyle(.secondary)
+                    TextField("launch command, port, or anything useful", text: binding(\.notes))
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+        }
+        .padding(12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func binding<Value>(_ keyPath: WritableKeyPath<BackendConnectionSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { connection[keyPath: keyPath] },
+            set: { connection[keyPath: keyPath] = $0 }
+        )
     }
 }
 

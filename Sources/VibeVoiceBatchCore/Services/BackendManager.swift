@@ -239,6 +239,9 @@ public final class BackendManager: @unchecked Sendable {
                     technicalDetails: docker.details
                 )
             }
+            if profile.engineType == .kokoro {
+                return kokoroDockerHealthReport(profile: profile, docker: docker)
+            }
             return BackendHealthReport(
                 profileID: profile.id,
                 state: .ready,
@@ -246,12 +249,16 @@ public final class BackendManager: @unchecked Sendable {
                 recoverySuggestion: nil,
                 technicalDetails: docker.details
             )
-        case .localPython, .comfyUI, .native, .externalService:
+        case .externalService:
+            return externalServiceHealthReport(profile: profile)
+        case .localPython, .comfyUI, .native:
             return BackendHealthReport(
                 profileID: profile.id,
                 state: .unknown,
                 userMessage: "Backend checks for \(profile.displayName) have not been implemented yet.",
-                recoverySuggestion: "Choose a configured backend before generating."
+                recoverySuggestion: profile.engineType == .kokoro ?
+                    "For Kokoro, choose Installed Docker Image or External Service in the setup assistant first." :
+                    "Choose a configured backend before generating."
             )
         }
     }
@@ -373,14 +380,21 @@ public final class BackendManager: @unchecked Sendable {
             checks.append(dockerSetupCheck(docker))
             checks.append(dockerImageCheck(profile: profile, docker: docker))
             checks.append(modelCacheCheck(profile: profile))
-        case .localPython, .comfyUI, .native, .externalService:
+            if profile.engineType == .kokoro {
+                checks.append(serviceEndpointCheck(profile: profile))
+            }
+        case .externalService:
+            checks.append(serviceEndpointCheck(profile: profile))
+        case .localPython, .comfyUI, .native:
             checks.append(
                 BackendSetupCheck(
                     id: "runtime-\(profile.id)",
                     title: "Runtime",
                     state: .warning,
-                    message: "Setup checks for \(profile.displayName) are not implemented yet.",
-                    recoverySuggestion: "Use the VibeVoice backend while additional backend installers are added."
+                    message: "Setup checks for \(profile.displayName) are limited for this runtime.",
+                    recoverySuggestion: profile.engineType == .kokoro ?
+                        "If your Kokoro install exposes a local server, choose External Service. If it uses a Docker image, choose Installed Docker Image." :
+                        "Use a supported backend while additional installers are added."
                 )
             )
         }
@@ -406,6 +420,131 @@ public final class BackendManager: @unchecked Sendable {
                 continuation.resume(returning: self.setupReport(for: profile, generatedAt: generatedAt))
             }
         }
+    }
+
+    private func kokoroDockerHealthReport(
+        profile: BackendProfile,
+        docker: DockerRuntimeReport
+    ) -> BackendHealthReport {
+        guard let dockerExecutable = docker.executablePath else {
+            return BackendHealthReport(
+                profileID: profile.id,
+                state: .missing,
+                userMessage: "Docker was not found on this Mac.",
+                recoverySuggestion: "Install Docker Desktop, then refresh backend status.",
+                technicalDetails: docker.details
+            )
+        }
+        guard let image = profile.dockerImage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !image.isEmpty else {
+            return BackendHealthReport(
+                profileID: profile.id,
+                state: .missing,
+                userMessage: "Kokoro needs the name of your installed Docker image.",
+                recoverySuggestion: "Open the setup assistant, select Kokoro, and enter the image name you already use.",
+                technicalDetails: docker.details
+            )
+        }
+
+        let inspect = runProcess(executable: dockerExecutable, arguments: ["image", "inspect", image])
+        guard inspect.exitCode == 0 else {
+            return BackendHealthReport(
+                profileID: profile.id,
+                state: .missing,
+                userMessage: "\(image) was not found locally.",
+                recoverySuggestion: "Check the image name in the setup assistant, or pull/build the image before running checks again.",
+                technicalDetails: [docker.details, inspect.combinedOutput].compactMap { $0 }.joined(separator: "\n\n")
+            )
+        }
+
+        if let healthCheckURL = profile.healthCheckURL {
+            return httpHealthReport(
+                profile: profile,
+                url: healthCheckURL,
+                fallbackDetails: [docker.details, inspect.combinedOutput].compactMap { $0 }.joined(separator: "\n\n")
+            )
+        }
+
+        return BackendHealthReport(
+            profileID: profile.id,
+            state: .ready,
+            userMessage: "\(image) is available locally.",
+            recoverySuggestion: "Add the service address or launch details when you are ready to connect Kokoro generation.",
+            technicalDetails: [docker.details, inspect.combinedOutput].compactMap { $0 }.joined(separator: "\n\n")
+        )
+    }
+
+    private func externalServiceHealthReport(profile: BackendProfile) -> BackendHealthReport {
+        guard let healthCheckURL = profile.healthCheckURL else {
+            return BackendHealthReport(
+                profileID: profile.id,
+                state: .missing,
+                userMessage: "\(profile.displayName) needs a service address before it can be checked.",
+                recoverySuggestion: "Open the setup assistant and enter the local server address and health path."
+            )
+        }
+        return httpHealthReport(profile: profile, url: healthCheckURL)
+    }
+
+    private func httpHealthReport(
+        profile: BackendProfile,
+        url: URL,
+        fallbackDetails: String? = nil
+    ) -> BackendHealthReport {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var statusCode: Int?
+        var body = ""
+        var requestError: Error?
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            requestError = error
+            statusCode = (response as? HTTPURLResponse)?.statusCode
+            if let data {
+                body = String(decoding: data.prefix(2_000), as: UTF8.self)
+            }
+            semaphore.signal()
+        }
+        .resume()
+
+        if semaphore.wait(timeout: .now() + 6) == .timedOut {
+            return BackendHealthReport(
+                profileID: profile.id,
+                state: .failed,
+                userMessage: "\(profile.displayName) did not answer the health check.",
+                recoverySuggestion: "Start the local service, then refresh backend status.",
+                technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", "Timed out"].compactMap { $0 }.joined(separator: "\n\n")
+            )
+        }
+
+        if let requestError {
+            return BackendHealthReport(
+                profileID: profile.id,
+                state: .failed,
+                userMessage: "\(profile.displayName) could not be reached.",
+                recoverySuggestion: "Check the service address, port, and whether the backend is running.",
+                technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", requestError.localizedDescription, body].compactMap { $0 }.joined(separator: "\n\n")
+            )
+        }
+
+        guard let statusCode, (200..<300).contains(statusCode) else {
+            return BackendHealthReport(
+                profileID: profile.id,
+                state: .failed,
+                userMessage: "\(profile.displayName) answered, but did not report ready.",
+                recoverySuggestion: "Check the health path and backend logs.",
+                technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", "HTTP status: \(statusCode.map(String.init) ?? "unknown")", body].compactMap { $0 }.joined(separator: "\n\n")
+            )
+        }
+
+        return BackendHealthReport(
+            profileID: profile.id,
+            state: .ready,
+            userMessage: "\(profile.displayName) answered the health check.",
+            technicalDetails: [fallbackDetails, "URL: \(url.absoluteString)", body].compactMap { $0 }.joined(separator: "\n\n")
+        )
     }
 
     private func installBackend(_ profile: BackendProfile) -> BackendOperationResult {
@@ -775,6 +914,36 @@ public final class BackendManager: @unchecked Sendable {
             message: cacheExists ? "The local model cache folder is present." : "The local model cache folder has not been created yet.",
             recoverySuggestion: cacheExists ? nil : "The backend can create the cache during its first model download, or you can create the folder during backend install.",
             technicalDetails: hasModelHint ? "Expected model: \(AppDefaults.modelPath)" : nil
+        )
+    }
+
+    private func serviceEndpointCheck(profile: BackendProfile) -> BackendSetupCheck {
+        guard profile.engineType == .kokoro else {
+            return BackendSetupCheck(
+                id: "service-\(profile.id)",
+                title: "Service endpoint",
+                state: .waiting,
+                message: "No service endpoint is required for this backend."
+            )
+        }
+        guard let healthCheckURL = profile.healthCheckURL else {
+            return BackendSetupCheck(
+                id: "service-\(profile.id)",
+                title: "Service endpoint",
+                state: .warning,
+                message: "No Kokoro service address has been saved yet.",
+                recoverySuggestion: "If your Kokoro install runs as a local server, enter its address and health path. If it is only an image, this can wait until the adapter phase."
+            )
+        }
+
+        let health = httpHealthReport(profile: profile, url: healthCheckURL)
+        return BackendSetupCheck(
+            id: "service-\(profile.id)",
+            title: "Service endpoint",
+            state: health.state == .ready ? .passed : .warning,
+            message: health.userMessage,
+            recoverySuggestion: health.recoverySuggestion,
+            technicalDetails: health.technicalDetails
         )
     }
 

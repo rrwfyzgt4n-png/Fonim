@@ -154,7 +154,7 @@ private struct BackendsSettingsPane: View {
     }
 
     private var selectedBackend: BackendProfile {
-        BackendProfiles.all.first { $0.id == settingsStore.settings.defaultBackendID } ?? BackendProfiles.vibeVoiceTTS
+        settingsStore.selectedBackendProfile
     }
 
     private var backendBinding: Binding<String> {

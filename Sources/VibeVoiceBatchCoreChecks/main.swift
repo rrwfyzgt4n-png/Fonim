@@ -272,6 +272,29 @@ struct VibeVoiceBatchCoreChecks {
         precondition(ready.checks.contains { $0.id == "docker-runtime" && $0.state == .passed })
         precondition(ready.checks.contains { $0.id == "docker-image-\(profile.id)" && $0.state == .passed })
         precondition(ready.checks.contains { $0.id == "health-\(profile.id)" && $0.state == .passed })
+
+        let kokoroProfile = BackendProfiles.kokoroTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .installedDockerImage,
+                dockerImage: "kokoro-local",
+                modelID: "kokoro/default"
+            )
+        )
+        let kokoroManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, arguments in
+                if arguments.contains("inspect") {
+                    return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro image")
+                }
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+        )
+        let kokoroStatus = kokoroManager.statusSnapshot(for: kokoroProfile)
+        precondition(kokoroStatus.state == .ready)
+        precondition(kokoroStatus.userMessage.contains("kokoro-local"))
+        let kokoroReport = kokoroManager.setupReport(for: kokoroProfile)
+        precondition(kokoroReport.checks.contains { $0.id == "docker-image-\(kokoroProfile.id)" && $0.state == .passed })
     }
 
     private static func checkBackendManagerOperations() throws {
@@ -555,6 +578,27 @@ struct VibeVoiceBatchCoreChecks {
         precondition(kokoroSettings.defaultBackendID == BackendProfiles.kokoroTTS.id)
         precondition(kokoroSettings.defaultModelID == "kokoro/default")
         precondition(kokoroSettings.exportFormat == .wav)
+
+        let configuredKokoro = AppSettings(
+            defaultBackendID: BackendProfiles.kokoroTTS.id,
+            defaultModelID: "kokoro/custom",
+            backendConnections: [
+                BackendProfiles.kokoroTTS.id: BackendConnectionSettings(
+                    connectionKind: .installedDockerImage,
+                    dockerImage: "kokoro-local",
+                    serviceBaseURL: "http://127.0.0.1:8880",
+                    healthPath: "/health",
+                    modelID: "kokoro/custom",
+                    defaultVoice: "af_heart"
+                )
+            ]
+        ).normalized
+        let kokoroProfile = configuredKokoro.selectedBackendProfile
+        precondition(kokoroProfile.runtime == .docker)
+        precondition(kokoroProfile.installMethod == .manual)
+        precondition(kokoroProfile.dockerImage == "kokoro-local")
+        precondition(kokoroProfile.healthCheckURL?.absoluteString == "http://127.0.0.1:8880/health")
+        precondition(configuredKokoro.defaultModelID == "kokoro/custom")
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {

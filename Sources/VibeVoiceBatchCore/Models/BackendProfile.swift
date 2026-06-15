@@ -26,6 +26,121 @@ public enum BackendInstallMethod: String, Codable, CaseIterable, Equatable, Send
     case manual
 }
 
+public enum BackendConnectionKind: String, Codable, CaseIterable, Equatable, Sendable {
+    case managed
+    case installedDockerImage
+    case externalService
+    case localPython
+
+    public var displayName: String {
+        switch self {
+        case .managed:
+            return "Managed"
+        case .installedDockerImage:
+            return "Installed Docker Image"
+        case .externalService:
+            return "External Service"
+        case .localPython:
+            return "Local Python"
+        }
+    }
+}
+
+public struct BackendConnectionSettings: Codable, Equatable, Sendable {
+    public var connectionKind: BackendConnectionKind
+    public var dockerImage: String
+    public var serviceBaseURL: String
+    public var healthPath: String
+    public var generatePath: String
+    public var cancelPath: String
+    public var modelID: String
+    public var defaultVoice: String
+    public var notes: String
+
+    public init(
+        connectionKind: BackendConnectionKind = .managed,
+        dockerImage: String = "",
+        serviceBaseURL: String = "",
+        healthPath: String = "/health",
+        generatePath: String = "/v1/audio/speech",
+        cancelPath: String = "",
+        modelID: String = "",
+        defaultVoice: String = "",
+        notes: String = ""
+    ) {
+        self.connectionKind = connectionKind
+        self.dockerImage = dockerImage
+        self.serviceBaseURL = serviceBaseURL
+        self.healthPath = healthPath
+        self.generatePath = generatePath
+        self.cancelPath = cancelPath
+        self.modelID = modelID
+        self.defaultVoice = defaultVoice
+        self.notes = notes
+    }
+
+    public static let kokoroDefaults = BackendConnectionSettings(
+        connectionKind: .installedDockerImage,
+        dockerImage: "",
+        serviceBaseURL: "",
+        healthPath: "/health",
+        generatePath: "/v1/audio/speech",
+        cancelPath: "",
+        modelID: "kokoro/default",
+        defaultVoice: "af_heart",
+        notes: ""
+    )
+
+    public static func defaultSettings(for profileID: String) -> BackendConnectionSettings? {
+        switch profileID {
+        case BackendProfiles.kokoroTTS.id:
+            return .kokoroDefaults
+        default:
+            return nil
+        }
+    }
+
+    public static var defaultConfigurations: [String: BackendConnectionSettings] {
+        [BackendProfiles.kokoroTTS.id: .kokoroDefaults]
+    }
+
+    public var trimmedDockerImage: String? {
+        nonEmpty(dockerImage)
+    }
+
+    public var trimmedServiceBaseURL: String? {
+        nonEmpty(serviceBaseURL)
+    }
+
+    public var trimmedModelID: String? {
+        nonEmpty(modelID)
+    }
+
+    public var trimmedDefaultVoice: String? {
+        nonEmpty(defaultVoice)
+    }
+
+    public var healthCheckURL: URL? {
+        endpointURL(path: healthPath)
+    }
+
+    public var generateEndpointURL: URL? {
+        endpointURL(path: generatePath)
+    }
+
+    public var cancelEndpointURL: URL? {
+        endpointURL(path: cancelPath)
+    }
+
+    private func endpointURL(path: String) -> URL? {
+        guard let base = trimmedServiceBaseURL else { return nil }
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else { return URL(string: base) }
+        let separator = base.hasSuffix("/") || trimmedPath.hasPrefix("/") ? "" : "/"
+        return URL(string: base + separator + trimmedPath)
+    }
+}
+
 public enum SystemArchitecture: String, Codable, CaseIterable, Equatable, Sendable {
     case appleSilicon
     case intel
@@ -217,4 +332,92 @@ public enum BackendProfiles {
         vibeVoiceTTS,
         kokoroTTS
     ]
+
+    public static func baseProfile(id: String) -> BackendProfile? {
+        all.first { $0.id == id }
+    }
+
+    public static func resolvedProfile(
+        id: String,
+        connectionSettings: [String: BackendConnectionSettings]
+    ) -> BackendProfile? {
+        guard let profile = baseProfile(id: id) else { return nil }
+        return profile.applying(connectionSettings[profile.id])
+    }
+
+    public static func resolvedProfiles(
+        connectionSettings: [String: BackendConnectionSettings]
+    ) -> [BackendProfile] {
+        all.map { $0.applying(connectionSettings[$0.id]) }
+    }
+}
+
+public extension BackendProfile {
+    func applying(_ connection: BackendConnectionSettings?) -> BackendProfile {
+        guard let connection, engineType == .kokoro else { return self }
+
+        let runtime: BackendRuntime
+        let installMethod: BackendInstallMethod
+        let dockerImage: String?
+        switch connection.connectionKind {
+        case .managed:
+            runtime = self.runtime
+            installMethod = self.installMethod
+            dockerImage = self.dockerImage
+        case .installedDockerImage:
+            runtime = .docker
+            installMethod = .manual
+            dockerImage = connection.trimmedDockerImage
+        case .externalService:
+            runtime = .externalService
+            installMethod = .externalServer
+            dockerImage = nil
+        case .localPython:
+            runtime = .localPython
+            installMethod = .localPythonEnvironment
+            dockerImage = nil
+        }
+
+        let modelID = connection.trimmedModelID ?? requiredModels.first?.id ?? "kokoro/default"
+        let model = RequiredModel(
+            id: modelID,
+            displayName: modelID == "kokoro/default" ? "Kokoro Default Voice Model" : modelID,
+            source: modelID,
+            approximateDiskSpaceGB: requiredModels.first?.approximateDiskSpaceGB,
+            licenseNotes: requiredModels.first?.licenseNotes
+        )
+
+        return BackendProfile(
+            id: id,
+            displayName: displayName,
+            engineType: engineType,
+            installMethod: installMethod,
+            runtime: runtime,
+            dockerImage: dockerImage,
+            requiredModels: [model],
+            requiredDiskSpaceGB: requiredDiskSpaceGB,
+            requiredMemoryGB: requiredMemoryGB,
+            supportedArchitectures: supportedArchitectures,
+            exposedPort: exposedPort,
+            healthCheckURL: connection.healthCheckURL,
+            generateEndpoint: connection.generateEndpointURL,
+            cancelEndpoint: connection.cancelEndpointURL,
+            progressParser: "KokoroProgressParser",
+            logParser: "KokoroLogParser",
+            outputFormatSupport: outputFormatSupport,
+            licenseNotes: licenseNotes,
+            role: role,
+            strengths: strengths,
+            risks: [
+                "Generation adapter endpoint mapping still needs confirmation",
+                "Voice inventory must be read from the configured runtime",
+                "Runtime behavior depends on the installed Kokoro package or image"
+            ]
+        )
+    }
+}
+
+private func nonEmpty(_ value: String) -> String? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
 }

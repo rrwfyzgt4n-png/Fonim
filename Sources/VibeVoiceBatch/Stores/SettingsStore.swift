@@ -21,6 +21,18 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    var selectedBackendProfile: BackendProfile {
+        settings.selectedBackendProfile
+    }
+
+    func backendProfile(id: String) -> BackendProfile {
+        settings.backendProfile(id: id)
+    }
+
+    func backendConnection(for profileID: String) -> BackendConnectionSettings {
+        settings.backendConnection(for: profileID)
+    }
+
     func update(_ edit: (inout AppSettings) -> Void) {
         var copy = settings
         edit(&copy)
@@ -37,6 +49,25 @@ final class SettingsStore: ObservableObject {
 
     func markSetupAssistantCompleted() {
         update { $0.hasCompletedSetupAssistant = true }
+    }
+
+    func updateBackendConnection(
+        for profileID: String,
+        edit: (inout BackendConnectionSettings) -> Void
+    ) {
+        update { settings in
+            var connection = settings.backendConnections[profileID] ??
+                BackendConnectionSettings.defaultSettings(for: profileID) ??
+                BackendConnectionSettings()
+            edit(&connection)
+            settings.backendConnections[profileID] = connection
+            if settings.defaultBackendID == profileID {
+                let resolved = settings.backendProfile(id: profileID)
+                if !resolved.requiredModels.contains(where: { $0.id == settings.defaultModelID }) {
+                    settings.defaultModelID = resolved.requiredModels.first?.id ?? settings.defaultModelID
+                }
+            }
+        }
     }
 
     private func persist() {
