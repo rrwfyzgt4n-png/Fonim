@@ -4,28 +4,15 @@ import VibeVoiceBatchCore
 struct BackendStatusView: View {
     @EnvironmentObject private var store: AppStore
 
+    private let terminalHeight: CGFloat = 82
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                Image(systemName: iconName)
-                    .foregroundStyle(tint)
-                    .imageScale(.large)
-                    .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(title)
-                            .font(.caption.weight(.semibold))
-                        Text(stateText)
-                            .font(.caption)
-                            .foregroundStyle(tint)
-                    }
-
-                    Text(detailText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
+                Text(headerLine)
+                    .foregroundStyle(terminalAccent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
 
                 Spacer(minLength: 12)
 
@@ -36,6 +23,7 @@ struct BackendStatusView: View {
                         Image(systemName: "info.circle")
                     }
                     .buttonStyle(.borderless)
+                    .foregroundStyle(terminalDim)
                     .help("Show Details")
                     .accessibilityLabel("Show backend details")
                 }
@@ -43,75 +31,58 @@ struct BackendStatusView: View {
                 Button {
                     store.refreshBackendStatus()
                 } label: {
-                    Image(systemName: store.isRefreshingBackendStatus ? "hourglass" : "arrow.clockwise")
+                    Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
+                .foregroundStyle(terminalDim)
                 .disabled(store.isRefreshingBackendStatus || store.isGenerating)
                 .help("Refresh Backend Status")
                 .accessibilityLabel("Refresh backend status")
             }
 
-            if showsActivityProgress {
-                HStack(spacing: 10) {
-                    if let progressFraction {
-                        ProgressView(value: progressFraction)
-                            .frame(width: 150)
-                    } else {
-                        ProgressView()
-                            .frame(width: 150)
-                    }
+            Text(primaryLine)
+                .foregroundStyle(terminalText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
 
-                    Text(tickerLine)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(tint)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-            }
+            Text(tickerLine)
+                .foregroundStyle(terminalAccent)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(minHeight: showsActivityProgress ? 70 : 44)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .font(.system(size: 12, weight: .medium, design: .monospaced))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(height: terminalHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.black, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(tint.opacity(0.28), lineWidth: 1)
+                .stroke(terminalAccent.opacity(0.55), lineWidth: 1)
         }
+        .shadow(color: terminalAccent.opacity(0.10), radius: 8, y: 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(stateText), \(detailText), \(tickerLine)")
+        .accessibilityLabel("\(headerLine), \(primaryLine), \(tickerLine)")
     }
 
-    private var showsActivityProgress: Bool {
-        store.isGenerating || store.isPlayingWAV
-    }
-
-    private var title: String {
+    private var headerLine: String {
         if store.isGenerating {
-            return "Generating WAV"
+            return "> GENERATING_WAV  RUNNING  voice=\(store.selectedVoice)  cfg=\(store.cfgScale)  ddpm=\(store.ddpmInferenceSteps)"
         }
         if store.isPlayingWAV {
-            return "Playing WAV"
+            return "> PLAYING_WAV  PLAYING  session=\(store.playingSessionID ?? "output.wav")"
         }
-        return store.backendStatus.displayName
+        return "> BACKEND  \(store.backendStatus.state.displayName.uppercased())  \(store.backendStatus.displayName)"
     }
 
-    private var stateText: String {
+    private var primaryLine: String {
         if store.isGenerating {
-            return "Running"
+            return generationPrimaryLine
         }
         if store.isPlayingWAV {
-            return "Playing"
-        }
-        return store.backendStatus.state.displayName
-    }
-
-    private var detailText: String {
-        if store.isGenerating {
-            return generationDetailText
-        }
-        if store.isPlayingWAV {
-            return playbackDetailText
+            return playbackPrimaryLine
         }
         return store.backendStatus.userMessage
     }
@@ -123,67 +94,69 @@ struct BackendStatusView: View {
         if store.isPlayingWAV {
             return playbackTickerLine
         }
-        return store.backendStatus.userMessage
+        return "\(idleIndicator) \(store.statusMessage)"
     }
 
-    private var progressFraction: Double? {
-        if store.isGenerating {
-            return store.activeGenerationProgress?.fractionComplete
+    private var generationPrimaryLine: String {
+        guard let progress = store.activeGenerationProgress else {
+            return "waiting_for_progress  elapsed=\(clock(store.elapsedSeconds))  step=--/--  remaining=--:--"
         }
-        if store.isPlayingWAV {
-            return store.playbackProgressFraction
-        }
-        return nil
-    }
 
-    private var generationDetailText: String {
-        let progress = store.activeGenerationProgress
-        let percent = progress?.fractionComplete.map { String(format: "%.2f%%", $0 * 100) } ?? "waiting for progress"
+        let percent = percentText(progress.fractionComplete)
+        let elapsed = clock(progress.elapsedSeconds ?? store.elapsedSeconds)
+        let remaining = progress.estimatedRemainingSeconds.map(clock) ?? "--:--"
         let step = stepText(progress)
-        let elapsed = GenerationTickerState.clock(progress?.elapsedSeconds ?? store.elapsedSeconds)
-        let remaining = progress?.estimatedRemainingSeconds.map(GenerationTickerState.clock) ?? "--:--"
-        return "\(percent)  \(step)  elapsed \(elapsed)  remaining \(remaining)"
+        return "progress=\(percent)  elapsed=\(elapsed)  remaining=\(remaining)  \(step)"
     }
 
     private var generationTickerLine: String {
-        let progress = store.activeGenerationProgress
-        let fraction = progress?.fractionComplete ?? 0
-        let percent = String(format: "%5.2f%%", fraction * 100)
-        let elapsed = GenerationTickerState.clock(progress?.elapsedSeconds ?? store.elapsedSeconds)
-        let remaining = progress?.estimatedRemainingSeconds.map(GenerationTickerState.clock) ?? "--:--"
-        let step = stepText(progress)
-        let tokens = tokenText
-        return "\(progressBar(fraction: fraction)) \(percent)  elapsed \(elapsed)  remaining \(remaining)  \(step)  \(tokens)"
+        guard let progress = store.activeGenerationProgress,
+              let fraction = progress.fractionComplete else {
+            return "\(scannerBar(elapsed: store.elapsedSeconds)) \(spinnerFrame(elapsed: store.elapsedSeconds)) warming_up  elapsed=\(clock(store.elapsedSeconds))  \(tokenText)"
+        }
+
+        return "\(progressBar(fraction: fraction)) \(percentText(fraction))  \(stepText(progress))  \(tokenText)"
     }
 
-    private var playbackDetailText: String {
-        let elapsed = GenerationTickerState.clock(store.playbackElapsedSeconds)
-        let duration = GenerationTickerState.clock(store.playbackDurationSeconds)
-        let session = store.playingSessionID ?? "output.wav"
-        return "\(session)  \(elapsed) / \(duration)"
+    private var playbackPrimaryLine: String {
+        let elapsed = clock(store.playbackElapsedSeconds)
+        let duration = clock(store.playbackDurationSeconds)
+        return "playback=\(percentText(store.playbackProgressFraction))  elapsed=\(elapsed)  duration=\(duration)"
     }
 
     private var playbackTickerLine: String {
         let fraction = store.playbackProgressFraction ?? 0
-        let percent = String(format: "%5.2f%%", fraction * 100)
-        let elapsed = GenerationTickerState.clock(store.playbackElapsedSeconds)
-        let duration = GenerationTickerState.clock(store.playbackDurationSeconds)
-        return "\(progressBar(fraction: fraction)) \(percent)  playing \(elapsed) / \(duration)"
+        return "\(progressBar(fraction: fraction)) \(percentText(fraction))  playing \(clock(store.playbackElapsedSeconds)) / \(clock(store.playbackDurationSeconds))"
     }
 
     private var tokenText: String {
         guard let progress = store.generationTicker.progress else {
-            return "text tokens --  speech tokens --"
+            return "text_tokens=--  speech_tokens=--"
         }
-        return "text tokens \(progress.prefilledTextTokens)  speech tokens \(progress.generatedSpeechTokens)"
+        return "text_tokens=\(progress.prefilledTextTokens)  speech_tokens=\(progress.generatedSpeechTokens)"
+    }
+
+    private var idleIndicator: String {
+        switch store.backendStatus.state {
+        case .ready:
+            return "[............................] ready"
+        case .missing, .failed:
+            return "[!!!!!!!!!!!!!!!!!!!!!!!!!!!!] attention"
+        case .stopped:
+            return "[----------------------------] stopped"
+        case .installing, .downloadingModel, .starting, .runningJob:
+            return scannerBar(elapsed: store.elapsedSeconds)
+        case .unknown:
+            return "[????????????????????????????] unknown"
+        }
     }
 
     private func stepText(_ progress: GenerationProgressSnapshot?) -> String {
         guard let currentStep = progress?.currentStep,
               let totalSteps = progress?.totalSteps else {
-            return "step -- / --"
+            return "step=--/--"
         }
-        return "step \(currentStep) / \(totalSteps)"
+        return "step=\(currentStep)/\(totalSteps)"
     }
 
     private func progressBar(fraction: Double) -> String {
@@ -195,43 +168,57 @@ struct BackendStatusView: View {
             + "]"
     }
 
-    private var iconName: String {
+    private func scannerBar(elapsed: TimeInterval) -> String {
+        let width = 28
+        let position = Int((elapsed * 4).rounded(.down)) % width
+        let body = (0..<width).map { index in
+            if index == position { return spinnerFrame(elapsed: elapsed) }
+            return index < position ? "." : " "
+        }.joined()
+        return "[\(body)]"
+    }
+
+    private func spinnerFrame(elapsed: TimeInterval) -> String {
+        let frames = ["|", "/", "-", "\\"]
+        let index = Int((elapsed * 4).rounded(.down)) % frames.count
+        return frames[index]
+    }
+
+    private func percentText(_ fraction: Double?) -> String {
+        guard let fraction else { return "--.--%" }
+        return String(format: "%5.2f%%", min(1, max(0, fraction)) * 100)
+    }
+
+    private func clock(_ seconds: TimeInterval) -> String {
+        GenerationTickerState.clock(seconds)
+    }
+
+    private var terminalAccent: Color {
+        if store.isGenerating {
+            return Color(red: 0.18, green: 0.72, blue: 1.0)
+        }
         if store.isPlayingWAV {
-            return "play.circle.fill"
+            return Color(red: 0.36, green: 1.0, blue: 0.52)
         }
         switch store.backendStatus.state {
         case .ready:
-            return "checkmark.circle.fill"
-        case .runningJob:
-            return "waveform.circle.fill"
-        case .missing:
-            return "xmark.octagon.fill"
+            return Color(red: 0.36, green: 1.0, blue: 0.52)
+        case .runningJob, .installing, .downloadingModel, .starting:
+            return Color(red: 0.18, green: 0.72, blue: 1.0)
+        case .missing, .failed:
+            return Color(red: 1.0, green: 0.32, blue: 0.28)
         case .stopped:
-            return "pause.circle.fill"
-        case .installing, .downloadingModel, .starting:
-            return "arrow.triangle.2.circlepath.circle.fill"
-        case .failed:
-            return "exclamationmark.triangle.fill"
+            return Color(red: 1.0, green: 0.72, blue: 0.24)
         case .unknown:
-            return "questionmark.circle.fill"
+            return Color(red: 0.60, green: 0.75, blue: 0.82)
         }
     }
 
-    private var tint: Color {
-        if store.isPlayingWAV {
-            return .purple
-        }
-        switch store.backendStatus.state {
-        case .ready:
-            return .green
-        case .runningJob, .installing, .downloadingModel, .starting:
-            return .blue
-        case .missing, .failed:
-            return .red
-        case .stopped:
-            return .orange
-        case .unknown:
-            return .secondary
-        }
+    private var terminalText: Color {
+        Color(red: 0.78, green: 0.95, blue: 0.86)
+    }
+
+    private var terminalDim: Color {
+        Color(red: 0.48, green: 0.66, blue: 0.62)
     }
 }
