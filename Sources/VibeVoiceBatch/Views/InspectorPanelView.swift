@@ -186,14 +186,17 @@ struct InspectorPanelView: View {
                 InspectorValue(label: "Available projects", value: "\(workspaceStore.projects.count)")
             }
 
-            outputActionSection(selected)
+            if selected.isEmpty {
+                NoSelectedOutputInspectorCard()
+            } else {
+                outputActionSection(selected)
+                outputBreakdownSection(selected)
 
-            outputBreakdownSection(selected)
-
-            if selected.count == 1, let record = selected.first {
-                singleOutputSection(record)
-            } else if selected.count > 1 {
-                multiOutputSection(selected)
+                if selected.count == 1, let record = selected.first {
+                    singleOutputSection(record)
+                } else {
+                    multiOutputSection(selected)
+                }
             }
         }
     }
@@ -379,6 +382,26 @@ private struct OutputsInspectorHeader: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct NoSelectedOutputInspectorCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "cursorarrow.click")
+                    .foregroundStyle(.secondary)
+                Text("No Output Selected")
+                    .font(.headline)
+            }
+            Text("Choose one or more rows in Outputs to see file details, filing state, and housekeeping actions.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
 }

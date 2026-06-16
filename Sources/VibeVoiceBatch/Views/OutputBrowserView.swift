@@ -18,6 +18,8 @@ struct OutputBrowserView: View {
                 record.metadata.voice,
                 record.metadata.cfgScale,
                 record.metadata.dockerImage,
+                record.metadata.status.rawValue,
+                backendSummary(for: record),
                 projectSummary(for: record),
                 record.inputText
             ]
@@ -25,21 +27,23 @@ struct OutputBrowserView: View {
             .localizedCaseInsensitiveContains(query)
         }
 
-        return filtered.sorted(by: sortMode.comparator)
+        return filtered.sorted { lhs, rhs in
+            sortMode.compare(lhs, rhs, projectName: projectSummary)
+        }
     }
 
     private var selectedOutputs: [SessionRecord] {
-        store.selectedOutputSessions.sorted(by: sortMode.comparator)
+        store.selectedOutputSessions.sorted { lhs, rhs in
+            sortMode.compare(lhs, rhs, projectName: projectSummary)
+        }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             summaryStrip
                 .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 10)
-
-            Divider()
+                .padding(.top, 18)
+                .padding(.bottom, 12)
 
             if outputs.isEmpty {
                 EmptyOutputsHousekeepingView(hasSearch: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -68,7 +72,7 @@ struct OutputBrowserView: View {
 
     private var summaryStrip: some View {
         HStack(spacing: 18) {
-            SummaryMetric(title: "Outputs", value: "\(outputs.count)")
+            SummaryMetric(title: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Outputs" : "Matched", value: "\(outputs.count)")
             SummaryMetric(title: "Selected", value: "\(selectedOutputs.count)")
             SummaryMetric(title: "Duration", value: SessionFormatters.duration(totalDuration(outputs)))
             SummaryMetric(title: "Disk", value: totalSize(outputs).formattedByteCount)
@@ -87,69 +91,73 @@ struct OutputBrowserView: View {
 
             Spacer()
         }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var outputTable: some View {
-        Table(outputs, selection: $store.selectedOutputSessionIDs) {
-            TableColumn("Date") { record in
-                Text(SessionFormatters.displayDateFormatter.string(from: record.metadata.createdAt))
-                    .lineLimit(1)
-            }
-            .width(min: 150, ideal: 190)
+        VStack(spacing: 8) {
+            Table(outputs, selection: $store.selectedOutputSessionIDs) {
+                TableColumn("Date") { record in
+                    OutputTableText(SessionFormatters.displayDateFormatter.string(from: record.metadata.createdAt))
+                }
+                .width(min: 150, ideal: 190)
 
-            TableColumn("Project") { record in
-                Text(projectSummary(for: record))
-                    .foregroundStyle(projectSummary(for: record) == "Unfiled" ? .secondary : .primary)
-                    .lineLimit(1)
-            }
-            .width(min: 120, ideal: 170)
+                TableColumn("Project") { record in
+                    OutputTableText(
+                        projectSummary(for: record),
+                        style: projectSummary(for: record) == "Unfiled" ? .secondary : .primary
+                    )
+                }
+                .width(min: 130, ideal: 180)
 
-            TableColumn("Voice") { record in
-                Text(record.metadata.voice)
-                    .lineLimit(1)
-            }
-            .width(min: 110, ideal: 150)
+                TableColumn("Voice") { record in
+                    OutputTableText(record.metadata.voice)
+                }
+                .width(min: 120, ideal: 160)
 
-            TableColumn("Backend") { record in
-                Text(backendSummary(for: record))
-                    .lineLimit(1)
-            }
-            .width(min: 120, ideal: 170)
+                TableColumn("Backend") { record in
+                    OutputTableText(backendSummary(for: record))
+                }
+                .width(min: 130, ideal: 180)
 
-            TableColumn("Duration") { record in
-                Text(SessionFormatters.duration(record.metadata.audioDurationSeconds))
-                    .monospacedDigit()
-            }
-            .width(min: 76, ideal: 90)
+                TableColumn("Duration") { record in
+                    OutputTableText(SessionFormatters.duration(record.metadata.audioDurationSeconds), monospaced: true)
+                }
+                .width(min: 78, ideal: 92)
 
-            TableColumn("Generation") { record in
-                Text(SessionFormatters.duration(record.metadata.generationTimeSeconds))
-                    .monospacedDigit()
-            }
-            .width(min: 90, ideal: 110)
+                TableColumn("Generation") { record in
+                    OutputTableText(SessionFormatters.duration(record.metadata.generationTimeSeconds), monospaced: true)
+                }
+                .width(min: 92, ideal: 112)
 
-            TableColumn("RTF") { record in
-                Text(SessionFormatters.rtf(record.metadata.rtf))
-                    .monospacedDigit()
-            }
-            .width(min: 58, ideal: 72)
+                TableColumn("RTF") { record in
+                    OutputTableText(SessionFormatters.rtf(record.metadata.rtf), monospaced: true)
+                }
+                .width(min: 60, ideal: 74)
 
-            TableColumn("Size") { record in
-                Text(outputSize(record).formattedByteCount)
-                    .monospacedDigit()
-            }
-            .width(min: 76, ideal: 90)
+                TableColumn("Size") { record in
+                    OutputTableText(outputSize(record).formattedByteCount, monospaced: true)
+                }
+                .width(min: 78, ideal: 94)
 
-            TableColumn("Status") { record in
-                StatusBadge(status: record.metadata.status)
+                TableColumn("Status") { record in
+                    StatusBadge(status: record.metadata.status)
+                        .padding(.vertical, 6)
+                }
+                .width(min: 92, ideal: 112)
             }
-            .width(min: 90, ideal: 110)
-        }
-        .contextMenu(forSelectionType: String.self) { selection in
-            outputMenu(for: records(for: selection))
-        } primaryAction: { selection in
-            if let record = records(for: selection).first {
-                store.quickLookOutputFile(record)
+            .tableStyle(.inset(alternatesRowBackgrounds: true))
+            .contextMenu(forSelectionType: String.self) { selection in
+                outputMenu(for: records(for: selection))
+            } primaryAction: { selection in
+                if let record = records(for: selection).first {
+                    store.quickLookOutputFile(record)
+                }
+            }
+
+            if selectedOutputs.isEmpty {
+                OutputSelectionHint()
             }
         }
     }
@@ -250,6 +258,8 @@ private enum OutputSortMode: String, CaseIterable, Identifiable {
     case largest
     case voice
     case project
+    case backend
+    case status
 
     var id: String { rawValue }
 
@@ -261,24 +271,34 @@ private enum OutputSortMode: String, CaseIterable, Identifiable {
         case .largest: "Largest File"
         case .voice: "Voice"
         case .project: "Project"
+        case .backend: "Backend"
+        case .status: "Status"
         }
     }
 
-    var comparator: (SessionRecord, SessionRecord) -> Bool {
+    func compare(_ lhs: SessionRecord, _ rhs: SessionRecord, projectName: (SessionRecord) -> String) -> Bool {
         switch self {
         case .newest:
-            return { $0.metadata.createdAt > $1.metadata.createdAt }
+            return lhs.metadata.createdAt > rhs.metadata.createdAt
         case .oldest:
-            return { $0.metadata.createdAt < $1.metadata.createdAt }
+            return lhs.metadata.createdAt < rhs.metadata.createdAt
         case .longest:
-            return { ($0.metadata.audioDurationSeconds ?? 0) > ($1.metadata.audioDurationSeconds ?? 0) }
+            return (lhs.metadata.audioDurationSeconds ?? 0) > (rhs.metadata.audioDurationSeconds ?? 0)
         case .largest:
-            return { Self.outputByteCount($0) > Self.outputByteCount($1) }
+            return Self.outputByteCount(lhs) > Self.outputByteCount(rhs)
         case .voice:
-            return { $0.metadata.voice.localizedCaseInsensitiveCompare($1.metadata.voice) == .orderedAscending }
+            return lhs.metadata.voice.localizedCaseInsensitiveCompare(rhs.metadata.voice) == .orderedAscending
         case .project:
-            return { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+            return projectName(lhs).localizedCaseInsensitiveCompare(projectName(rhs)) == .orderedAscending
+        case .backend:
+            return backendName(lhs).localizedCaseInsensitiveCompare(backendName(rhs)) == .orderedAscending
+        case .status:
+            return lhs.metadata.status.rawValue.localizedCaseInsensitiveCompare(rhs.metadata.status.rawValue) == .orderedAscending
         }
+    }
+
+    private func backendName(_ record: SessionRecord) -> String {
+        record.metadata.dockerImage.isEmpty ? "Local service" : record.metadata.dockerImage
     }
 
     private static func outputByteCount(_ record: SessionRecord) -> UInt64 {
@@ -304,6 +324,50 @@ private struct SummaryMetric: View {
                 .font(.callout.weight(.semibold))
                 .monospacedDigit()
         }
+    }
+}
+
+private struct OutputTableText: View {
+    let value: String
+    let style: HierarchicalShapeStyle
+    let monospaced: Bool
+
+    init(_ value: String, style: HierarchicalShapeStyle = .primary, monospaced: Bool = false) {
+        self.value = value
+        self.style = style
+        self.monospaced = monospaced
+    }
+
+    var body: some View {
+        if monospaced {
+            baseText.monospacedDigit()
+        } else {
+            baseText
+        }
+    }
+
+    private var baseText: some View {
+        Text(value)
+            .foregroundStyle(style)
+            .font(.callout)
+            .lineLimit(1)
+            .padding(.vertical, 6)
+    }
+}
+
+private struct OutputSelectionHint: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checklist")
+                .foregroundStyle(.secondary)
+            Text("Select one or more outputs to file, share, reveal, preview, or archive.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
