@@ -127,14 +127,6 @@ struct SidebarView: View {
                             .tag(WorkstationSelection.section(.backends) as WorkstationSelection?)
                             .contentShape(Rectangle())
                             .onTapGesture { selectSection(.backends) }
-                        SidebarSectionRow(
-                            section: .settings,
-                            detail: nil,
-                            isSelected: selection == .section(.settings)
-                        )
-                            .tag(WorkstationSelection.section(.settings) as WorkstationSelection?)
-                            .contentShape(Rectangle())
-                            .onTapGesture { selectSection(.settings) }
                     }
                 }
                 .listStyle(.sidebar)

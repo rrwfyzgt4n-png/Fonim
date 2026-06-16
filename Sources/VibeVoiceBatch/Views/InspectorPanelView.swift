@@ -19,16 +19,27 @@ struct InspectorPanelView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    generationSection
-                    backendSection
-                    exportSection
-                    metadataSection
+                    if isOutputsSelection {
+                        outputsHousekeepingSection
+                    } else {
+                        generationSection
+                        backendSection
+                        exportSection
+                        metadataSection
+                    }
                 }
                 .padding(14)
             }
         }
         .frame(minWidth: 280, idealWidth: 300, maxWidth: 340)
         .background(.regularMaterial)
+    }
+
+    private var isOutputsSelection: Bool {
+        if case .section(.outputs) = selection {
+            return true
+        }
+        return false
     }
 
     private var generationSection: some View {
@@ -136,24 +147,12 @@ struct InspectorPanelView: View {
                 InspectorValue(label: "Default steps", value: "\(settingsStore.settings.defaultDDPMInferenceSteps)")
             }
         case .section(.outputs):
-            InspectorGroup(title: "Outputs") {
-                InspectorValue(label: "Count", value: "\(store.outputSessions.count)")
-                if let session = store.selectedSession {
-                    InspectorValue(label: "Selected", value: session.outputURL?.lastPathComponent ?? "No WAV")
-                    InspectorValue(label: "Audio", value: SessionFormatters.duration(session.metadata.audioDurationSeconds))
-                    InspectorValue(label: "RTF", value: SessionFormatters.rtf(session.metadata.rtf))
-                }
-            }
+            outputsHousekeepingSection
         case .section(.backends):
             InspectorGroup(title: "Backend Metadata") {
                 InspectorValue(label: "Backend", value: store.selectedBackendProfile.displayName)
                 InspectorValue(label: "Runtime", value: store.selectedBackendProfile.runtime.displayName)
                 InspectorValue(label: "Image", value: store.selectedBackendProfile.dockerImage ?? "Not required")
-            }
-        case .section(.settings):
-            InspectorGroup(title: "Settings") {
-                InspectorValue(label: "Setup", value: settingsStore.settings.hasCompletedSetupAssistant ? "Complete" : "Incomplete")
-                InspectorValue(label: "Mode", value: settingsStore.settings.setupMode.displayName)
             }
         case .section(.history):
             editorMetadata
@@ -166,6 +165,64 @@ struct InspectorPanelView: View {
             InspectorValue(label: "Characters", value: "\(store.editorText.count)")
             InspectorValue(label: "Unsaved", value: store.hasUnsavedEditorText ? "Yes" : "No")
         }
+    }
+
+    private var outputsHousekeepingSection: some View {
+        let selected = store.selectedOutputSessions
+        let selectedProjects = projectTitles(for: selected)
+        return VStack(alignment: .leading, spacing: 16) {
+            InspectorGroup(title: "Housekeeping") {
+                InspectorValue(label: "Outputs", value: "\(store.outputSessions.count)")
+                InspectorValue(label: "Selected", value: "\(selected.count)")
+                InspectorValue(label: "Duration", value: SessionFormatters.duration(totalDuration(selected)))
+                InspectorValue(label: "Disk", value: totalSize(selected).formattedByteCount)
+                InspectorValue(label: "Archive", value: selected.isEmpty ? "No selection" : "Ready")
+            }
+
+            InspectorGroup(title: "Filing") {
+                InspectorValue(label: "Projects", value: selectedProjects.isEmpty ? "Unfiled" : selectedProjects.joined(separator: ", "))
+                InspectorValue(label: "Available projects", value: "\(workspaceStore.projects.count)")
+            }
+
+            if selected.count == 1, let record = selected.first {
+                InspectorGroup(title: "Selected Output") {
+                    InspectorValue(label: "Session", value: record.id)
+                    InspectorValue(label: "Voice", value: record.metadata.voice)
+                    InspectorValue(label: "Backend", value: record.metadata.dockerImage.isEmpty ? "Local service" : record.metadata.dockerImage)
+                    InspectorValue(label: "Audio", value: SessionFormatters.duration(record.metadata.audioDurationSeconds))
+                    InspectorValue(label: "RTF", value: SessionFormatters.rtf(record.metadata.rtf))
+                    InspectorValue(label: "Path", value: record.outputURL?.path ?? "No WAV")
+                }
+            } else if selected.count > 1 {
+                InspectorGroup(title: "Selected Paths") {
+                    InspectorValue(label: "Paths", value: selected.compactMap { $0.outputURL?.lastPathComponent }.joined(separator: "\n"))
+                }
+            }
+        }
+    }
+
+    private func totalDuration(_ records: [SessionRecord]) -> Double? {
+        let durations = records.compactMap(\.metadata.audioDurationSeconds)
+        guard !durations.isEmpty else { return nil }
+        return durations.reduce(0, +)
+    }
+
+    private func totalSize(_ records: [SessionRecord]) -> UInt64 {
+        records.reduce(0) { total, record in
+            guard let outputURL = record.outputURL,
+                  let values = try? outputURL.resourceValues(forKeys: [.fileSizeKey]),
+                  let fileSize = values.fileSize else {
+                return total
+            }
+            return total + UInt64(max(0, fileSize))
+        }
+    }
+
+    private func projectTitles(for records: [SessionRecord]) -> [String] {
+        let titles = records.flatMap { record in
+            workspaceStore.projects(containingGenerationSession: record.id).map(\.title)
+        }
+        return Array(Set(titles)).sorted()
     }
 
     private func settingsBinding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
@@ -228,5 +285,11 @@ private extension BackendRuntime {
         case .native: "Native"
         case .externalService: "External service"
         }
+    }
+}
+
+private extension UInt64 {
+    var formattedByteCount: String {
+        ByteCountFormatter.string(fromByteCount: Int64(self), countStyle: .file)
     }
 }

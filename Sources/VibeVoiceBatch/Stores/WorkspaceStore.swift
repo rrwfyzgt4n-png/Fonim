@@ -41,6 +41,23 @@ final class WorkspaceStore: ObservableObject {
         batches.filter { project.batchIDs.contains($0.id) }
     }
 
+    func projects(containingGenerationSession sessionID: String) -> [NarrationProject] {
+        projects.filter { $0.generationSessionIDs.contains(sessionID) }
+    }
+
+    @discardableResult
+    func fileGenerationSessions(_ sessionIDs: [String], into project: NarrationProject) -> NarrationProject? {
+        do {
+            let updated = try fileStore.attachGenerationSessions(sessionIDs, toProject: project.id)
+            refresh()
+            alertMessage = nil
+            return updated
+        } catch {
+            alertMessage = "Could not file outputs into project: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     @discardableResult
     func saveCurrentVoicePreset(voiceID: String) -> NarrationVoicePreset? {
         do {

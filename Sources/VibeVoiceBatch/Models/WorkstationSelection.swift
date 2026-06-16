@@ -9,7 +9,6 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
     case presets
     case history
     case backends
-    case settings
 
     var id: String { rawValue }
 
@@ -23,7 +22,6 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
         case .presets: "Presets"
         case .history: "History"
         case .backends: "Backends"
-        case .settings: "Settings"
         }
     }
 
@@ -37,7 +35,6 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
         case .presets: "slider.horizontal.3"
         case .history: "clock.arrow.circlepath"
         case .backends: "server.rack"
-        case .settings: "gearshape"
         }
     }
 }

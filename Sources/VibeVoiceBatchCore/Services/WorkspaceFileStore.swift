@@ -338,6 +338,23 @@ public final class WorkspaceFileStore {
         return script
     }
 
+    public func attachGenerationSessions(
+        _ sessionIDs: [String],
+        toProject projectID: String,
+        now: Date = Date()
+    ) throws -> NarrationProject {
+        var project = try loadProject(id: projectID)
+        for sessionID in sessionIDs where !project.generationSessionIDs.contains(sessionID) {
+            project.generationSessionIDs.append(sessionID)
+        }
+        project.updatedAt = now
+        if !project.generationSessionIDs.isEmpty, project.status == .draft {
+            project.status = .ready
+        }
+        try saveProject(project)
+        return project
+    }
+
     public func recordBatchItemGeneration(
         batchID: String,
         itemID: String,

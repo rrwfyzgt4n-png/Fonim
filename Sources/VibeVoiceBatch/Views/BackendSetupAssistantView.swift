@@ -12,92 +12,77 @@ struct BackendSetupAssistantView: View {
         settingsStore.selectedBackendProfile
     }
 
-    var body: some View {
-        NavigationSplitView {
-            List(BackendSetupStage.allCases, selection: $setupStore.selectedStage) { stage in
-                Label(stage.title, systemImage: stage.systemImage)
-                    .tag(stage)
-            }
-            .navigationTitle("Setup")
-        } detail: {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    SetupBackendSelector(
-                        selectedBackendID: backendBinding,
-                        statusText: appStore.backendStatus.state.displayName
-                    )
-
-                    switch setupStore.selectedStage {
-                    case .welcome:
-                        WelcomeSetupPane(onContinue: { setupStore.selectedStage = .mode })
-                    case .mode:
-                        ModeSetupPane(mode: modeBinding, onContinue: { setupStore.selectedStage = .checks })
-                    case .checks:
-                        ChecksSetupPane(
-                            profile: selectedBackend,
-                            report: setupStore.report,
-                            isChecking: setupStore.isChecking,
-                            runChecks: { setupStore.runChecks(profile: selectedBackend) },
-                            onContinue: { setupStore.selectedStage = .install }
-                        )
-                    case .install:
-                        BackendInstallSetupPane(
-                            profile: selectedBackend,
-                            report: setupStore.report,
-                            discoveryReport: setupStore.discoveryReport,
-                            catalogReport: setupStore.catalogReport,
-                            operationResult: operationsStore.latestResult,
-                            isChecking: setupStore.isChecking,
-                            isDiscovering: setupStore.isDiscovering,
-                            isLoadingCatalog: setupStore.isLoadingCatalog,
-                            isOperationRunning: operationsStore.isRunning,
-                            activeOperation: operationsStore.activeOperation,
-                            connection: selectedConnectionBinding,
-                            discover: { setupStore.runDiscovery(profile: selectedBackend) },
-                            applyCandidate: applyDiscoveryCandidate,
-                            loadCatalog: { setupStore.loadCatalog(profile: selectedBackend) },
-                            applyCatalog: applyCatalogDefaults,
-                            install: { runBackendOperation(.install) },
-                            repair: { runBackendOperation(.repair) },
-                            prepare: { runBackendOperation(.prepare) },
-                            runChecks: { setupStore.runChecks(profile: selectedBackend) },
-                            onContinue: { setupStore.selectedStage = .test }
-                        )
-                    case .test:
-                        TestVoiceSetupPane(
-                            profile: selectedBackend,
-                            modelID: selectedSetupModelID,
-                            voiceID: selectedSetupVoiceID,
-                            isTesting: setupStore.isTestingVoice,
-                            statusMessage: setupStore.testStatusMessage,
-                            progress: setupStore.testProgress,
-                            logText: setupStore.testLogText,
-                            record: setupStore.testRecord,
-                            error: setupStore.testError,
-                            canTest: !appStore.isGenerating,
-                            runTest: prepareTestVoice,
-                            cancelTest: setupStore.cancelVoiceTest,
-                            openResult: openTestResult,
-                            onContinue: { setupStore.selectedStage = .confirm }
-                        )
-                    case .confirm:
-                        ConfirmSetupPane(
-                            isReady: setupStore.report?.isReady == true,
-                            complete: completeSetup,
-                            rerunChecks: {
-                                setupStore.selectedStage = .checks
-                                setupStore.runChecks(profile: selectedBackend)
-                            }
-                        )
-                    }
-                }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .navigationTitle("Backend Setup Assistant")
+    private var highestUnlockedStage: BackendSetupStage {
+        if setupStore.testRecord != nil {
+            return .confirm
         }
-        .frame(minWidth: 760, minHeight: 520)
+        if setupStore.catalogReport != nil || setupStore.report?.isReady == true {
+            return .test
+        }
+        if setupStore.discoveryReport != nil || operationsStore.latestResult?.status == .succeeded {
+            return .models
+        }
+        if setupStore.report != nil {
+            return .install
+        }
+        return .checks
+    }
+
+    private var canContinueFromCurrentStage: Bool {
+        switch setupStore.selectedStage {
+        case .welcome, .backend:
+            return true
+        case .checks:
+            return setupStore.report != nil && !setupStore.isChecking
+        case .install:
+            return !operationsStore.isRunning
+        case .models:
+            return !setupStore.isLoadingCatalog
+        case .test:
+            return !setupStore.isTestingVoice
+        case .confirm:
+            return setupStore.report?.isReady == true
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            AssistantStepRail(
+                selectedStage: $setupStore.selectedStage,
+                highestUnlockedStage: highestUnlockedStage
+            )
+            .frame(width: 210)
+
+            Divider()
+
+            VStack(spacing: 0) {
+                AssistantStatusHeader(
+                    profile: selectedBackend,
+                    status: appStore.backendStatus,
+                    report: setupStore.report
+                )
+
+                Divider()
+
+                ScrollView {
+                    activePane
+                        .padding(28)
+                        .frame(maxWidth: 760, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+
+                Divider()
+
+                AssistantFooter(
+                    canGoBack: setupStore.selectedStage != .welcome,
+                    canContinue: canContinueFromCurrentStage,
+                    isFinalStage: setupStore.selectedStage == .confirm,
+                    back: goBack,
+                    continueAction: continueAssistant
+                )
+            }
+        }
+        .frame(minWidth: 880, minHeight: 620)
         .onAppear {
             if setupStore.report == nil {
                 setupStore.runChecks(profile: selectedBackend)
@@ -108,11 +93,101 @@ struct BackendSetupAssistantView: View {
         }
     }
 
+    @ViewBuilder
+    private var activePane: some View {
+        switch setupStore.selectedStage {
+        case .welcome:
+            WelcomeSetupPane()
+        case .backend:
+            ChooseBackendSetupPane(
+                selectedBackendID: backendBinding,
+                mode: modeBinding,
+                statusText: appStore.backendStatus.state.displayName
+            )
+        case .checks:
+            ChecksSetupPane(
+                profile: selectedBackend,
+                report: setupStore.report,
+                isChecking: setupStore.isChecking,
+                runChecks: { setupStore.runChecks(profile: selectedBackend) }
+            )
+        case .install:
+            BackendInstallSetupPane(
+                profile: selectedBackend,
+                report: setupStore.report,
+                discoveryReport: setupStore.discoveryReport,
+                operationResult: operationsStore.latestResult,
+                isChecking: setupStore.isChecking,
+                isDiscovering: setupStore.isDiscovering,
+                isOperationRunning: operationsStore.isRunning,
+                activeOperation: operationsStore.activeOperation,
+                connection: selectedConnectionBinding,
+                discover: { setupStore.runDiscovery(profile: selectedBackend) },
+                applyCandidate: applyDiscoveryCandidate,
+                install: { runBackendOperation(.install) },
+                repair: { runBackendOperation(.repair) },
+                prepare: { runBackendOperation(.prepare) },
+                runChecks: { setupStore.runChecks(profile: selectedBackend) }
+            )
+        case .models:
+            ModelsVoicesSetupPane(
+                profile: selectedBackend,
+                catalogReport: setupStore.catalogReport,
+                isLoadingCatalog: setupStore.isLoadingCatalog,
+                selectedModelID: selectedSetupModelID,
+                selectedVoiceID: selectedSetupVoiceID,
+                loadCatalog: { setupStore.loadCatalog(profile: selectedBackend) },
+                applyCatalog: applyCatalogDefaults
+            )
+        case .test:
+            TestVoiceSetupPane(
+                profile: selectedBackend,
+                modelID: selectedSetupModelID,
+                voiceID: selectedSetupVoiceID,
+                isTesting: setupStore.isTestingVoice,
+                statusMessage: setupStore.testStatusMessage,
+                progress: setupStore.testProgress,
+                logText: setupStore.testLogText,
+                record: setupStore.testRecord,
+                error: setupStore.testError,
+                canTest: !appStore.isGenerating,
+                runTest: prepareTestVoice,
+                cancelTest: setupStore.cancelVoiceTest,
+                openResult: openTestResult
+            )
+        case .confirm:
+            ConfirmSetupPane(
+                isReady: setupStore.report?.isReady == true,
+                complete: completeSetup,
+                rerunChecks: {
+                    setupStore.selectedStage = .checks
+                    setupStore.runChecks(profile: selectedBackend)
+                }
+            )
+        }
+    }
+
     private var modeBinding: Binding<BackendSetupMode> {
         Binding(
             get: { settingsStore.settings.setupMode },
             set: { settingsStore.selectSetupMode($0) }
         )
+    }
+
+    private func goBack() {
+        guard let index = BackendSetupStage.allCases.firstIndex(of: setupStore.selectedStage),
+              index > 0 else { return }
+        setupStore.selectedStage = BackendSetupStage.allCases[index - 1]
+    }
+
+    private func continueAssistant() {
+        if setupStore.selectedStage == .confirm {
+            completeSetup()
+            return
+        }
+        guard let index = BackendSetupStage.allCases.firstIndex(of: setupStore.selectedStage),
+              index < BackendSetupStage.allCases.count - 1 else { return }
+        setupStore.selectedStage = BackendSetupStage.allCases[index + 1]
     }
 
     private var backendBinding: Binding<String> {
@@ -217,35 +292,133 @@ struct BackendSetupAssistantView: View {
     }
 }
 
-private struct SetupBackendSelector: View {
-    @Binding var selectedBackendID: String
-    let statusText: String
+private struct AssistantStepRail: View {
+    @Binding var selectedStage: BackendSetupStage
+    let highestUnlockedStage: BackendSetupStage
 
     var body: some View {
-        HStack(spacing: 12) {
-            Picker("Backend", selection: $selectedBackendID) {
-                ForEach(BackendProfiles.all) { profile in
-                    Text(profile.displayName).tag(profile.id)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Setup")
+                    .font(.title3.weight(.semibold))
+                Text("Guided local backend readiness")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+
+            VStack(spacing: 4) {
+                ForEach(BackendSetupStage.allCases) { stage in
+                    Button {
+                        if isUnlocked(stage) {
+                            selectedStage = stage
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: stage.systemImage)
+                                .frame(width: 18, height: 18)
+                                .foregroundStyle(selectedStage == stage ? Color.accentColor : Color.secondary)
+                            Text(stage.title)
+                                .lineLimit(1)
+                            Spacer()
+                            if !isUnlocked(stage) {
+                                Image(systemName: "lock.fill")
+                                    .imageScale(.small)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(selectedStage == stage ? Color.accentColor.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isUnlocked(stage))
                 }
             }
-            .pickerStyle(.menu)
-            .frame(width: 280)
-
-            Text(statusText)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.quaternary, in: Capsule())
+            .padding(.horizontal, 8)
 
             Spacer()
         }
+        .background(.regularMaterial)
+    }
+
+    private func isUnlocked(_ stage: BackendSetupStage) -> Bool {
+        guard let stageIndex = BackendSetupStage.allCases.firstIndex(of: stage),
+              let unlockedIndex = BackendSetupStage.allCases.firstIndex(of: highestUnlockedStage) else {
+            return false
+        }
+        return stageIndex <= unlockedIndex
+    }
+}
+
+private struct AssistantStatusHeader: View {
+    let profile: BackendProfile
+    let status: BackendStatusSnapshot
+    let report: BackendSetupReport?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: status.state == .ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(status.state == .ready ? .green : .orange)
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.displayName)
+                    .font(.headline)
+                Text(nextAction)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(status.state.displayName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(status.state == .ready ? .green : .secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary, in: Capsule())
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    private var nextAction: String {
+        if status.state == .ready {
+            return "Backend is ready for generation."
+        }
+        if let failed = report?.checks.first(where: { $0.state == .failed }) {
+            return failed.recoverySuggestion ?? failed.message
+        }
+        return status.userMessage
+    }
+}
+
+private struct AssistantFooter: View {
+    let canGoBack: Bool
+    let canContinue: Bool
+    let isFinalStage: Bool
+    let back: () -> Void
+    let continueAction: () -> Void
+
+    var body: some View {
+        HStack {
+            Button("Back", action: back)
+                .disabled(!canGoBack)
+            Spacer()
+            Button(isFinalStage ? "Finish" : "Continue", action: continueAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canContinue)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 }
 
 private struct WelcomeSetupPane: View {
-    let onContinue: () -> Void
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Local Backend Setup", systemImage: "checkmark.seal")
@@ -253,36 +426,38 @@ private struct WelcomeSetupPane: View {
 
             Text("This assistant checks whether the selected local narration backend is ready before you generate audio.")
                 .foregroundStyle(.secondary)
-
-            Button("Continue", action: onContinue)
-                .buttonStyle(.borderedProminent)
         }
     }
 }
 
-private struct ModeSetupPane: View {
+private struct ChooseBackendSetupPane: View {
+    @Binding var selectedBackendID: String
     @Binding var mode: BackendSetupMode
-    let onContinue: () -> Void
+    let statusText: String
 
     var body: some View {
-        Form {
-            Picker("Backend mode", selection: $mode) {
-                Text("Simple").tag(BackendSetupMode.simple)
-                Text("Advanced").tag(BackendSetupMode.advanced)
-                Text("External").tag(BackendSetupMode.external)
-            }
-            .pickerStyle(.radioGroup)
+        VStack(alignment: .leading, spacing: 16) {
+            Header(title: "Choose Backend", subtitle: "Choose how this Mac should run local narration.")
 
-            LabeledContent("Selected mode", value: mode.displayName)
-        }
-        .formStyle(.grouped)
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                Spacer()
-                Button("Continue", action: onContinue)
-                    .buttonStyle(.borderedProminent)
+            Form {
+                Picker("Backend", selection: $selectedBackendID) {
+                    ForEach(BackendProfiles.all) { profile in
+                        Text(profile.displayName).tag(profile.id)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Picker("Backend mode", selection: $mode) {
+                    Text("Simple").tag(BackendSetupMode.simple)
+                    Text("Advanced").tag(BackendSetupMode.advanced)
+                    Text("External").tag(BackendSetupMode.external)
+                }
+                .pickerStyle(.radioGroup)
+
+                LabeledContent("Selected mode", value: mode.displayName)
+                LabeledContent("Current status", value: statusText)
             }
-            .padding(.top, 8)
+            .formStyle(.grouped)
         }
     }
 }
@@ -292,7 +467,6 @@ private struct ChecksSetupPane: View {
     let report: BackendSetupReport?
     let isChecking: Bool
     let runChecks: () -> Void
-    let onContinue: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -304,8 +478,6 @@ private struct ChecksSetupPane: View {
                 Button(isChecking ? "Checking..." : "Run Checks", action: runChecks)
                     .disabled(isChecking)
                 Spacer()
-                Button("Continue", action: onContinue)
-                    .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -315,23 +487,18 @@ private struct BackendInstallSetupPane: View {
     let profile: BackendProfile
     let report: BackendSetupReport?
     let discoveryReport: BackendDiscoveryReport?
-    let catalogReport: BackendCatalogReport?
     let operationResult: BackendOperationResult?
     let isChecking: Bool
     let isDiscovering: Bool
-    let isLoadingCatalog: Bool
     let isOperationRunning: Bool
     let activeOperation: BackendOperationKind?
     @Binding var connection: BackendConnectionSettings
     let discover: () -> Void
     let applyCandidate: (BackendDiscoveryCandidate) -> Void
-    let loadCatalog: () -> Void
-    let applyCatalog: (BackendCatalogReport, BackendCatalogModel?, BackendCatalogVoice?) -> Void
     let install: () -> Void
     let repair: () -> Void
     let prepare: () -> Void
     let runChecks: () -> Void
-    let onContinue: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -354,13 +521,6 @@ private struct BackendInstallSetupPane: View {
                 )
 
                 KokoroConnectionForm(connection: $connection)
-
-                KokoroCatalogPanel(
-                    report: catalogReport,
-                    isLoading: isLoadingCatalog,
-                    loadCatalog: loadCatalog,
-                    applyCatalog: applyCatalog
-                )
             }
 
             CheckList(report: report, isChecking: false)
@@ -394,8 +554,6 @@ private struct BackendInstallSetupPane: View {
                 Button(isChecking ? "Checking..." : "Refresh Checks", action: runChecks)
                     .disabled(isOperationRunning || isChecking)
                 Spacer()
-                Button("Continue", action: onContinue)
-                    .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -599,6 +757,47 @@ private struct KokoroConnectionForm: View {
     }
 }
 
+private struct ModelsVoicesSetupPane: View {
+    let profile: BackendProfile
+    let catalogReport: BackendCatalogReport?
+    let isLoadingCatalog: Bool
+    let selectedModelID: String
+    let selectedVoiceID: String
+    let loadCatalog: () -> Void
+    let applyCatalog: (BackendCatalogReport, BackendCatalogModel?, BackendCatalogVoice?) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Header(title: "Models & Voices", subtitle: "Confirm the model and voice choices before the test generation.")
+
+            Form {
+                LabeledContent("Backend", value: profile.displayName)
+                LabeledContent("Current model", value: selectedModelID)
+                LabeledContent("Current voice", value: selectedVoiceID)
+            }
+            .formStyle(.grouped)
+
+            if profile.engineType == .kokoro {
+                KokoroCatalogPanel(
+                    report: catalogReport,
+                    isLoading: isLoadingCatalog,
+                    loadCatalog: loadCatalog,
+                    applyCatalog: applyCatalog
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("VibeVoice choices are bundled with the selected backend profile.", systemImage: "checkmark.circle")
+                        .foregroundStyle(.green)
+                    Text("Use Settings or the inspector to change the default VibeVoice voice and inference settings.")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+}
+
 private struct KokoroCatalogPanel: View {
     let report: BackendCatalogReport?
     let isLoading: Bool
@@ -773,7 +972,6 @@ private struct TestVoiceSetupPane: View {
     let runTest: () -> Void
     let cancelTest: () -> Void
     let openResult: () -> Void
-    let onContinue: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -842,7 +1040,6 @@ private struct TestVoiceSetupPane: View {
                     .disabled(!canTest)
                 Button("Open in History", action: openResult)
                     .disabled(record == nil)
-                Button("Continue", action: onContinue)
                 Spacer()
             }
         }
@@ -887,11 +1084,16 @@ private struct CheckList: View {
             if isChecking {
                 ProgressView("Checking backend...")
             } else if let report {
-                List(report.checks) { check in
-                    CheckRow(check: check)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(report.checks) { check in
+                            CheckRow(check: check)
+                        }
+                    }
+                    .padding(10)
                 }
-                .listStyle(.inset)
-                .frame(minHeight: 260)
+                .frame(minHeight: 220, maxHeight: 340)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "checklist")

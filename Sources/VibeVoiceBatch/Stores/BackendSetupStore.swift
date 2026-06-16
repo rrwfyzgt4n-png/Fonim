@@ -172,9 +172,10 @@ final class BackendSetupStore: ObservableObject {
 
 enum BackendSetupStage: String, CaseIterable, Identifiable {
     case welcome
-    case mode
+    case backend
     case checks
     case install
+    case models
     case test
     case confirm
 
@@ -183,9 +184,10 @@ enum BackendSetupStage: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .welcome: "Welcome"
-        case .mode: "Mode"
+        case .backend: "Choose Backend"
         case .checks: "System Check"
-        case .install: "Backend"
+        case .install: "Install / Connect"
+        case .models: "Models & Voices"
         case .test: "Test Voice"
         case .confirm: "Ready"
         }
@@ -194,9 +196,10 @@ enum BackendSetupStage: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .welcome: "sparkles"
-        case .mode: "slider.horizontal.3"
+        case .backend: "server.rack"
         case .checks: "checklist"
         case .install: "square.and.arrow.down"
+        case .models: "person.wave.2"
         case .test: "waveform"
         case .confirm: "checkmark.seal"
         }

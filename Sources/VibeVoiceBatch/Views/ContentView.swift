@@ -9,6 +9,7 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var selection: WorkstationSelection? = .section(.history)
     @State private var didOfferSetupAssistant = false
+    @State private var showingOutputProjectFiling = false
     @SceneStorage("local.vibevoice.batch.showInspector") private var showInspector = true
 
     var body: some View {
@@ -35,69 +36,7 @@ struct ContentView: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    store.newDocument()
-                } label: {
-                    Label("New", systemImage: "doc.badge.plus")
-                }
-                .keyboardShortcut("n", modifiers: [.command])
-                .help("New")
-
-                Button {
-                    store.saveDraft()
-                } label: {
-                    Label("Save Draft", systemImage: "tray.and.arrow.down")
-                }
-                .keyboardShortcut("s", modifiers: [.command])
-                .disabled(!store.canSaveDraft)
-                .help("Save Draft")
-
-                Button(role: .destructive) {
-                    store.cancelGeneration()
-                } label: {
-                    Label("Cancel", systemImage: "stop.circle")
-                }
-                .keyboardShortcut(".", modifiers: [.command])
-                .disabled(!store.isGenerating)
-                .help("Cancel")
-            }
-
-            ToolbarItemGroup {
-                Button {
-                    if let session = store.selectedSession {
-                        store.openSessionFolder(session)
-                    }
-                } label: {
-                    Label("Open Session Folder", systemImage: "folder")
-                }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-                .disabled(store.selectedSession == nil)
-                .help("Open Session Folder")
-
-                Button {
-                    if let session = store.selectedSession {
-                        store.playWAV(session)
-                    }
-                } label: {
-                    Label(playWAVTitle, systemImage: playWAVSystemImage)
-                }
-                .keyboardShortcut(" ", modifiers: [])
-                .disabled(store.selectedSession?.outputURL == nil)
-                .help("Play WAV")
-
-                Button {
-                    if let session = store.selectedSession {
-                        store.duplicateAsNew(session)
-                    }
-                } label: {
-                    Label("Duplicate as New", systemImage: "doc.on.doc")
-                }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
-                .disabled(store.selectedSession == nil)
-                .help("Duplicate as New")
-            }
-
+            contextualToolbar
             ToolbarItem {
                 Button {
                     showInspector.toggle()
@@ -107,6 +46,11 @@ struct ContentView: View {
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .help(showInspector ? "Hide Inspector" : "Show Inspector")
             }
+        }
+        .sheet(isPresented: $showingOutputProjectFiling) {
+            FileOutputsToProjectSheet(records: store.selectedOutputSessions)
+                .environmentObject(store)
+                .environmentObject(workspaceStore)
         }
         .onAppear {
             store.refreshHistory()
@@ -161,8 +105,6 @@ struct ContentView: View {
             EditorView()
         case .section(.backends):
             BackendsView()
-        case .section(.settings):
-            SettingsLandingView()
         case .historySession(let sessionID):
             if let session = store.session(id: sessionID) {
                 SessionDetailView(record: session)
@@ -192,6 +134,176 @@ struct ContentView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(currentAlertMessage, forType: .string)
         store.statusMessage = "Copied error details"
+    }
+
+    @ToolbarContentBuilder
+    private var contextualToolbar: some ToolbarContent {
+        switch selection ?? .section(.history) {
+        case .section(.history):
+            editorToolbar
+        case .historySession:
+            sessionToolbar
+        case .section(.outputs):
+            outputsToolbar
+        case .section(.backends):
+            backendToolbar
+        case .section(.projects), .section(.scripts), .section(.batches), .section(.voices), .section(.presets):
+            workspaceToolbar
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                store.newDocument()
+            } label: {
+                Label("New", systemImage: "doc.badge.plus")
+            }
+            .keyboardShortcut("n", modifiers: [.command])
+            .help("New")
+
+            Button {
+                store.saveDraft()
+            } label: {
+                Label("Save Draft", systemImage: "tray.and.arrow.down")
+            }
+            .keyboardShortcut("s", modifiers: [.command])
+            .disabled(!store.canSaveDraft)
+            .help("Save Draft")
+
+            Button {
+                store.generate()
+            } label: {
+                Label("Generate", systemImage: "waveform.circle.fill")
+            }
+            .keyboardShortcut(.return, modifiers: [.command])
+            .disabled(!store.canGenerate)
+            .help(store.canGenerate ? "Generate WAV" : store.backendStatus.userMessage)
+
+            Button(role: .destructive) {
+                store.cancelGeneration()
+            } label: {
+                Label("Cancel", systemImage: "stop.circle")
+            }
+            .keyboardShortcut(".", modifiers: [.command])
+            .disabled(!store.isGenerating)
+            .help("Cancel Generation")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var sessionToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                if let session = store.selectedSession {
+                    store.openSessionFolder(session)
+                }
+            } label: {
+                Label("Open Folder", systemImage: "folder")
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(store.selectedSession == nil)
+            .help("Open Session Folder")
+
+            Button {
+                if let session = store.selectedSession {
+                    store.playWAV(session)
+                }
+            } label: {
+                Label(playWAVTitle, systemImage: playWAVSystemImage)
+            }
+            .keyboardShortcut(" ", modifiers: [])
+            .disabled(store.selectedSession?.outputURL == nil)
+            .help("Play WAV")
+
+            Button {
+                if let session = store.selectedSession {
+                    store.duplicateAsNew(session)
+                }
+            } label: {
+                Label("Duplicate", systemImage: "doc.on.doc")
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .disabled(store.selectedSession == nil)
+            .help("Duplicate as New")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var outputsToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button(role: .destructive) {
+                store.archiveOutputSessions(store.selectedOutputSessions)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+            .disabled(store.selectedOutputSessions.isEmpty)
+            .help("Move selected outputs to recovered/deleted_sessions")
+
+            Button {
+                showingOutputProjectFiling = true
+            } label: {
+                Label("File into Project", systemImage: "folder.badge.plus")
+            }
+            .disabled(store.selectedOutputSessions.isEmpty || workspaceStore.projects.isEmpty)
+            .help(workspaceStore.projects.isEmpty ? "Create a project before filing outputs" : "File selected outputs into a project")
+
+            Button {
+                store.shareSelectedOutputFiles()
+            } label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+            .disabled(store.selectedOutputSessions.isEmpty)
+            .help("Share selected WAV files")
+
+            Button {
+                store.revealSelectedOutputFile()
+            } label: {
+                Label("Reveal", systemImage: "finder")
+            }
+            .disabled(store.selectedOutputSessions.isEmpty)
+            .help("Reveal the first selected WAV in Finder")
+
+            Button {
+                store.quickLookSelectedOutputFile()
+            } label: {
+                Label("Quick Look", systemImage: "eye")
+            }
+            .disabled(store.selectedOutputSessions.isEmpty)
+            .help("Preview the first selected WAV")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var backendToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                store.refreshBackendStatus()
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .disabled(store.isRefreshingBackendStatus || store.isGenerating)
+
+            Button {
+                openWindow(id: "backend-setup")
+            } label: {
+                Label("Setup Assistant", systemImage: "checklist")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var workspaceToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                workspaceStore.refresh()
+                store.refreshHistory()
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .disabled(workspaceStore.isRefreshing)
+        }
     }
 
     private var playWAVTitle: String {

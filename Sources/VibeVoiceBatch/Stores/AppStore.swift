@@ -27,6 +27,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var isPreparingGeneration = false
     @Published private(set) var queuedGenerations: [QueuedGenerationItem] = []
     @Published var selectedQueueItemID: String?
+    @Published var selectedOutputSessionIDs: Set<String> = []
     @Published var statusMessage = "Ready"
     @Published var alertMessage: String?
     @Published private(set) var latestGenerationLogLine = "Ready"
@@ -75,6 +76,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         sessions.filter { $0.outputURL != nil }
     }
 
+    var selectedOutputSessions: [SessionRecord] {
+        outputSessions.filter { selectedOutputSessionIDs.contains($0.id) }
+    }
+
     var selectedBackendProfile: BackendProfile {
         settingsStore.selectedBackendProfile
     }
@@ -115,6 +120,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func refreshHistory() {
         do {
             sessions = try fileStore.loadSessions()
+            let validOutputIDs = Set(outputSessions.map(\.id))
+            selectedOutputSessionIDs = selectedOutputSessionIDs.intersection(validOutputIDs)
         } catch {
             alertMessage = "Could not load history: \(error.localizedDescription)"
         }
@@ -462,10 +469,41 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             if selectedSessionID == record.id {
                 selectedSessionID = nil
             }
+            selectedOutputSessionIDs.remove(record.id)
             refreshHistory()
             statusMessage = "Moved deleted session to \(destination.lastPathComponent)"
         } catch {
             alertMessage = "Could not delete session: \(error.localizedDescription)"
+        }
+    }
+
+    func archiveOutputSessions(_ records: [SessionRecord]) {
+        let archiveTargets = records.isEmpty ? selectedOutputSessions : records
+        guard !archiveTargets.isEmpty else {
+            statusMessage = "No outputs selected"
+            return
+        }
+
+        var archivedCount = 0
+        var failures: [String] = []
+        for record in archiveTargets {
+            do {
+                _ = try fileStore.archiveDeletedSession(record)
+                selectedOutputSessionIDs.remove(record.id)
+                if selectedSessionID == record.id {
+                    selectedSessionID = nil
+                }
+                archivedCount += 1
+            } catch {
+                failures.append("\(record.id): \(error.localizedDescription)")
+            }
+        }
+
+        refreshHistory()
+        if failures.isEmpty {
+            statusMessage = "Archived \(archivedCount) output\(archivedCount == 1 ? "" : "s") to recovered/deleted_sessions"
+        } else {
+            alertMessage = "Archived \(archivedCount) output\(archivedCount == 1 ? "" : "s"), but \(failures.count) could not be archived.\n\n\(failures.joined(separator: "\n"))"
         }
     }
 
@@ -482,6 +520,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         statusMessage = "Revealed \(outputURL.lastPathComponent)"
     }
 
+    func revealSelectedOutputFile() {
+        guard let record = selectedOutputSessions.first ?? selectedSession else {
+            statusMessage = "No output selected"
+            return
+        }
+        revealOutputFile(record)
+    }
+
     func copyOutputPath(_ record: SessionRecord) {
         guard let outputURL = record.outputURL else {
             statusMessage = "No WAV file for this session"
@@ -492,6 +538,17 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         statusMessage = "Copied output path"
     }
 
+    func copySelectedOutputPaths() {
+        let paths = selectedOutputSessions.compactMap { $0.outputURL?.path }
+        guard !paths.isEmpty else {
+            statusMessage = "No output paths selected"
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
+        statusMessage = "Copied \(paths.count) output path\(paths.count == 1 ? "" : "s")"
+    }
+
     func quickLookOutputFile(_ record: SessionRecord) {
         guard let outputURL = record.outputURL else {
             statusMessage = "No WAV file for this session"
@@ -499,6 +556,31 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         quickLookPreviewer.preview(outputURL)
         statusMessage = "Previewing \(outputURL.lastPathComponent)"
+    }
+
+    func quickLookSelectedOutputFile() {
+        guard let record = selectedOutputSessions.first ?? selectedSession else {
+            statusMessage = "No output selected"
+            return
+        }
+        quickLookOutputFile(record)
+    }
+
+    func shareSelectedOutputFiles() {
+        let urls = selectedOutputSessions.compactMap(\.outputURL)
+        guard !urls.isEmpty else {
+            statusMessage = "No output selected"
+            return
+        }
+
+        guard let contentView = NSApp.keyWindow?.contentView else {
+            copySelectedOutputPaths()
+            return
+        }
+
+        let picker = NSSharingServicePicker(items: urls)
+        picker.show(relativeTo: contentView.bounds, of: contentView, preferredEdge: .minY)
+        statusMessage = "Sharing \(urls.count) output\(urls.count == 1 ? "" : "s")"
     }
 
     func playWAV(_ record: SessionRecord) {

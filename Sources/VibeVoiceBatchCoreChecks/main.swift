@@ -612,7 +612,23 @@ struct VibeVoiceBatchCoreChecks {
         let createdAt = Date(timeIntervalSince1970: 1_718_171_695)
         let project = try workspaceStore.createProject(title: "Novel Narration", now: createdAt)
         precondition(project.status == .draft)
+        precondition(project.generationSessionIDs.isEmpty)
         precondition(FileManager.default.fileExists(atPath: root.projectsDirectory.path))
+
+        let legacyProjectJSON = """
+        {
+          "id": "legacy-project",
+          "title": "Legacy",
+          "created_at": "2024-06-12T03:14:55Z",
+          "updated_at": "2024-06-12T03:14:55Z",
+          "status": "draft",
+          "script_ids": [],
+          "batch_ids": [],
+          "notes": ""
+        }
+        """
+        let legacyProject = try JSONCodecs.metadataDecoder.decode(NarrationProject.self, from: Data(legacyProjectJSON.utf8))
+        precondition(legacyProject.generationSessionIDs.isEmpty)
 
         let script = try workspaceStore.createScript(
             projectID: project.id,
@@ -669,6 +685,11 @@ struct VibeVoiceBatchCoreChecks {
         precondition(linkedOnce.generationSessionIDs == [firstRun.id])
         precondition(linkedTwice.generationSessionIDs == [firstRun.id, secondRun.id])
         precondition(linkedDuplicate.generationSessionIDs == [firstRun.id, secondRun.id])
+
+        let filedProject = try workspaceStore.attachGenerationSessions([firstRun.id, secondRun.id, firstRun.id], toProject: project.id, now: createdAt)
+        precondition(filedProject.generationSessionIDs == [firstRun.id, secondRun.id])
+        let filedAgain = try workspaceStore.attachGenerationSessions([secondRun.id], toProject: project.id, now: createdAt)
+        precondition(filedAgain.generationSessionIDs == [firstRun.id, secondRun.id])
 
         let updatedBatch = try workspaceStore.recordBatchItemGeneration(
             batchID: batch.id,

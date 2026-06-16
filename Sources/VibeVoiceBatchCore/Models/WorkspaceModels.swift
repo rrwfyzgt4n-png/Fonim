@@ -19,6 +19,7 @@ public struct NarrationProject: Codable, Equatable, Identifiable, Sendable {
     public var status: WorkspaceItemStatus
     public var scriptIDs: [String]
     public var batchIDs: [String]
+    public var generationSessionIDs: [String]
     public var notes: String
 
     public init(
@@ -29,6 +30,7 @@ public struct NarrationProject: Codable, Equatable, Identifiable, Sendable {
         status: WorkspaceItemStatus = .draft,
         scriptIDs: [String] = [],
         batchIDs: [String] = [],
+        generationSessionIDs: [String] = [],
         notes: String = ""
     ) {
         self.id = id
@@ -38,7 +40,21 @@ public struct NarrationProject: Codable, Equatable, Identifiable, Sendable {
         self.status = status
         self.scriptIDs = scriptIDs
         self.batchIDs = batchIDs
+        self.generationSessionIDs = generationSessionIDs
         self.notes = notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        status = try container.decode(WorkspaceItemStatus.self, forKey: .status)
+        scriptIDs = try container.decodeIfPresent([String].self, forKey: .scriptIDs) ?? []
+        batchIDs = try container.decodeIfPresent([String].self, forKey: .batchIDs) ?? []
+        generationSessionIDs = try container.decodeIfPresent([String].self, forKey: .generationSessionIDs) ?? []
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
     }
 
     enum CodingKeys: String, CodingKey {
@@ -49,6 +65,7 @@ public struct NarrationProject: Codable, Equatable, Identifiable, Sendable {
         case status
         case scriptIDs = "script_ids"
         case batchIDs = "batch_ids"
+        case generationSessionIDs = "generation_session_ids"
         case notes
     }
 }
