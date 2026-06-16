@@ -24,6 +24,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var playbackDurationSeconds: TimeInterval = 0
     @Published private(set) var backendStatus = BackendStatusSnapshot.unknown(profile: BackendProfiles.vibeVoiceTTS)
     @Published private(set) var isRefreshingBackendStatus = false
+    @Published private(set) var activeBackendOperation: BackendOperationKind?
     @Published private(set) var isPreparingGeneration = false
     @Published private(set) var queuedGenerations: [QueuedGenerationItem] = []
     @Published var selectedQueueItemID: String?
@@ -145,6 +146,30 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func refreshBackendStatusIfPreferred() {
         if settingsStore.settings.refreshBackendStatusOnLaunch {
             refreshBackendStatus()
+        }
+    }
+
+    func performBackendOperation(_ kind: BackendOperationKind) {
+        guard activeBackendOperation == nil, !isGenerating else { return }
+        activeBackendOperation = kind
+        statusMessage = "\(kind.displayName) is running."
+        let profile = selectedBackendProfile
+        Task {
+            let result = await backendManager.performOperationAsync(kind, for: profile)
+            await MainActor.run {
+                activeBackendOperation = nil
+                statusMessage = result.message
+                if result.status == .failed {
+                    alertMessage = [
+                        result.message,
+                        result.recoverySuggestion,
+                        result.technicalDetails
+                    ]
+                    .compactMap { $0 }
+                    .joined(separator: "\n\n")
+                }
+                refreshBackendStatus()
+            }
         }
     }
 

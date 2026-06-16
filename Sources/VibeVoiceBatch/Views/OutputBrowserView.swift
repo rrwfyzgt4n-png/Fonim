@@ -86,22 +86,6 @@ struct OutputBrowserView: View {
             .frame(width: 170)
 
             Spacer()
-
-            Button {
-                showingProjectFiling = true
-            } label: {
-                Label("File into Project", systemImage: "folder.badge.plus")
-            }
-            .disabled(selectedOutputs.isEmpty || workspaceStore.projects.isEmpty)
-            .help(workspaceStore.projects.isEmpty ? "Create a project before filing outputs" : "File selected outputs into a project")
-
-            Button(role: .destructive) {
-                store.archiveOutputSessions(selectedOutputs)
-            } label: {
-                Label("Archive", systemImage: "archivebox")
-            }
-            .disabled(selectedOutputs.isEmpty)
-            .help("Move selected sessions to recovered/deleted_sessions")
         }
     }
 

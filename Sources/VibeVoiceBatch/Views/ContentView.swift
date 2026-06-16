@@ -284,6 +284,23 @@ struct ContentView: View {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
             .disabled(store.isRefreshingBackendStatus || store.isGenerating)
+            .help(store.isRefreshingBackendStatus ? "Backend status is already refreshing" : "Refresh backend status")
+
+            Button {
+                store.performBackendOperation(.install)
+            } label: {
+                Label("Install", systemImage: store.activeBackendOperation == .install ? "hourglass" : "square.and.arrow.down")
+            }
+            .disabled(store.activeBackendOperation != nil || store.isGenerating)
+            .help("Install or pull the selected backend image")
+
+            Button {
+                store.performBackendOperation(.prepare)
+            } label: {
+                Label("Prepare", systemImage: store.activeBackendOperation == .prepare ? "hourglass" : "play.circle")
+            }
+            .disabled(store.activeBackendOperation != nil || store.isGenerating)
+            .help("Prepare the selected backend for generation")
 
             Button {
                 openWindow(id: "backend-setup")

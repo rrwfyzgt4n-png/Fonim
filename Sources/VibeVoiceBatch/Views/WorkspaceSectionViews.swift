@@ -1104,19 +1104,9 @@ struct BackendsView: View {
                         Text(backend.role)
                             .foregroundStyle(.secondary)
                         HStack {
-                            Button("Refresh Status") {
-                                appStore.refreshBackendStatus()
-                            }
                             Button("Show Details") {
                                 appStore.showBackendDetails()
                             }
-                            Button("Prepare") {
-                                operationsStore.run(.prepare, profile: backend) { result in
-                                    appStore.statusMessage = result.message
-                                    appStore.refreshBackendStatus()
-                                }
-                            }
-                            .disabled(operationsStore.isRunning || appStore.isGenerating)
                         }
                     }
                 }
