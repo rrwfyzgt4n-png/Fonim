@@ -3,33 +3,302 @@ import SwiftUI
 import VibeVoiceBatchCore
 
 struct ProjectsView: View {
+    @EnvironmentObject private var appStore: AppStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @State private var selectedProjectID: String?
+
+    private var selectedProject: NarrationProject? {
+        guard let selectedProjectID else { return workspaceStore.projects.first }
+        return workspaceStore.projects.first { $0.id == selectedProjectID } ?? workspaceStore.projects.first
+    }
 
     var body: some View {
-        WorkspaceListShell(
-            title: "Projects",
-            subtitle: "Scripts, batches, and generation records.",
-            isEmpty: workspaceStore.projects.isEmpty,
-            emptySystemImage: "folder",
-            emptyTitle: "No Projects",
-            emptyMessage: "No project records are saved."
-        ) {
-            ForEach(workspaceStore.projects) { project in
-                WorkspaceCard {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(project.title)
-                                .font(.headline)
-                            Text("\(project.scriptIDs.count) scripts  \(project.batchIDs.count) batches")
-                                .foregroundStyle(.secondary)
+        HSplitView {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(
+                    title: "Projects",
+                    subtitle: "Scripts, batches, and filed generation outputs."
+                )
+                .padding([.horizontal, .top])
+
+                if workspaceStore.projects.isEmpty {
+                    EmptyWorkspaceView(
+                        systemImage: "folder",
+                        title: "No Projects",
+                        message: "No project records are saved."
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(selection: $selectedProjectID) {
+                        ForEach(workspaceStore.projects) { project in
+                            ProjectRow(
+                                project: project,
+                                isSelected: selectedProject?.id == project.id
+                            )
+                            .tag(Optional(project.id))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedProjectID = project.id
+                            }
                         }
-                        Spacer()
-                        WorkspaceStatusBadge(status: project.status)
+                    }
+                    .listStyle(.sidebar)
+                }
+            }
+            .frame(minWidth: 300, idealWidth: 360)
+
+            ProjectDetailPane(project: selectedProject)
+                .frame(minWidth: 460)
+        }
+        .onAppear {
+            appStore.refreshHistory()
+            workspaceStore.refresh()
+            ensureProjectSelection()
+        }
+        .onChange(of: workspaceStore.projects) { _ in
+            ensureProjectSelection()
+        }
+        .navigationTitle("Projects")
+    }
+
+    private func ensureProjectSelection() {
+        guard !workspaceStore.projects.isEmpty else {
+            selectedProjectID = nil
+            return
+        }
+        if let selectedProjectID,
+           workspaceStore.projects.contains(where: { $0.id == selectedProjectID }) {
+            return
+        }
+        selectedProjectID = workspaceStore.projects.first?.id
+    }
+}
+
+private struct ProjectRow: View {
+    let project: NarrationProject
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "folder")
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(project.title)
+                    .lineLimit(1)
+                Text("\(project.scriptIDs.count) scripts  \(project.batchIDs.count) batches  \(project.generationSessionIDs.count) outputs")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            WorkspaceStatusBadge(status: project.status)
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+private struct ProjectDetailPane: View {
+    @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    let project: NarrationProject?
+
+    private var scripts: [NarrationScript] {
+        guard let project else { return [] }
+        return workspaceStore.scripts(for: project)
+    }
+
+    private var batches: [NarrationBatch] {
+        guard let project else { return [] }
+        return workspaceStore.batches(for: project)
+    }
+
+    private var filedOutputs: [SessionRecord] {
+        guard let project else { return [] }
+        return project.generationSessionIDs.compactMap { appStore.session(id: $0) }
+    }
+
+    var body: some View {
+        if let project {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header(project)
+                    metrics(project)
+                    filedOutputsSection
+                    sourceSections
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        } else {
+            EmptyWorkspaceView(
+                systemImage: "folder",
+                title: "No Project Selected",
+                message: "Select a project to inspect filed outputs."
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func header(_ project: NarrationProject) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(project.title)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                WorkspaceStatusBadge(status: project.status)
+            }
+
+            Text(project.notes.isEmpty ? "No notes." : project.notes)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+        }
+    }
+
+    private func metrics(_ project: NarrationProject) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+            GridRow {
+                ProjectMetric(title: "Scripts", value: "\(scripts.count)")
+                ProjectMetric(title: "Batches", value: "\(batches.count)")
+                ProjectMetric(title: "Filed Outputs", value: "\(filedOutputs.count)")
+            }
+            GridRow {
+                ProjectMetric(title: "Audio", value: SessionFormatters.duration(totalDuration))
+                ProjectMetric(title: "Disk", value: totalOutputSize.formattedByteCount)
+                ProjectMetric(title: "Updated", value: SessionFormatters.displayDateFormatter.string(from: project.updatedAt))
+            }
+        }
+    }
+
+    private var filedOutputsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Filed Outputs")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            if filedOutputs.isEmpty {
+                EmptyWorkspaceView(
+                    systemImage: "archivebox",
+                    title: "No Filed Outputs",
+                    message: "Use Outputs to file completed generations into this project."
+                )
+                .frame(maxWidth: .infinity, minHeight: 160)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(filedOutputs) { record in
+                        ProjectOutputRow(record: record)
                     }
                 }
             }
         }
-        .navigationTitle("Projects")
+    }
+
+    private var sourceSections: some View {
+        Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
+            GridRow {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Scripts")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    Text(scripts.isEmpty ? "No scripts filed." : scripts.map(\.title).joined(separator: "\n"))
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Batches")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    Text(batches.isEmpty ? "No batches filed." : batches.map(\.title).joined(separator: "\n"))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var totalDuration: Double? {
+        let durations = filedOutputs.compactMap(\.metadata.audioDurationSeconds)
+        guard !durations.isEmpty else { return nil }
+        return durations.reduce(0, +)
+    }
+
+    private var totalOutputSize: UInt64 {
+        filedOutputs.reduce(0) { total, record in
+            guard let outputURL = record.outputURL,
+                  let values = try? outputURL.resourceValues(forKeys: [.fileSizeKey]),
+                  let fileSize = values.fileSize else {
+                return total
+            }
+            return total + UInt64(max(0, fileSize))
+        }
+    }
+}
+
+private struct ProjectOutputRow: View {
+    @EnvironmentObject private var appStore: AppStore
+    let record: SessionRecord
+
+    var body: some View {
+        WorkspaceCard {
+            HStack(spacing: 12) {
+                Image(systemName: "waveform")
+                    .foregroundStyle(.blue)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(record.id)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text("\(record.metadata.voice)  \(SessionFormatters.duration(record.metadata.audioDurationSeconds))  \(SessionFormatters.rtf(record.metadata.rtf))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button {
+                    appStore.quickLookOutputFile(record)
+                } label: {
+                    Image(systemName: "eye")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .help("Quick Look")
+                .disabled(record.outputURL == nil)
+
+                Button {
+                    appStore.revealOutputFile(record)
+                } label: {
+                    Image(systemName: "finder")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .help("Reveal in Finder")
+                .disabled(record.outputURL == nil)
+            }
+        }
+    }
+}
+
+private struct ProjectMetric: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+        }
     }
 }
 
