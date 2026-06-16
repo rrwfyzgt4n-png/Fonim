@@ -171,6 +171,8 @@ struct InspectorPanelView: View {
         let selected = store.selectedOutputSessions
         let selectedProjects = projectTitles(for: selected)
         return VStack(alignment: .leading, spacing: 16) {
+            OutputsInspectorHeader(selectedCount: selected.count, totalCount: store.outputSessions.count)
+
             InspectorGroup(title: "Housekeeping") {
                 InspectorValue(label: "Outputs", value: "\(store.outputSessions.count)")
                 InspectorValue(label: "Selected", value: "\(selected.count)")
@@ -180,24 +182,93 @@ struct InspectorPanelView: View {
             }
 
             InspectorGroup(title: "Filing") {
-                InspectorValue(label: "Projects", value: selectedProjects.isEmpty ? "Unfiled" : selectedProjects.joined(separator: ", "))
+                InspectorValue(label: "Projects", value: filingSummary(for: selected, projectTitles: selectedProjects))
                 InspectorValue(label: "Available projects", value: "\(workspaceStore.projects.count)")
             }
 
+            outputActionSection(selected)
+
+            outputBreakdownSection(selected)
+
             if selected.count == 1, let record = selected.first {
-                InspectorGroup(title: "Selected Output") {
-                    InspectorValue(label: "Session", value: record.id)
-                    InspectorValue(label: "Voice", value: record.metadata.voice)
-                    InspectorValue(label: "Backend", value: record.metadata.dockerImage.isEmpty ? "Local service" : record.metadata.dockerImage)
-                    InspectorValue(label: "Audio", value: SessionFormatters.duration(record.metadata.audioDurationSeconds))
-                    InspectorValue(label: "RTF", value: SessionFormatters.rtf(record.metadata.rtf))
-                    InspectorValue(label: "Path", value: record.outputURL?.path ?? "No WAV")
-                }
+                singleOutputSection(record)
             } else if selected.count > 1 {
-                InspectorGroup(title: "Selected Paths") {
-                    InspectorValue(label: "Paths", value: selected.compactMap { $0.outputURL?.lastPathComponent }.joined(separator: "\n"))
-                }
+                multiOutputSection(selected)
             }
+        }
+    }
+
+    private func outputActionSection(_ selected: [SessionRecord]) -> some View {
+        InspectorGroup(title: "Actions") {
+            Button {
+                store.revealSelectedOutputFile()
+            } label: {
+                Label("Reveal First Selection", systemImage: "finder")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .disabled(selected.isEmpty)
+
+            Button {
+                store.quickLookSelectedOutputFile()
+            } label: {
+                Label("Quick Look First Selection", systemImage: "eye")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .disabled(selected.isEmpty)
+
+            Button {
+                store.copySelectedOutputPaths()
+            } label: {
+                Label("Copy Selected Paths", systemImage: "doc.on.clipboard")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .disabled(selected.isEmpty)
+
+            Button(role: .destructive) {
+                store.archiveOutputSessions(selected)
+            } label: {
+                Label("Archive Selected", systemImage: "archivebox")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .disabled(selected.isEmpty)
+            .help("Move selected sessions to recovered/deleted_sessions")
+        }
+    }
+
+    private func outputBreakdownSection(_ selected: [SessionRecord]) -> some View {
+        InspectorGroup(title: "Breakdown") {
+            OutputInspectorChipGrid(
+                items: [
+                    OutputInspectorChip(label: "Voices", value: "\(uniqueVoices(selected).count)"),
+                    OutputInspectorChip(label: "Backends", value: "\(uniqueBackends(selected).count)"),
+                    OutputInspectorChip(label: "Filed", value: "\(filedCount(selected))"),
+                    OutputInspectorChip(label: "Unfiled", value: "\(max(0, selected.count - filedCount(selected)))")
+                ]
+            )
+        }
+    }
+
+    private func singleOutputSection(_ record: SessionRecord) -> some View {
+        InspectorGroup(title: "Selected Output") {
+            InspectorValue(label: "Session", value: record.id)
+            InspectorValue(label: "Created", value: SessionFormatters.displayDateFormatter.string(from: record.metadata.createdAt))
+            InspectorValue(label: "Voice", value: record.metadata.voice)
+            InspectorValue(label: "Backend", value: backendDisplayName(for: record))
+            InspectorValue(label: "Generation", value: SessionFormatters.duration(record.metadata.generationTimeSeconds))
+            InspectorValue(label: "Audio", value: SessionFormatters.duration(record.metadata.audioDurationSeconds))
+            InspectorValue(label: "RTF", value: SessionFormatters.rtf(record.metadata.rtf))
+            InspectorValue(label: "Size", value: outputSize(record).formattedByteCount)
+            InspectorValue(label: "Path", value: record.outputURL?.path ?? "No WAV")
+        }
+    }
+
+    private func multiOutputSection(_ selected: [SessionRecord]) -> some View {
+        InspectorGroup(title: "Selected Set") {
+            InspectorValue(label: "Voices", value: uniqueVoices(selected).joined(separator: ", "))
+            InspectorValue(label: "Backends", value: uniqueBackends(selected).joined(separator: ", "))
+            InspectorValue(label: "Oldest", value: selected.map(\.metadata.createdAt).min().map(SessionFormatters.displayDateFormatter.string(from:)) ?? "n/a")
+            InspectorValue(label: "Newest", value: selected.map(\.metadata.createdAt).max().map(SessionFormatters.displayDateFormatter.string(from:)) ?? "n/a")
+            InspectorValue(label: "Files", value: selected.compactMap { $0.outputURL?.lastPathComponent }.joined(separator: "\n"))
         }
     }
 
@@ -208,14 +279,16 @@ struct InspectorPanelView: View {
     }
 
     private func totalSize(_ records: [SessionRecord]) -> UInt64 {
-        records.reduce(0) { total, record in
-            guard let outputURL = record.outputURL,
-                  let values = try? outputURL.resourceValues(forKeys: [.fileSizeKey]),
-                  let fileSize = values.fileSize else {
-                return total
-            }
-            return total + UInt64(max(0, fileSize))
+        records.reduce(0) { $0 + outputSize($1) }
+    }
+
+    private func outputSize(_ record: SessionRecord) -> UInt64 {
+        guard let outputURL = record.outputURL,
+              let values = try? outputURL.resourceValues(forKeys: [.fileSizeKey]),
+              let fileSize = values.fileSize else {
+            return 0
         }
+        return UInt64(max(0, fileSize))
     }
 
     private func projectTitles(for records: [SessionRecord]) -> [String] {
@@ -223,6 +296,28 @@ struct InspectorPanelView: View {
             workspaceStore.projects(containingGenerationSession: record.id).map(\.title)
         }
         return Array(Set(titles)).sorted()
+    }
+
+    private func filingSummary(for records: [SessionRecord], projectTitles: [String]) -> String {
+        guard !records.isEmpty else { return "No selection" }
+        guard !projectTitles.isEmpty else { return "Unfiled" }
+        return projectTitles.joined(separator: ", ")
+    }
+
+    private func filedCount(_ records: [SessionRecord]) -> Int {
+        records.filter { !workspaceStore.projects(containingGenerationSession: $0.id).isEmpty }.count
+    }
+
+    private func uniqueVoices(_ records: [SessionRecord]) -> [String] {
+        Array(Set(records.map(\.metadata.voice))).sorted()
+    }
+
+    private func uniqueBackends(_ records: [SessionRecord]) -> [String] {
+        Array(Set(records.map(backendDisplayName))).sorted()
+    }
+
+    private func backendDisplayName(for record: SessionRecord) -> String {
+        record.metadata.dockerImage.isEmpty ? "Local service" : record.metadata.dockerImage
     }
 
     private func settingsBinding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
@@ -253,6 +348,67 @@ private struct InspectorGroup<Content: View>: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 content
+            }
+        }
+    }
+}
+
+private struct OutputsInspectorHeader: View {
+    let selectedCount: Int
+    let totalCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "archivebox")
+                    .foregroundStyle(.blue)
+                Text("Outputs")
+                    .font(.headline)
+                Spacer()
+                Text("\(selectedCount)/\(totalCount)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+            }
+
+            Text(selectedCount == 0 ? "Select outputs to inspect, file, share, or archive them." : "\(selectedCount) output\(selectedCount == 1 ? "" : "s") selected for housekeeping.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct OutputInspectorChip: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: String
+}
+
+private struct OutputInspectorChipGrid: View {
+    let items: [OutputInspectorChip]
+
+    var body: some View {
+        LazyVGrid(columns: [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8)
+        ], alignment: .leading, spacing: 8) {
+            ForEach(items) { item in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(item.value)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
             }
         }
     }
