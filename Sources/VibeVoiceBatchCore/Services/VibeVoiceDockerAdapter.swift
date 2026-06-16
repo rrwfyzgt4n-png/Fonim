@@ -212,6 +212,28 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
         startedAt: Date,
         events: @escaping (GenerationEvent) -> Void
     ) {
+        if let estimate = GenerationOutputParser.latestEstimatedProgress(in: logText) {
+            let elapsedSeconds = estimate.elapsedSeconds ?? Date().timeIntervalSince(startedAt)
+            let remainingSeconds: TimeInterval?
+            if let estimatedSeconds = estimate.estimatedSeconds, estimatedSeconds > elapsedSeconds {
+                remainingSeconds = estimatedSeconds - elapsedSeconds
+            } else {
+                remainingSeconds = nil
+            }
+            let snapshot = GenerationProgressSnapshot(
+                jobID: jobID,
+                fractionComplete: estimate.fraction,
+                elapsedSeconds: elapsedSeconds,
+                estimatedRemainingSeconds: remainingSeconds,
+                message: estimate.displayPhase
+            )
+            stateQueue.sync {
+                progressByJobID[jobID] = snapshot
+            }
+            events(.progress(snapshot))
+            return
+        }
+
         guard let progress = GenerationOutputParser.latestProgress(in: logText) else { return }
         let elapsedSeconds = progress.reportedElapsedSeconds ?? Date().timeIntervalSince(startedAt)
         let snapshot = GenerationProgressSnapshot(

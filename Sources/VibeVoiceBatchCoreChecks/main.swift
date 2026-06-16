@@ -864,6 +864,7 @@ struct VibeVoiceBatchCoreChecks {
         let runner = FakeDockerRunner()
         runner.chunks = [
             "Prefilled 70 text tokens, generated 80 speech tokens, current step (298 / 8192):   4%| | 298/8192 [00:27]\n",
+            "VibeVoiceBatch progress: phase=starting_generation elapsed=00:30 estimated=05:00 progress=10.00%\n",
             """
             Input file: /app/input.txt
             Output file: /app/outputs/input_generated.wav
@@ -934,6 +935,17 @@ struct VibeVoiceBatchCoreChecks {
             switch event {
             case .progress(let snapshot):
                 return snapshot.currentStep == 298
+            case .sessionStarted, .status, .log, .output:
+                return false
+            }
+        })
+        precondition(events.contains { event in
+            switch event {
+            case .progress(let snapshot):
+                return snapshot.message == "Starting Generation" &&
+                    snapshot.fractionComplete == 0.10 &&
+                    snapshot.elapsedSeconds == 30 &&
+                    snapshot.estimatedRemainingSeconds == 270
             case .sessionStarted, .status, .log, .output:
                 return false
             }

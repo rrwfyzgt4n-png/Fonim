@@ -10,7 +10,7 @@ struct BackendStatusView: View {
             progressArea
             detailRow
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -58,6 +58,7 @@ struct BackendStatusView: View {
                     store.showBackendDetails()
                 } label: {
                     Image(systemName: "info.circle")
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.borderless)
                 .help("Show Details")
@@ -68,6 +69,7 @@ struct BackendStatusView: View {
                 store.refreshBackendStatus()
             } label: {
                 Image(systemName: "arrow.clockwise")
+                    .frame(width: 28, height: 28)
             }
             .buttonStyle(.borderless)
             .disabled(store.isRefreshingBackendStatus || store.isGenerating || store.isPreparingGeneration)
@@ -80,10 +82,11 @@ struct BackendStatusView: View {
     private var progressArea: some View {
         if let fraction = progressFraction {
             ProgressView(value: fraction)
+                .progressViewStyle(.linear)
                 .tint(statusTint)
         } else if showsIndeterminateProgress {
             ProgressView()
-                .controlSize(.small)
+                .progressViewStyle(.linear)
         }
     }
 
@@ -97,6 +100,7 @@ struct BackendStatusView: View {
             Spacer(minLength: 0)
         }
         .font(.caption)
+        .padding(.top, 1)
     }
 
     private var title: String {

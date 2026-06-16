@@ -37,52 +37,23 @@ struct SessionDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        StatusBadge(status: record.metadata.status)
-                        Text(record.metadata.voice)
-                        Text("cfg \(record.metadata.cfgScale)")
-                        Text("steps \(stepsText)")
-                    }
-                    .font(.callout)
+            HStack {
+                StatusBadge(status: record.metadata.status)
+                Text(record.metadata.voice)
+                Text("cfg \(record.metadata.cfgScale)")
+                Text("steps \(stepsText)")
+            }
+            .font(.callout)
 
-                    Text(SessionFormatters.displayDateFormatter.string(from: record.metadata.createdAt))
-                        .foregroundStyle(.secondary)
+            Text(SessionFormatters.displayDateFormatter.string(from: record.metadata.createdAt))
+                .foregroundStyle(.secondary)
 
-                    HStack(spacing: 14) {
-                        MetricLabel(title: "Words", value: "\(record.metadata.inputWordCount)")
-                        MetricLabel(title: "Generation", value: SessionFormatters.duration(record.metadata.generationTimeSeconds))
-                        MetricLabel(title: "Audio", value: SessionFormatters.duration(record.metadata.audioDurationSeconds))
-                        MetricLabel(title: "RTF", value: SessionFormatters.rtf(record.metadata.rtf))
-                    }
-                }
-
-                Spacer()
-
-                HStack {
-                    Button {
-                        store.openSessionFolder(record)
-                    } label: {
-                        Label("Open Session Folder", systemImage: "folder")
-                    }
-
-                    Button {
-                        store.playWAV(record)
-                    } label: {
-                        Label(
-                            store.isPlaying(record) ? "Stop WAV" : "Play WAV",
-                            systemImage: store.isPlaying(record) ? "stop.circle" : "play.circle"
-                        )
-                    }
-                    .disabled(record.outputURL == nil)
-
-                    Button {
-                        store.duplicateAsNew(record)
-                    } label: {
-                        Label("Duplicate as New", systemImage: "doc.on.doc")
-                    }
-                }
+            HStack(spacing: 18) {
+                MetricLabel(title: "Words", value: "\(record.metadata.inputWordCount)")
+                MetricLabel(title: "Generation", value: SessionFormatters.duration(record.metadata.generationTimeSeconds))
+                MetricLabel(title: "Audio", value: SessionFormatters.duration(record.metadata.audioDurationSeconds))
+                MetricLabel(title: "RTF", value: SessionFormatters.rtf(record.metadata.rtf))
+                Spacer(minLength: 0)
             }
         }
     }

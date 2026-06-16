@@ -392,7 +392,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             activeStartedAt = Date()
         }
         activeGenerationProgress = nil
-        estimatedGenerationProgressFraction = 0.02
+        estimatedGenerationProgressFraction = nil
         estimatedGenerationRemainingSeconds = nil
         generationPhaseName = "starting"
         activeStartedAt = Date()
@@ -578,6 +578,13 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             if let fraction = snapshot.fractionComplete {
                 estimatedGenerationProgressFraction = fraction
             }
+            if let remaining = snapshot.estimatedRemainingSeconds {
+                estimatedGenerationRemainingSeconds = remaining
+            }
+            if let elapsed = snapshot.elapsedSeconds {
+                elapsedSeconds = max(elapsedSeconds, elapsed)
+            }
+            generationPhaseName = snapshot.message
             setLatestGenerationLogLine(snapshot.message)
             updateQueuedGeneration(id: snapshot.jobID) { item in
                 item.status = .running
@@ -620,11 +627,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private func updateEstimatedGenerationProgress(from line: String) {
         if let estimate = GenerationOutputParser.latestEstimatedProgress(in: line) {
-            let phaseName = estimate.phase.replacingOccurrences(of: "_", with: " ")
+            let phaseName = estimate.displayPhase
             generationPhaseName = phaseName
             estimatedGenerationProgressFraction = estimate.fraction
             if let elapsed = estimate.elapsedSeconds {
-                elapsedSeconds = elapsed
+                elapsedSeconds = max(elapsedSeconds, elapsed)
             }
             if let elapsed = estimate.elapsedSeconds,
                let estimated = estimate.estimatedSeconds,
@@ -645,42 +652,58 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
 
-        let phase = generationPhaseEstimate(for: line)
-        generationPhaseName = phase.name
-        estimatedGenerationProgressFraction = max(estimatedGenerationProgressFraction ?? 0, phase.fraction)
-        if phase.fraction < 0.70 {
-            estimatedGenerationRemainingSeconds = nil
+        if let progress = GenerationOutputParser.latestProgress(in: line) {
+            generationPhaseName = "Current Step"
+            estimatedGenerationProgressFraction = progress.fraction
+            let elapsed = progress.reportedElapsedSeconds ?? elapsedSeconds
+            if let reportedElapsed = progress.reportedElapsedSeconds {
+                elapsedSeconds = max(elapsedSeconds, reportedElapsed)
+            }
+            estimatedGenerationRemainingSeconds = progress.estimatedRemainingSeconds(elapsedSeconds: elapsed)
+            if let activeJobID {
+                updateQueuedGeneration(id: activeJobID) { item in
+                    item.status = .running
+                    item.progressFraction = progress.fraction
+                    item.currentStep = progress.currentStep
+                    item.totalSteps = progress.maxSteps
+                    item.elapsedSeconds = elapsed
+                    item.estimatedRemainingSeconds = estimatedGenerationRemainingSeconds
+                    item.statusMessage = "Current Step"
+                }
+            }
+            return
         }
+
+        generationPhaseName = generationPhaseName(for: line)
     }
 
-    private func generationPhaseEstimate(for line: String) -> (name: String, fraction: Double) {
+    private func generationPhaseName(for line: String) -> String {
         let normalized = line.lowercased()
-        if normalized.contains("checking backend") { return ("checking backend", 0.02) }
-        if normalized.contains("queued") { return ("queued", 0.02) }
-        if normalized.contains("session created") { return ("session created", 0.04) }
-        if normalized.contains("staged input") { return ("staging input", 0.06) }
-        if normalized.contains("starting generation...") { return ("starting backend", 0.08) }
-        if normalized.contains("using device:") { return ("device ready", 0.10) }
-        if normalized.contains("found ") && normalized.contains("voice files") { return ("voices loaded", 0.12) }
-        if normalized.contains("reading script") { return ("reading script", 0.14) }
-        if normalized.contains("loading processor") { return ("loading processor", 0.18) }
-        if normalized.contains("loading file") { return ("loading tokenizer", 0.22) }
-        if normalized.contains("loading configuration") { return ("loading config", 0.28) }
-        if normalized.contains("model config") { return ("model config", 0.32) }
-        if normalized.contains("loading weights file") { return ("loading weights", 0.38) }
-        if normalized.contains("instantiating") { return ("instantiating model", 0.48) }
-        if normalized.contains("all model checkpoint weights") { return ("weights loaded", 0.56) }
-        if normalized.contains("some weights") { return ("model initialized", 0.60) }
-        if normalized.contains("ddpm inference steps") { return ("diffusion ready", 0.63) }
-        if normalized.contains("language model attention") { return ("attention ready", 0.65) }
-        if normalized.contains("using voice preset") { return ("voice loaded", 0.68) }
-        if normalized.contains("starting generation with") { return ("generating", 0.70) }
-        if normalized.contains("generation time") { return ("finalizing", 0.95) }
-        if normalized.contains("saved output") || normalized.contains("output ready") { return ("output ready", 0.98) }
-        if normalized.contains("completed") { return ("completed", 1.0) }
-        if normalized.contains("failed") { return ("failed", estimatedGenerationProgressFraction ?? 0) }
-        if normalized.contains("cancel") { return ("cancelled", estimatedGenerationProgressFraction ?? 0) }
-        return ("working", max(0.02, estimatedGenerationProgressFraction ?? 0.02))
+        if normalized.contains("checking backend") { return "Checking Backend" }
+        if normalized.contains("queued") { return "Queued" }
+        if normalized.contains("session created") { return "Session Created" }
+        if normalized.contains("staged input") { return "Staging Input" }
+        if normalized.contains("starting generation") { return "Starting Backend" }
+        if normalized.contains("using device:") { return "Device Ready" }
+        if normalized.contains("found ") && normalized.contains("voice files") { return "Voices Loaded" }
+        if normalized.contains("reading script") { return "Reading Script" }
+        if normalized.contains("loading processor") { return "Loading Processor" }
+        if normalized.contains("loading file") { return "Loading Tokenizer" }
+        if normalized.contains("loading configuration") { return "Loading Config" }
+        if normalized.contains("model config") { return "Model Config" }
+        if normalized.contains("loading weights file") { return "Loading Weights" }
+        if normalized.contains("instantiating") { return "Instantiating Model" }
+        if normalized.contains("all model checkpoint weights") { return "Weights Loaded" }
+        if normalized.contains("some weights") { return "Model Initialized" }
+        if normalized.contains("ddpm inference steps") { return "Diffusion Ready" }
+        if normalized.contains("language model attention") { return "Attention Ready" }
+        if normalized.contains("using voice preset") { return "Voice Loaded" }
+        if normalized.contains("generation time") { return "Finalizing" }
+        if normalized.contains("saved output") || normalized.contains("output ready") { return "Output Ready" }
+        if normalized.contains("completed") { return "Completed" }
+        if normalized.contains("failed") { return "Failed" }
+        if normalized.contains("cancel") { return "Cancelled" }
+        return line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Working" : String(line.prefix(40))
     }
 
     private func latestTerminalLine(from text: String) -> String? {
@@ -887,8 +910,13 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let activeStartedAt = self.activeStartedAt else { return }
-                let elapsed = Date().timeIntervalSince(activeStartedAt)
+                let previousElapsed = self.elapsedSeconds
+                let elapsed = max(previousElapsed, Date().timeIntervalSince(activeStartedAt))
                 self.elapsedSeconds = elapsed
+                if let remaining = self.estimatedGenerationRemainingSeconds {
+                    let delta = max(0, elapsed - previousElapsed)
+                    self.estimatedGenerationRemainingSeconds = max(0, remaining - delta)
+                }
                 if self.isGenerating || self.isPreparingGeneration {
                     self.generationTicker = self.generationTicker.ticking(elapsed: elapsed)
                     if let activeJobID = self.activeJobID {

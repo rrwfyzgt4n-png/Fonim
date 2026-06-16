@@ -45,7 +45,7 @@ struct EditorView: View {
                     .stroke(.quaternary)
             }
         }
-        .padding()
+        .padding(20)
         .navigationTitle(store.hasUnsavedEditorText ? "Unsaved Text" : "New Session")
     }
 }
@@ -57,17 +57,17 @@ private struct GenerateControl: View {
         Button {
             store.generate()
         } label: {
-            Label("Generate WAV", systemImage: "waveform.circle.fill")
-                .labelStyle(.iconOnly)
+            Image(systemName: "waveform.circle.fill")
                 .font(.title2)
+                .frame(width: 30, height: 26)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .frame(width: 44, height: 34)
+        .frame(width: 46, height: 36)
         .keyboardShortcut(.return, modifiers: [.command])
         .disabled(!store.canGenerate)
         .help(store.canGenerate ? "Generate WAV (Command-Return)" : store.backendStatus.userMessage)
-        .padding(.leading, 8)
+        .padding(.leading, 10)
         .accessibilityLabel("Generate WAV")
     }
 }

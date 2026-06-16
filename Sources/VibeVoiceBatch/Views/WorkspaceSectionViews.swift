@@ -180,6 +180,7 @@ private struct QueueItemCard: View {
                         appStore.cancelQueuedGeneration(item)
                     } label: {
                         Image(systemName: "stop.circle")
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.borderless)
                     .disabled(item.status != .queued && item.status != .running)
@@ -189,6 +190,7 @@ private struct QueueItemCard: View {
                         appStore.retryQueuedGeneration(item)
                     } label: {
                         Image(systemName: "arrow.clockwise")
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.borderless)
                     .disabled(!item.status.isTerminal)
@@ -198,6 +200,7 @@ private struct QueueItemCard: View {
                         appStore.duplicateQueuedGenerationAsNew(item)
                     } label: {
                         Image(systemName: "doc.on.doc")
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.borderless)
                     .help("Duplicate as New")

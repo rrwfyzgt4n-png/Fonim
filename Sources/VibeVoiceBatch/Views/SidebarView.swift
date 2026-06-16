@@ -157,6 +157,7 @@ struct SidebarView: View {
                     store.refreshHistory()
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.borderless)
                 .help("Refresh Workspace")

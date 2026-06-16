@@ -86,16 +86,6 @@ struct OutputBrowserView: View {
 
                 HStack(spacing: 10) {
                     Button {
-                        store.playWAV(record)
-                    } label: {
-                        Label(
-                            store.isPlaying(record) ? "Stop WAV" : "Play WAV",
-                            systemImage: store.isPlaying(record) ? "stop.circle" : "play.circle"
-                        )
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button {
                         store.revealOutputFile(record)
                     } label: {
                         Label("Reveal WAV", systemImage: "finder")
@@ -115,12 +105,6 @@ struct OutputBrowserView: View {
                     }
 
                     Spacer()
-
-                    Button {
-                        store.duplicateAsNew(record)
-                    } label: {
-                        Label("Duplicate as New", systemImage: "doc.on.doc")
-                    }
                 }
 
                 OutputMetadataGrid(record: record)

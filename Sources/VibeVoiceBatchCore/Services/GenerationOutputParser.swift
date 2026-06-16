@@ -59,6 +59,12 @@ public struct EstimatedGenerationProgress: Equatable {
     public var percent: Double {
         fraction * 100
     }
+
+    public var displayPhase: String {
+        phase
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
 }
 
 public enum GenerationOutputParser {
