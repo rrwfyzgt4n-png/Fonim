@@ -620,15 +620,27 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private func updateEstimatedGenerationProgress(from line: String) {
         if let estimate = GenerationOutputParser.latestEstimatedProgress(in: line) {
-            generationPhaseName = estimate.phase.replacingOccurrences(of: "_", with: " ")
-            let fraction = normalizedEstimatedGenerationFraction(estimate)
-            estimatedGenerationProgressFraction = max(estimatedGenerationProgressFraction ?? 0, fraction)
+            let phaseName = estimate.phase.replacingOccurrences(of: "_", with: " ")
+            generationPhaseName = phaseName
+            estimatedGenerationProgressFraction = estimate.fraction
+            if let elapsed = estimate.elapsedSeconds {
+                elapsedSeconds = elapsed
+            }
             if let elapsed = estimate.elapsedSeconds,
                let estimated = estimate.estimatedSeconds,
                estimated > elapsed {
                 estimatedGenerationRemainingSeconds = estimated - elapsed
             } else {
                 estimatedGenerationRemainingSeconds = nil
+            }
+            if let activeJobID {
+                updateQueuedGeneration(id: activeJobID) { item in
+                    item.status = .running
+                    item.progressFraction = estimate.fraction
+                    item.elapsedSeconds = estimate.elapsedSeconds ?? item.elapsedSeconds
+                    item.estimatedRemainingSeconds = estimatedGenerationRemainingSeconds
+                    item.statusMessage = phaseName.capitalized
+                }
             }
             return
         }
@@ -669,19 +681,6 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if normalized.contains("failed") { return ("failed", estimatedGenerationProgressFraction ?? 0) }
         if normalized.contains("cancel") { return ("cancelled", estimatedGenerationProgressFraction ?? 0) }
         return ("working", max(0.02, estimatedGenerationProgressFraction ?? 0.02))
-    }
-
-    private func normalizedEstimatedGenerationFraction(_ estimate: EstimatedGenerationProgress) -> Double {
-        switch estimate.phase {
-        case "generation":
-            return min(0.95, 0.70 + estimate.fraction * 0.25)
-        case "starting_generation":
-            return max(0.70, estimate.fraction)
-        case "finalizing":
-            return max(0.96, estimate.fraction)
-        default:
-            return estimate.fraction
-        }
     }
 
     private func latestTerminalLine(from text: String) -> String? {

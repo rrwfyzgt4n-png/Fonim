@@ -91,6 +91,7 @@ struct BackendStatusView: View {
         HStack(spacing: 14) {
             StatusMetric(label: "Elapsed", value: elapsedText)
             StatusMetric(label: "Remaining", value: remainingText)
+            StatusMetric(label: "Estimated", value: estimatedTotalText)
             StatusMetric(label: "Runtime", value: runtimeText)
             StatusMetric(label: "Progress", value: progressText)
             Spacer(minLength: 0)
@@ -181,10 +182,10 @@ struct BackendStatusView: View {
             return store.playbackProgressFraction
         }
         if store.isGenerating || store.isPreparingGeneration {
-            if let fraction = store.activeGenerationProgress?.fractionComplete {
+            if let fraction = store.estimatedGenerationProgressFraction {
                 return clamped(fraction)
             }
-            if let fraction = store.estimatedGenerationProgressFraction {
+            if let fraction = store.activeGenerationProgress?.fractionComplete {
                 return clamped(fraction)
             }
         }
@@ -217,8 +218,25 @@ struct BackendStatusView: View {
             return clock(remaining)
         }
         if store.isGenerating || store.isPreparingGeneration {
-            if let remaining = store.activeGenerationProgress?.estimatedRemainingSeconds ?? store.estimatedGenerationRemainingSeconds {
+            if let remaining = store.estimatedGenerationRemainingSeconds ?? store.activeGenerationProgress?.estimatedRemainingSeconds {
                 return clock(remaining)
+            }
+        }
+        return "--:--"
+    }
+
+    private var estimatedTotalText: String {
+        if store.isPlayingWAV {
+            return clock(store.playbackDurationSeconds)
+        }
+        if store.isGenerating || store.isPreparingGeneration {
+            if let remaining = store.estimatedGenerationRemainingSeconds {
+                return clock(store.elapsedSeconds + remaining)
+            }
+            if let progress = store.activeGenerationProgress,
+               let elapsed = progress.elapsedSeconds,
+               let remaining = progress.estimatedRemainingSeconds {
+                return clock(elapsed + remaining)
             }
         }
         return "--:--"
@@ -243,7 +261,7 @@ struct BackendStatusView: View {
     }
 
     private func percentText(_ fraction: Double) -> String {
-        String(format: "%.0f%%", clamped(fraction) * 100)
+        String(format: "%.2f%%", clamped(fraction) * 100)
     }
 
     private func clamped(_ fraction: Double) -> Double {
