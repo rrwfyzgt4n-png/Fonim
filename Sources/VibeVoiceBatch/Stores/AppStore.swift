@@ -526,9 +526,9 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
             selectedOutputSessionIDs.remove(record.id)
             refreshHistory()
-            statusMessage = "Moved deleted session to \(destination.lastPathComponent)"
+            statusMessage = "Archived \(record.id) to \(archiveRecoveryLocation(destination)). Recover it by moving that folder back into history."
         } catch {
-            alertMessage = "Could not delete session: \(error.localizedDescription)"
+            alertMessage = "Could not archive session. No session files were deleted.\n\n\(error.localizedDescription)"
         }
     }
 
@@ -556,10 +556,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         refreshHistory()
         if failures.isEmpty {
-            statusMessage = "Archived \(archivedCount) output\(archivedCount == 1 ? "" : "s") to recovered/deleted_sessions"
+            statusMessage = "Archived \(archivedCount) output\(archivedCount == 1 ? "" : "s") to recovered/deleted_sessions. Recover by moving session folders back into history."
         } else {
-            alertMessage = "Archived \(archivedCount) output\(archivedCount == 1 ? "" : "s"), but \(failures.count) could not be archived.\n\n\(failures.joined(separator: "\n"))"
+            alertMessage = "Archived \(archivedCount) output\(archivedCount == 1 ? "" : "s"), but \(failures.count) could not be archived. Files that failed to archive were left in place.\n\n\(failures.joined(separator: "\n"))"
         }
+    }
+
+    private func archiveRecoveryLocation(_ destination: URL) -> String {
+        "recovered/deleted_sessions/\(destination.lastPathComponent)"
     }
 
     func openSessionFolder(_ record: SessionRecord) {

@@ -344,8 +344,13 @@ public final class WorkspaceFileStore {
         now: Date = Date()
     ) throws -> NarrationProject {
         var project = try loadProject(id: projectID)
+        var addedSession = false
         for sessionID in sessionIDs where !project.generationSessionIDs.contains(sessionID) {
             project.generationSessionIDs.append(sessionID)
+            addedSession = true
+        }
+        guard addedSession else {
+            return project
         }
         project.updatedAt = now
         if !project.generationSessionIDs.isEmpty, project.status == .draft {

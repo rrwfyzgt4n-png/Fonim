@@ -54,12 +54,24 @@ Recovery: Keep the primary message plain-language, offer a next action, and put 
 
 Details: include the managed operation name, backend id, and captured process output.
 
+### Session Archived
+
+Title: Session archived
+
+Explanation: The session was moved out of active history; no input, output audio, log, or metadata files were deleted.
+
+Recovery: Move the archived session folder from `recovered/deleted_sessions` back into `history`.
+
+Details: include the archived folder name.
+
 ## Non-Negotiables
 
 - Never delete failed session folders.
 - Never overwrite logs, input text, metadata, or output audio.
+- Archive history and outputs by moving session folders into `recovered/deleted_sessions`; never delete them in place.
 - Never show raw stack traces as the primary message.
 - Always provide a way to copy user-facing error details.
 - Session input, logs, and metadata should remain copyable from the app.
 - Always preserve enough metadata to reproduce or diagnose the run.
 - Backend reset must not delete history, generated audio, logs, metadata, or model cache.
+- Filing outputs into a project must be idempotent and must not move, rewrite, or mutate session folders.

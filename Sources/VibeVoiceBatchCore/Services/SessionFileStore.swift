@@ -171,12 +171,12 @@ public final class SessionFileStore {
         return output
     }
 
-    public func archiveDeletedSession(_ record: SessionRecord) throws -> URL {
+    public func archiveDeletedSession(_ record: SessionRecord, now: Date = Date()) throws -> URL {
         try ensureBaseDirectories()
         let deletedRoot = projectRoot.recoveredDirectory.appendingPathComponent("deleted_sessions", isDirectory: true)
         try fileManager.createDirectory(at: deletedRoot, withIntermediateDirectories: true)
 
-        let baseName = "\(SessionFormatters.sessionIDDateFormatter.string(from: Date()))_\(record.id)"
+        let baseName = "\(SessionFormatters.sessionIDDateFormatter.string(from: now))_\(record.id)"
         var destination = deletedRoot.appendingPathComponent(baseName, isDirectory: true)
         var suffix = 2
         while fileManager.fileExists(atPath: destination.path) {

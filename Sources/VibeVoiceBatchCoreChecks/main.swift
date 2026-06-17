@@ -8,6 +8,9 @@ struct VibeVoiceBatchCoreChecks {
         try checkSessionIDsNeverCollide()
         try checkRecoverExistingGeneratedWAVMovesToRecovered()
         try checkMoveGeneratedWAVToSessionUsesOutputWAV()
+        try checkOutputWAVCannotBeOverwritten()
+        try checkArchiveDeletedSessionMovesToRecovery()
+        try checkArchiveDeletedSessionNeverOverwritesRecoveryFolder()
         try checkReadsPCMDuration()
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
@@ -75,6 +78,82 @@ struct VibeVoiceBatchCoreChecks {
             precondition(output.lastPathComponent == "output.wav")
             precondition(FileManager.default.fileExists(atPath: output.path))
             precondition(!FileManager.default.fileExists(atPath: root.generatedWAVFile.path))
+        }
+    }
+
+    private static func checkOutputWAVCannotBeOverwritten() throws {
+        try withStore { root, store in
+            let record = try store.createDraft(text: "Protected output.", voice: "en-carter", cfgScale: "1.8")
+            let existingOutput = record.folderURL.appendingPathComponent("output.wav", isDirectory: false)
+            try Data([9, 9, 9]).write(to: existingOutput)
+            try FileManager.default.createDirectory(at: root.outputsDirectory, withIntermediateDirectories: true)
+            try Data([1, 2, 3]).write(to: root.generatedWAVFile)
+
+            var refusedOverwrite = false
+            do {
+                _ = try store.moveGeneratedWAVToSession(folderURL: record.folderURL)
+            } catch {
+                refusedOverwrite = true
+            }
+
+            precondition(refusedOverwrite)
+            let preservedOutput = try Data(contentsOf: existingOutput)
+            precondition(preservedOutput == Data([9, 9, 9]))
+            precondition(FileManager.default.fileExists(atPath: root.generatedWAVFile.path))
+        }
+    }
+
+    private static func checkArchiveDeletedSessionMovesToRecovery() throws {
+        try withStore { root, store in
+            let createdAt = Date(timeIntervalSince1970: 1_718_171_695)
+            let archivedAt = Date(timeIntervalSince1970: 1_718_172_000)
+            let record = try store.createDraft(
+                text: "Recoverable archive text.",
+                voice: "en-carter",
+                cfgScale: "1.8",
+                now: createdAt
+            )
+
+            let destination = try store.archiveDeletedSession(record, now: archivedAt)
+            precondition(!FileManager.default.fileExists(atPath: record.folderURL.path))
+            precondition(destination.path.contains("/recovered/deleted_sessions/"))
+            precondition(FileManager.default.fileExists(atPath: destination.appendingPathComponent("input.txt").path))
+            precondition(FileManager.default.fileExists(atPath: destination.appendingPathComponent("log.txt").path))
+            precondition(FileManager.default.fileExists(atPath: destination.appendingPathComponent("metadata.json").path))
+            let activeSessions = try store.loadSessions()
+            precondition(activeSessions.isEmpty)
+
+            let recovered = try store.loadRecord(folderURL: destination)
+            precondition(recovered.inputText == "Recoverable archive text.")
+            precondition(recovered.metadata.sessionID == record.id)
+            precondition(FileManager.default.fileExists(atPath: root.recoveredDirectory.appendingPathComponent("deleted_sessions").path))
+        }
+    }
+
+    private static func checkArchiveDeletedSessionNeverOverwritesRecoveryFolder() throws {
+        try withStore { root, store in
+            let createdAt = Date(timeIntervalSince1970: 1_718_171_695)
+            let archivedAt = Date(timeIntervalSince1970: 1_718_172_000)
+            let record = try store.createDraft(
+                text: "Archive collision.",
+                voice: "en-carter",
+                cfgScale: "1.8",
+                now: createdAt
+            )
+            let deletedRoot = root.recoveredDirectory.appendingPathComponent("deleted_sessions", isDirectory: true)
+            try FileManager.default.createDirectory(at: deletedRoot, withIntermediateDirectories: true)
+            let occupiedName = "\(SessionFormatters.sessionIDDateFormatter.string(from: archivedAt))_\(record.id)"
+            let occupied = deletedRoot.appendingPathComponent(occupiedName, isDirectory: true)
+            try FileManager.default.createDirectory(at: occupied, withIntermediateDirectories: true)
+            let marker = occupied.appendingPathComponent("do-not-overwrite.txt", isDirectory: false)
+            try Data("keep".utf8).write(to: marker)
+
+            let destination = try store.archiveDeletedSession(record, now: archivedAt)
+            precondition(destination.lastPathComponent == "\(occupiedName)_2")
+            precondition(FileManager.default.fileExists(atPath: marker.path))
+            let markerText = try String(contentsOf: marker, encoding: .utf8)
+            precondition(markerText == "keep")
+            precondition(FileManager.default.fileExists(atPath: destination.appendingPathComponent("input.txt").path))
         }
     }
 
@@ -690,6 +769,16 @@ struct VibeVoiceBatchCoreChecks {
         precondition(filedProject.generationSessionIDs == [firstRun.id, secondRun.id])
         let filedAgain = try workspaceStore.attachGenerationSessions([secondRun.id], toProject: project.id, now: createdAt)
         precondition(filedAgain.generationSessionIDs == [firstRun.id, secondRun.id])
+        let beforeDuplicateFiling = try workspaceStore.loadProject(id: project.id)
+        let duplicateFiling = try workspaceStore.attachGenerationSessions(
+            [secondRun.id, firstRun.id],
+            toProject: project.id,
+            now: createdAt.addingTimeInterval(60)
+        )
+        precondition(duplicateFiling.generationSessionIDs == beforeDuplicateFiling.generationSessionIDs)
+        precondition(duplicateFiling.updatedAt == beforeDuplicateFiling.updatedAt)
+        precondition(FileManager.default.fileExists(atPath: firstRun.folderURL.path))
+        precondition(FileManager.default.fileExists(atPath: secondRun.folderURL.path))
 
         let updatedBatch = try workspaceStore.recordBatchItemGeneration(
             batchID: batch.id,

@@ -242,7 +242,7 @@ struct InspectorPanelView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(selected.isEmpty)
-            .help("Move selected sessions to recovered/deleted_sessions")
+            .help("Archive selected sessions to recovered/deleted_sessions so they can be restored later")
         }
     }
 

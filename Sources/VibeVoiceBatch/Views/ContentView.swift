@@ -242,7 +242,7 @@ struct ContentView: View {
                 Label("Archive", systemImage: "archivebox")
             }
             .disabled(store.selectedOutputSessions.isEmpty)
-            .help("Move selected outputs to recovered/deleted_sessions")
+            .help("Archive selected outputs to recovered/deleted_sessions so they can be restored later")
 
             Button {
                 showingOutputProjectFiling = true
