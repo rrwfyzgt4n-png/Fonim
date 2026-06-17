@@ -136,6 +136,36 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         statusMessage = status
     }
 
+    func playGenerationRecord(_ record: GenerationRecord) {
+        refreshHistory()
+        if let session = session(id: record.id) {
+            playWAV(session)
+            return
+        }
+
+        guard let exportPath = record.exportPath else {
+            statusMessage = "No test WAV available"
+            return
+        }
+        playOutputURL(URL(fileURLWithPath: exportPath), sessionID: record.id)
+    }
+
+    func revealGenerationRecordOutput(_ record: GenerationRecord) {
+        refreshHistory()
+        if let session = session(id: record.id) {
+            revealOutputFile(session)
+            return
+        }
+
+        guard let exportPath = record.exportPath else {
+            statusMessage = "No test WAV available"
+            return
+        }
+        let outputURL = URL(fileURLWithPath: exportPath)
+        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+        statusMessage = "Revealed \(outputURL.lastPathComponent)"
+    }
+
     func refreshBackendStatus() {
         guard !isRefreshingBackendStatus else { return }
         Task {
@@ -615,7 +645,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
 
         guard let outputURL = record.outputURL else { return }
+        playOutputURL(outputURL, sessionID: record.id)
+    }
 
+    private func playOutputURL(_ outputURL: URL, sessionID: String) {
         do {
             if isPlayingWAV {
                 stopWAVPlayback()
@@ -625,12 +658,12 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             player.prepareToPlay()
             player.play()
             audioPlayer = player
-            playingSessionID = record.id
+            playingSessionID = sessionID
             playbackElapsedSeconds = player.currentTime
             playbackDurationSeconds = player.duration
             isPlayingWAV = true
             startPlaybackTimer()
-            statusMessage = "Playing \(record.id)"
+            statusMessage = "Playing \(sessionID)"
         } catch {
             alertMessage = "Could not play WAV: \(error.localizedDescription)"
         }

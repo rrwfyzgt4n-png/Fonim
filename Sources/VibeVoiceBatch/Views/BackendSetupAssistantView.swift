@@ -149,6 +149,7 @@ struct BackendSetupAssistantView: View {
                 profile: selectedBackend,
                 modelID: selectedSetupModelID,
                 voiceID: selectedSetupVoiceID,
+                backendStatus: appStore.backendStatus,
                 isTesting: setupStore.isTestingVoice,
                 statusMessage: setupStore.testStatusMessage,
                 progress: setupStore.testProgress,
@@ -158,6 +159,8 @@ struct BackendSetupAssistantView: View {
                 canTest: !appStore.isGenerating,
                 runTest: prepareTestVoice,
                 cancelTest: setupStore.cancelVoiceTest,
+                playResult: playTestResult,
+                revealResult: revealTestResult,
                 openResult: openTestResult
             )
         case .confirm:
@@ -273,13 +276,20 @@ struct BackendSetupAssistantView: View {
             cfgScale: settingsStore.settings.defaultCFGScale,
             ddpmInferenceSteps: settingsStore.settings.defaultDDPMInferenceSteps
         ) { record in
-            if let record {
-                appStore.revealGenerationRecord(record, status: "Test voice complete")
-            } else {
-                appStore.refreshHistory()
-            }
+            appStore.refreshHistory()
+            appStore.statusMessage = record?.status == .completed ? "Test voice complete" : "Test voice finished"
             appStore.refreshBackendStatus()
         }
+    }
+
+    private func playTestResult() {
+        guard let record = setupStore.testRecord else { return }
+        appStore.playGenerationRecord(record)
+    }
+
+    private func revealTestResult() {
+        guard let record = setupStore.testRecord else { return }
+        appStore.revealGenerationRecordOutput(record)
     }
 
     private func openTestResult() {
@@ -1739,6 +1749,7 @@ private struct TestVoiceSetupPane: View {
     let profile: BackendProfile
     let modelID: String
     let voiceID: String
+    let backendStatus: BackendStatusSnapshot
     let isTesting: Bool
     let statusMessage: String
     let progress: GenerationProgressSnapshot?
@@ -1748,55 +1759,249 @@ private struct TestVoiceSetupPane: View {
     let canTest: Bool
     let runTest: () -> Void
     let cancelTest: () -> Void
+    let playResult: () -> Void
+    let revealResult: () -> Void
     let openResult: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Header(title: "Test Voice", subtitle: "Generate a short sample through the selected backend.")
 
-            Form {
-                LabeledContent("Backend", value: profile.displayName)
-                LabeledContent("Model", value: modelID)
-                LabeledContent("Voice", value: voiceID)
-                LabeledContent("Status", value: statusMessage)
-                if let outputPath = record?.exportPath {
-                    LabeledContent("Output", value: outputPath)
+            TestVoiceProgressPanel(
+                profile: profile,
+                modelID: modelID,
+                voiceID: voiceID,
+                backendStatus: backendStatus,
+                isTesting: isTesting,
+                statusMessage: statusMessage,
+                progress: progress,
+                record: record,
+                error: error
+            )
+
+            TestVoiceActionPanel(
+                isTesting: isTesting,
+                canTest: canTest,
+                canUseOutput: canUseOutput,
+                canOpenRecord: record != nil,
+                runTest: runTest,
+                cancelTest: cancelTest,
+                playResult: playResult,
+                revealResult: revealResult,
+                openResult: openResult
+            )
+
+            TestVoiceDetailsPanel(
+                record: record,
+                error: error,
+                logText: logText
+            )
+        }
+    }
+
+    private var canUseOutput: Bool {
+        record?.status == .completed && record?.exportPath != nil
+    }
+}
+
+private struct TestVoiceProgressPanel: View {
+    let profile: BackendProfile
+    let modelID: String
+    let voiceID: String
+    let backendStatus: BackendStatusSnapshot
+    let isTesting: Bool
+    let statusMessage: String
+    let progress: GenerationProgressSnapshot?
+    let record: GenerationRecord?
+    let error: GenerationErrorRecord?
+
+    var body: some View {
+        SetupTaskPanel(
+            title: "Generation Status",
+            subtitle: statusMessage,
+            systemImage: statusIcon,
+            state: statusState
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                progressView
+
+                SetupDetailGrid(items: [
+                    ("Backend", profile.displayName),
+                    ("Runtime State", backendStatus.state.displayName),
+                    ("Model", modelID),
+                    ("Voice", voiceID),
+                    ("Elapsed", elapsedText),
+                    ("Remaining", remainingText),
+                    ("Audio Duration", audioDurationText)
+                ])
+
+                if let progress {
+                    Text(progress.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
             }
-            .formStyle(.grouped)
+        }
+    }
 
-            if isTesting {
-                if let fraction = progress?.fractionComplete {
-                    ProgressView(value: fraction)
-                } else {
-                    ProgressView()
+    @ViewBuilder
+    private var progressView: some View {
+        if let fraction = progressFraction {
+            ProgressView(value: fraction)
+        } else if isTesting {
+            ProgressView()
+        } else {
+            ProgressView(value: record?.status == .completed ? 1 : 0)
+        }
+    }
+
+    private var progressFraction: Double? {
+        if record?.status == .completed {
+            return 1
+        }
+        guard let fraction = progress?.fractionComplete else { return nil }
+        return min(1, max(0, fraction))
+    }
+
+    private var statusState: BackendSetupCheckState {
+        if isTesting {
+            return .checking
+        }
+        switch record?.status {
+        case .completed: return .passed
+        case .failed, .cancelled: return .failed
+        case .queued, .running: return .checking
+        case nil: return error == nil ? .waiting : .failed
+        }
+    }
+
+    private var statusIcon: String {
+        switch statusState {
+        case .passed: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        case .checking: return "waveform"
+        case .waiting, .warning: return "waveform"
+        }
+    }
+
+    private var elapsedText: String {
+        if let elapsed = progress?.elapsedSeconds {
+            return GenerationTickerState.clock(elapsed)
+        }
+        if let record,
+           let completedAt = record.completedAt {
+            return GenerationTickerState.clock(completedAt.timeIntervalSince(record.createdAt))
+        }
+        return "--:--"
+    }
+
+    private var remainingText: String {
+        progress?.estimatedRemainingSeconds.map(GenerationTickerState.clock) ?? "--:--"
+    }
+
+    private var audioDurationText: String {
+        record?.durationSeconds.map(SessionFormatters.duration) ?? "--"
+    }
+}
+
+private struct TestVoiceActionPanel: View {
+    let isTesting: Bool
+    let canTest: Bool
+    let canUseOutput: Bool
+    let canOpenRecord: Bool
+    let runTest: () -> Void
+    let cancelTest: () -> Void
+    let playResult: () -> Void
+    let revealResult: () -> Void
+    let openResult: () -> Void
+
+    var body: some View {
+        SetupTaskPanel(
+            title: "Result Actions",
+            subtitle: "Run the test here, then play, reveal, or inspect the archived result.",
+            systemImage: "play.circle",
+            state: canUseOutput ? .passed : (isTesting ? .checking : .waiting)
+        ) {
+            HStack {
+                Button {
+                    isTesting ? cancelTest() : runTest()
+                } label: {
+                    Label(isTesting ? "Cancel Test" : "Run Test Voice", systemImage: isTesting ? "xmark.circle" : "waveform")
                 }
-            } else if record?.status == .completed {
-                ProgressView(value: 1)
-            }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canTest && !isTesting)
 
-            if let progress {
-                Text(progressLine(progress))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
+                Button {
+                    playResult()
+                } label: {
+                    Label("Play Test", systemImage: "play.fill")
+                }
+                .disabled(!canUseOutput)
 
+                Button {
+                    revealResult()
+                } label: {
+                    Label("Reveal Test", systemImage: "finder")
+                }
+                .disabled(!canUseOutput)
+
+                Button {
+                    openResult()
+                } label: {
+                    Label("Open in History", systemImage: "clock.arrow.circlepath")
+                }
+                .disabled(!canOpenRecord)
+
+                Spacer()
+            }
+        }
+    }
+}
+
+private struct TestVoiceDetailsPanel: View {
+    let record: GenerationRecord?
+    let error: GenerationErrorRecord?
+    let logText: String
+
+    var body: some View {
+        SetupTaskPanel(
+            title: "Test Record",
+            subtitle: "Logs stay collapsed unless you need implementation details.",
+            systemImage: "doc.text.magnifyingglass",
+            state: recordState
+        ) {
             if let error {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Label(error.title, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                     Text(error.explanation)
+                        .font(.caption)
                     if let recovery = error.recoverySuggestion {
                         Text(recovery)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if let details = error.technicalDetails {
+                        DisclosureGroup("Error Details") {
+                            Text(details)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(.caption)
+                    }
                 }
-                .font(.callout)
             }
 
+            SetupDetailGrid(items: [
+                ("Session", record?.id ?? "Not generated yet"),
+                ("Status", record?.status.displayName ?? "Not run"),
+                ("Output", record?.exportPath ?? "No WAV yet")
+            ])
+
             if !logText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                DisclosureGroup("Details") {
+                DisclosureGroup("Show Logs") {
                     ScrollView {
                         Text(logText)
                             .font(.system(.caption, design: .monospaced))
@@ -1805,27 +2010,18 @@ private struct TestVoiceSetupPane: View {
                     }
                     .frame(maxHeight: 150)
                 }
-            }
-
-            HStack {
-                Button {
-                    isTesting ? cancelTest() : runTest()
-                } label: {
-                    Label(isTesting ? "Cancel Test" : "Run Test Voice", systemImage: isTesting ? "xmark.circle" : "waveform")
-                }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canTest)
-                Button("Open in History", action: openResult)
-                    .disabled(record == nil)
-                Spacer()
+                .font(.caption)
             }
         }
     }
 
-    private func progressLine(_ progress: GenerationProgressSnapshot) -> String {
-        let percent = progress.fractionComplete.map { String(format: "%.0f%%", $0 * 100) } ?? "--"
-        let elapsed = progress.elapsedSeconds.map(GenerationTickerState.clock) ?? "--:--"
-        return "\(percent)  elapsed \(elapsed)  \(progress.message)"
+    private var recordState: BackendSetupCheckState {
+        switch record?.status {
+        case .completed: return .passed
+        case .failed, .cancelled: return .failed
+        case .queued, .running: return .checking
+        case nil: return error == nil ? .waiting : .failed
+        }
     }
 }
 
