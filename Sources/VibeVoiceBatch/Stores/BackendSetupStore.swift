@@ -17,6 +17,8 @@ final class BackendSetupStore: ObservableObject {
     @Published private(set) var testError: GenerationErrorRecord?
     @Published private(set) var selectedStage: BackendSetupStage = .welcome
     @Published private(set) var highestUnlockedStage: BackendSetupStage = .welcome
+    @Published private(set) var selectedModelID = ""
+    @Published private(set) var selectedVoiceID = ""
 
     private let backendManager: BackendManager
     private let voiceTestRunner: BackendVoiceTestRunner
@@ -118,6 +120,7 @@ final class BackendSetupStore: ObservableObject {
         discoveryReport = nil
         catalogReport = nil
         clearTest()
+        resetModelVoiceSelection()
         selectedStage = .welcome
         highestUnlockedStage = .welcome
     }
@@ -155,6 +158,19 @@ final class BackendSetupStore: ObservableObject {
 
     func clearCatalog() {
         catalogReport = nil
+    }
+
+    func selectModel(_ modelID: String) {
+        selectedModelID = modelID
+    }
+
+    func selectVoice(_ voiceID: String) {
+        selectedVoiceID = voiceID
+    }
+
+    func resetModelVoiceSelection() {
+        selectedModelID = ""
+        selectedVoiceID = ""
     }
 
     func clearTest() {

@@ -22,7 +22,9 @@ struct BackendSetupAssistantView: View {
         case .install:
             return !operationsStore.isRunning
         case .models:
-            return !setupStore.isLoadingCatalog
+            return !setupStore.isLoadingCatalog &&
+                !selectedSetupModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                !selectedSetupVoiceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .test:
             return !setupStore.isTestingVoice
         case .confirm:
@@ -133,10 +135,14 @@ struct BackendSetupAssistantView: View {
                 profile: selectedBackend,
                 catalogReport: setupStore.catalogReport,
                 isLoadingCatalog: setupStore.isLoadingCatalog,
-                selectedModelID: selectedSetupModelID,
-                selectedVoiceID: selectedSetupVoiceID,
+                modelOptions: setupModelOptions,
+                voiceOptions: setupVoiceOptions,
+                defaultModelID: settingsStore.settings.defaultModelID,
+                defaultVoiceID: settingsStore.settings.defaultVoice,
+                selectedModelID: selectedModelBinding,
+                selectedVoiceID: selectedVoiceBinding,
                 loadCatalog: { setupStore.loadCatalog(profile: selectedBackend) },
-                applyCatalog: applyCatalogDefaults
+                useAsDefault: useAssistantSelectionsAsDefaults
             )
         case .test:
             TestVoiceSetupPane(
@@ -193,6 +199,7 @@ struct BackendSetupAssistantView: View {
                 setupStore.clearDiscovery()
                 setupStore.clearCatalog()
                 setupStore.clearTest()
+                setupStore.resetModelVoiceSelection()
                 setupStore.restartProgress(at: .backend)
                 setupStore.runChecks(profile: settingsStore.selectedBackendProfile)
             }
@@ -211,17 +218,51 @@ struct BackendSetupAssistantView: View {
     }
 
     private var selectedSetupModelID: String {
-        if settingsStore.modelOptions(for: selectedBackend).contains(where: { $0.id == settingsStore.settings.defaultModelID }) {
+        if setupModelOptions.contains(where: { $0.id == setupStore.selectedModelID }) {
+            return setupStore.selectedModelID
+        }
+        if setupModelOptions.contains(where: { $0.id == settingsStore.settings.defaultModelID }) {
             return settingsStore.settings.defaultModelID
         }
-        return settingsStore.modelOptions(for: selectedBackend).first?.id ?? selectedBackend.requiredModels.first?.id ?? settingsStore.settings.defaultModelID
+        return setupModelOptions.first?.id ?? selectedBackend.requiredModels.first?.id ?? settingsStore.settings.defaultModelID
     }
 
     private var selectedSetupVoiceID: String {
-        if settingsStore.voiceOptions(for: selectedBackend).contains(where: { $0.id == settingsStore.settings.defaultVoice }) {
+        if setupVoiceOptions.contains(where: { $0.id == setupStore.selectedVoiceID }) {
+            return setupStore.selectedVoiceID
+        }
+        if setupVoiceOptions.contains(where: { $0.id == settingsStore.settings.defaultVoice }) {
             return settingsStore.settings.defaultVoice
         }
-        return settingsStore.voiceOptions(for: selectedBackend).first?.id ?? settingsStore.settings.defaultVoice
+        return setupVoiceOptions.first?.id ?? settingsStore.settings.defaultVoice
+    }
+
+    private var setupModelOptions: [BackendCatalogModel] {
+        if let catalog = setupStore.catalogReport, !catalog.models.isEmpty {
+            return catalog.models
+        }
+        return settingsStore.modelOptions(for: selectedBackend)
+    }
+
+    private var setupVoiceOptions: [BackendCatalogVoice] {
+        if let catalog = setupStore.catalogReport, !catalog.voices.isEmpty {
+            return catalog.voices
+        }
+        return settingsStore.voiceOptions(for: selectedBackend)
+    }
+
+    private var selectedModelBinding: Binding<String> {
+        Binding(
+            get: { selectedSetupModelID },
+            set: { setupStore.selectModel($0) }
+        )
+    }
+
+    private var selectedVoiceBinding: Binding<String> {
+        Binding(
+            get: { selectedSetupVoiceID },
+            set: { setupStore.selectVoice($0) }
+        )
     }
 
     private func prepareTestVoice() {
@@ -259,25 +300,22 @@ struct BackendSetupAssistantView: View {
         setupStore.runChecks(profile: settingsStore.selectedBackendProfile)
     }
 
-    private func applyCatalogDefaults(
-        _ catalog: BackendCatalogReport,
-        model: BackendCatalogModel?,
-        voice: BackendCatalogVoice?
-    ) {
+    private func useAssistantSelectionsAsDefaults(modelID: String, voiceID: String) {
         settingsStore.update { settings in
-            settings.backendCatalogs[selectedBackend.id] = catalog
+            if let catalog = setupStore.catalogReport {
+                settings.backendCatalogs[selectedBackend.id] = catalog
+            }
             var connection = settings.backendConnection(for: selectedBackend.id)
-            if let model {
-                connection.modelID = model.id
-                settings.defaultModelID = model.id
+            if selectedBackend.engineType == .kokoro {
+                connection.modelID = modelID
+                connection.defaultVoice = voiceID
+                settings.backendConnections[selectedBackend.id] = connection
             }
-            if let voice {
-                connection.defaultVoice = voice.id
-                settings.defaultVoice = voice.id
-            }
-            settings.backendConnections[selectedBackend.id] = connection
+            settings.defaultModelID = modelID
+            settings.defaultVoice = voiceID
         }
         appStore.applyDefaultGenerationSettings()
+        appStore.statusMessage = "Saved \(selectedBackend.displayName) model and voice defaults"
     }
 
     private func runBackendOperation(_ kind: BackendOperationKind) {
@@ -1336,58 +1374,152 @@ private struct ModelsVoicesSetupPane: View {
     let profile: BackendProfile
     let catalogReport: BackendCatalogReport?
     let isLoadingCatalog: Bool
-    let selectedModelID: String
-    let selectedVoiceID: String
+    let modelOptions: [BackendCatalogModel]
+    let voiceOptions: [BackendCatalogVoice]
+    let defaultModelID: String
+    let defaultVoiceID: String
+    @Binding var selectedModelID: String
+    @Binding var selectedVoiceID: String
     let loadCatalog: () -> Void
-    let applyCatalog: (BackendCatalogReport, BackendCatalogModel?, BackendCatalogVoice?) -> Void
+    let useAsDefault: (_ modelID: String, _ voiceID: String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Header(title: "Models & Voices", subtitle: "Confirm the model and voice choices before the test generation.")
 
-            Form {
-                LabeledContent("Backend", value: profile.displayName)
-                LabeledContent("Current model", value: selectedModelID)
-                LabeledContent("Current voice", value: selectedVoiceID)
-            }
-            .formStyle(.grouped)
+            ModelVoiceBackendPanel(profile: profile)
 
             if profile.engineType == .kokoro {
-                KokoroCatalogPanel(
+                CatalogReadPanel(
+                    profile: profile,
                     report: catalogReport,
                     isLoading: isLoadingCatalog,
-                    loadCatalog: loadCatalog,
-                    applyCatalog: applyCatalog
+                    loadCatalog: loadCatalog
                 )
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("VibeVoice choices are bundled with the selected backend profile.", systemImage: "checkmark.circle")
-                        .foregroundStyle(.green)
-                    Text("Use Settings or the inspector to change the default VibeVoice voice and inference settings.")
-                        .foregroundStyle(.secondary)
-                }
-                .padding(12)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             }
+
+            ChoiceSelectionPanel(
+                title: "Model",
+                subtitle: modelSubtitle,
+                systemImage: "cube",
+                choices: modelChoices,
+                selectedID: $selectedModelID,
+                defaultID: defaultModelID,
+                emptyMessage: "No model choices are available yet."
+            )
+
+            ChoiceSelectionPanel(
+                title: "Voice",
+                subtitle: voiceSubtitle,
+                systemImage: "person.wave.2",
+                choices: voiceChoices,
+                selectedID: $selectedVoiceID,
+                defaultID: defaultVoiceID,
+                emptyMessage: "No voice choices are available yet."
+            )
+
+            ModelVoiceConfirmationPanel(
+                profile: profile,
+                model: selectedModelChoice,
+                voice: selectedVoiceChoice,
+                savedAsDefault: selectedModelID == defaultModelID && selectedVoiceID == defaultVoiceID,
+                hasFreshCatalog: catalogReport != nil,
+                useAsDefault: {
+                    useAsDefault(selectedModelID, selectedVoiceID)
+                }
+            )
+        }
+    }
+
+    private var modelChoices: [AssistantCatalogChoice] {
+        modelOptions.map { model in
+            AssistantCatalogChoice(
+                id: model.id,
+                displayName: model.displayName,
+                detail: model.owner.map { "Owner: \($0)" } ?? "Model ID: \(model.id)"
+            )
+        }
+    }
+
+    private var voiceChoices: [AssistantCatalogChoice] {
+        voiceOptions.map { voice in
+            AssistantCatalogChoice(
+                id: voice.id,
+                displayName: voice.displayName,
+                detail: "Voice ID: \(voice.id)"
+            )
+        }
+    }
+
+    private var selectedModelChoice: AssistantCatalogChoice? {
+        modelChoices.first { $0.id == selectedModelID } ?? modelChoices.first
+    }
+
+    private var selectedVoiceChoice: AssistantCatalogChoice? {
+        voiceChoices.first { $0.id == selectedVoiceID } ?? voiceChoices.first
+    }
+
+    private var modelSubtitle: String {
+        if profile.engineType == .kokoro {
+            return catalogReport == nil ?
+                "Use the saved model or read choices from the local service." :
+                "Choose from the models discovered on the local service."
+        }
+        return "The model comes from the selected backend profile."
+    }
+
+    private var voiceSubtitle: String {
+        if profile.engineType == .kokoro {
+            return catalogReport == nil ?
+                "Use the saved voice or read choices from the local service." :
+                "Choose from the voices discovered on the local service."
+        }
+        return "Choose the default voice used for new generation jobs."
+    }
+}
+
+private struct ModelVoiceBackendPanel: View {
+    let profile: BackendProfile
+
+    var body: some View {
+        SetupTaskPanel(
+            title: "Selected Backend",
+            subtitle: "These choices apply to the backend selected earlier in the assistant.",
+            systemImage: "server.rack",
+            state: .passed
+        ) {
+            SetupDetailGrid(items: [
+                ("Backend", profile.displayName),
+                ("Role", profile.role),
+                ("Runtime", profile.runtime.displayName),
+                ("Output", profile.outputFormatSupport.map { $0.rawValue.uppercased() }.joined(separator: ", "))
+            ])
         }
     }
 }
 
-private struct KokoroCatalogPanel: View {
+private struct CatalogReadPanel: View {
+    let profile: BackendProfile
     let report: BackendCatalogReport?
     let isLoading: Bool
     let loadCatalog: () -> Void
-    let applyCatalog: (BackendCatalogReport, BackendCatalogModel?, BackendCatalogVoice?) -> Void
-    @State private var selectedModelID = ""
-    @State private var selectedVoiceID = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        SetupTaskPanel(
+            title: "Discovered Choices",
+            subtitle: "Read the model and voice inventory exposed by the configured local service.",
+            systemImage: "list.bullet.rectangle",
+            state: catalogState
+        ) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Models and Voices")
-                        .font(.headline)
-                    Text("Read the choices exposed by the running Kokoro service.")
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Reading model and voice choices...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(report?.message ?? "No catalog has been read yet.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1402,113 +1534,183 @@ private struct KokoroCatalogPanel: View {
                 .disabled(isLoading)
             }
 
-            if isLoading {
-                ProgressView("Reading Kokoro models and voices...")
-            } else if let report {
-                Text(report.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if let report {
+                SetupDetailGrid(items: [
+                    ("Models", "\(report.models.count)"),
+                    ("Voices", "\(report.voices.count)"),
+                    ("Read At", report.generatedAt.formatted(date: .abbreviated, time: .shortened))
+                ])
 
                 if report.models.isEmpty && report.voices.isEmpty {
-                    Text("No model or voice choices were returned. Check the service URL above.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    catalogPickers(report: report)
+                    SetupPlaceholderLine(text: "No choices were returned. Check the service connection, then read choices again.")
                 }
+
+                if let details = report.technicalDetails,
+                   !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    DisclosureGroup("Catalog Details") {
+                        Text(details)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+    }
+
+    private var catalogState: BackendSetupCheckState {
+        if isLoading {
+            return .checking
+        }
+        guard let report else {
+            return .waiting
+        }
+        return report.models.isEmpty && report.voices.isEmpty ? .warning : .passed
+    }
+}
+
+private struct AssistantCatalogChoice: Identifiable, Equatable {
+    let id: String
+    let displayName: String
+    let detail: String
+}
+
+private struct ChoiceSelectionPanel: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let choices: [AssistantCatalogChoice]
+    @Binding var selectedID: String
+    let defaultID: String
+    let emptyMessage: String
+
+    private var selectedChoice: AssistantCatalogChoice? {
+        choices.first { $0.id == selectedID } ?? choices.first
+    }
+
+    var body: some View {
+        SetupTaskPanel(
+            title: title,
+            subtitle: subtitle,
+            systemImage: systemImage,
+            state: choices.isEmpty ? .warning : .passed
+        ) {
+            if choices.isEmpty {
+                SetupPlaceholderLine(text: emptyMessage)
             } else {
-                Text("After discovery fills the service URL, read choices to populate the app menus.")
+                Picker(title, selection: $selectedID) {
+                    ForEach(choices) { choice in
+                        Text(menuTitle(for: choice)).tag(choice.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+
+                if let selectedChoice {
+                    ChoiceSelectionRow(
+                        choice: selectedChoice,
+                        isDefault: selectedChoice.id == defaultID
+                    )
+                }
+            }
+        }
+    }
+
+    private func menuTitle(for choice: AssistantCatalogChoice) -> String {
+        choice.id == defaultID ? "\(choice.displayName) (Default)" : choice.displayName
+    }
+}
+
+private struct ChoiceSelectionRow: View {
+    let choice: AssistantCatalogChoice
+    let isDefault: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.green)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(choice.displayName)
+                        .font(.subheadline.weight(.semibold))
+                    Text("Selected")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.green.opacity(0.14), in: Capsule())
+                    if isDefault {
+                        Text("Default")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.blue.opacity(0.14), in: Capsule())
+                    }
+                }
+
+                Text(choice.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
+
+            Spacer()
         }
-        .padding(12)
+        .padding(10)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
+}
 
-    @ViewBuilder
-    private func catalogPickers(report: BackendCatalogReport) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-            if !report.models.isEmpty {
-                GridRow {
-                    Text("Model").foregroundStyle(.secondary)
-                    Picker("Model", selection: modelBinding(report.models)) {
-                        ForEach(report.models) { model in
-                            Text(model.displayName).tag(model.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
+private struct ModelVoiceConfirmationPanel: View {
+    let profile: BackendProfile
+    let model: AssistantCatalogChoice?
+    let voice: AssistantCatalogChoice?
+    let savedAsDefault: Bool
+    let hasFreshCatalog: Bool
+    let useAsDefault: () -> Void
+
+    private var canSave: Bool {
+        model != nil && voice != nil
+    }
+
+    var body: some View {
+        SetupTaskPanel(
+            title: "Ready for Test Voice",
+            subtitle: "The next step will generate a short sample with this backend, model, and voice.",
+            systemImage: "waveform",
+            state: canSave ? .passed : .warning
+        ) {
+            SetupDetailGrid(items: [
+                ("Backend", profile.displayName),
+                ("Model", model?.displayName ?? "Not selected"),
+                ("Voice", voice?.displayName ?? "Not selected"),
+                ("Default State", savedAsDefault ? "Saved as app default" : "Selected for this setup run")
+            ])
+
+            HStack {
+                Button("Use as Default", action: useAsDefault)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSave || (savedAsDefault && !hasFreshCatalog))
+
+                if savedAsDefault {
+                    Label("Already saved as the app default", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else {
+                    Text("Continue will use the selected choices for the test; saving also updates future generations.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            }
 
-            if !report.voices.isEmpty {
-                GridRow {
-                    Text("Voice").foregroundStyle(.secondary)
-                    Picker("Voice", selection: voiceBinding(report.voices)) {
-                        ForEach(report.voices) { voice in
-                            Text(voice.displayName).tag(voice.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                }
+                Spacer()
             }
         }
-
-        HStack {
-            Text("\(report.models.count) models  \(report.voices.count) voices")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("Apply Defaults") {
-                applyCatalog(
-                    report,
-                    selectedModel(in: report.models),
-                    selectedVoice(in: report.voices)
-                )
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(report.models.isEmpty && report.voices.isEmpty)
-        }
-    }
-
-    private func modelBinding(_ models: [BackendCatalogModel]) -> Binding<String> {
-        Binding(
-            get: { normalizedModelID(in: models) },
-            set: { selectedModelID = $0 }
-        )
-    }
-
-    private func voiceBinding(_ voices: [BackendCatalogVoice]) -> Binding<String> {
-        Binding(
-            get: { normalizedVoiceID(in: voices) },
-            set: { selectedVoiceID = $0 }
-        )
-    }
-
-    private func normalizedModelID(in models: [BackendCatalogModel]) -> String {
-        if models.contains(where: { $0.id == selectedModelID }) {
-            return selectedModelID
-        }
-        return models.first?.id ?? ""
-    }
-
-    private func normalizedVoiceID(in voices: [BackendCatalogVoice]) -> String {
-        if voices.contains(where: { $0.id == selectedVoiceID }) {
-            return selectedVoiceID
-        }
-        return voices.first?.id ?? ""
-    }
-
-    private func selectedModel(in models: [BackendCatalogModel]) -> BackendCatalogModel? {
-        let id = normalizedModelID(in: models)
-        return models.first { $0.id == id }
-    }
-
-    private func selectedVoice(in voices: [BackendCatalogVoice]) -> BackendCatalogVoice? {
-        let id = normalizedVoiceID(in: voices)
-        return voices.first { $0.id == id }
     }
 }
 
