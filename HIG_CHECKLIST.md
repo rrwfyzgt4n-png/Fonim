@@ -4,7 +4,7 @@ The app should feel like a Mac narration workstation, not a terminal frontend.
 
 ## Native Structure
 
-- Sidebar for Projects, Scripts, Batches, Voices, Presets, History, Outputs, and Backends.
+- Sidebar for Projects, Scripts, Batches, Voices, Presets, History, generation sessions, Outputs, and Backends.
 - Toolbar for primary context actions.
 - Inspector for voice, model, inference settings, export settings, and metadata.
 - Real Settings window for backend and generation defaults.
@@ -13,8 +13,8 @@ The app should feel like a Mac narration workstation, not a terminal frontend.
 Current implementation note:
 
 - The core data model supports Projects, Scripts, and Batches separately from History.
-- The main window now uses a native source-list sidebar for workstation destinations only: Projects, Scripts, Batches, Voices, Presets, History, Outputs, and Backends.
-- History owns its own in-content session list, current-text editor state, session detail, playback, duplicate, and folder actions.
+- The main window uses a native source-list sidebar for workstation destinations while keeping generation sessions directly selectable beneath History in the left library sidebar.
+- History’s section row returns to the current editor; individual generation rows open session detail, playback, duplicate, and folder actions.
 - Outputs has its own housekeeping browser for archived WAV files, with Finder reveal, Quick Look, path copy, sharing, project filing, drag-out support, and archive-first cleanup.
 - Voices and Presets are library surfaces backed by workspace records, with native apply/save actions instead of model-specific terminal concepts.
 - Backends can show additional registered profiles, including unavailable ones, with plain-language status rather than terminal errors.
@@ -101,6 +101,7 @@ Current implementation:
 Current implementation:
 
 - Icon-only generation and backend controls include accessibility labels.
+- Sidebar generation rows and icon-only housekeeping/queue buttons use stable hit areas and accessibility labels.
 - The text editor has a named accessibility label.
 - Status and ticker surfaces combine their important state into readable accessibility labels.
 

@@ -145,6 +145,12 @@ struct InspectorPanelView: View {
             } else {
                 editorMetadata
             }
+        case .historySession:
+            if let session = store.selectedSession {
+                sessionMetadata(session)
+            } else {
+                editorMetadata
+            }
         }
     }
 

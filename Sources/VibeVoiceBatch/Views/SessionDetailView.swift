@@ -161,3 +161,23 @@ private struct MetricLabel: View {
         }
     }
 }
+
+struct MissingHistorySelectionView: View {
+    let sessionID: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "questionmark.folder")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("Session Not Found")
+                .font(.headline)
+            Text(sessionID)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}

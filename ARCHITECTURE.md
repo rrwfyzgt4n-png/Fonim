@@ -35,7 +35,7 @@ Generate action -> JobQueue -> EngineAdapter -> BackendManager/runtime -> Genera
 
 `AppStore` remains the SwiftUI bridge for editor state, live ticker updates, playback, and history refresh. Backend-specific staging, Docker process execution, cancellation, final WAV archival, log writing, and metadata finalization belong to `VibeVoiceDockerAdapter`.
 
-Main-window navigation is represented by `WorkstationSelection` and a native `NavigationSplitView`. `SidebarView` presents workstation destinations only: Projects, Scripts, Batches, Voices, Presets, History, Outputs, and Backends. Individual generation sessions are selected inside `HistoryWorkspaceView`, which owns the current-text editor state, history list, session detail, playback, duplicate, and folder actions without turning session records into sidebar destinations.
+Main-window navigation is represented by `WorkstationSelection` and a native `NavigationSplitView`. `SidebarView` presents Projects, Scripts, Batches, Voices, Presets, History, Outputs, and Backends, and keeps individual generation sessions selectable beneath History in the left library sidebar. The History row returns to the current editor; generation rows open immutable session detail for playback, text, logs, metadata, duplicate, and folder actions.
 
 Outputs are represented as a browser over immutable history sessions that have an archived `output.wav`. `OutputBrowserView` owns browsing, search, selection, drag providers, and output detail presentation. `AppStore` owns playback, Finder reveal, path copy, Quick Look preview, and duplicate-as-new actions so output handling stays native and history-backed.
 

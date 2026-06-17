@@ -41,11 +41,14 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
 
 enum WorkstationSelection: Hashable, Identifiable {
     case section(WorkstationSection)
+    case historySession(String)
 
     var id: String {
         switch self {
         case .section(let section):
             return "section-\(section.rawValue)"
+        case .historySession(let sessionID):
+            return "history-\(sessionID)"
         }
     }
 }

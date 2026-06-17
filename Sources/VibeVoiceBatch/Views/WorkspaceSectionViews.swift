@@ -265,20 +265,22 @@ private struct ProjectOutputRow: View {
                     appStore.quickLookOutputFile(record)
                 } label: {
                     Image(systemName: "eye")
-                        .frame(width: 24, height: 24)
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.borderless)
                 .help("Quick Look")
+                .accessibilityLabel("Quick Look output")
                 .disabled(record.outputURL == nil)
 
                 Button {
                     appStore.revealOutputFile(record)
                 } label: {
                     Image(systemName: "finder")
-                        .frame(width: 24, height: 24)
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.borderless)
                 .help("Reveal in Finder")
+                .accessibilityLabel("Reveal output in Finder")
                 .disabled(record.outputURL == nil)
             }
         }
@@ -448,30 +450,33 @@ private struct QueueItemCard: View {
                         appStore.cancelQueuedGeneration(item)
                     } label: {
                         Image(systemName: "stop.circle")
-                            .frame(width: 24, height: 24)
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.borderless)
                     .disabled(item.status != .queued && item.status != .running)
                     .help("Cancel")
+                    .accessibilityLabel("Cancel queued generation")
 
                     Button {
                         appStore.retryQueuedGeneration(item)
                     } label: {
                         Image(systemName: "arrow.clockwise")
-                            .frame(width: 24, height: 24)
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.borderless)
                     .disabled(!item.status.isTerminal)
                     .help("Retry")
+                    .accessibilityLabel("Retry queued generation")
 
                     Button {
                         appStore.duplicateQueuedGenerationAsNew(item)
                     } label: {
                         Image(systemName: "doc.on.doc")
-                            .frame(width: 24, height: 24)
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.borderless)
                     .help("Duplicate as New")
+                    .accessibilityLabel("Duplicate queued generation as new")
                 }
                 .font(.callout)
             }

@@ -66,6 +66,16 @@ struct ContentView: View {
             selection = requestedSelection
             store.clearRequestedSelection()
         }
+        .onChange(of: selection) { newValue in
+            switch newValue {
+            case .historySession(let sessionID):
+                store.selectedSessionID = sessionID
+            case .section(.history):
+                store.selectedSessionID = nil
+            case .section(_), .none:
+                break
+            }
+        }
         .alert("VibeVoice Batch", isPresented: alertBinding) {
             Button("Copy Details") {
                 copyAlertDetails()
@@ -95,9 +105,15 @@ struct ContentView: View {
         case .section(.outputs):
             OutputBrowserView()
         case .section(.history):
-            HistoryWorkspaceView()
+            EditorView()
         case .section(.backends):
             BackendsView()
+        case .historySession(let sessionID):
+            if let session = store.session(id: sessionID) {
+                SessionDetailView(record: session)
+            } else {
+                MissingHistorySelectionView(sessionID: sessionID)
+            }
         }
     }
 
@@ -127,11 +143,9 @@ struct ContentView: View {
     private var contextualToolbar: some ToolbarContent {
         switch selection ?? .section(.history) {
         case .section(.history):
-            if store.selectedSession == nil {
-                editorToolbar
-            } else {
-                sessionToolbar
-            }
+            editorToolbar
+        case .historySession:
+            sessionToolbar
         case .section(.outputs):
             outputsToolbar
         case .section(.backends):
