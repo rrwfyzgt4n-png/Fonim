@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VibeVoiceBatchCore
 
@@ -49,12 +50,7 @@ struct BackendSetupAssistantView: View {
 
                 Divider()
 
-                ScrollView {
-                    activePane
-                        .padding(28)
-                        .frame(maxWidth: 760, alignment: .topLeading)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
+                assistantContent
 
                 Divider()
 
@@ -76,6 +72,23 @@ struct BackendSetupAssistantView: View {
         }
         .onChange(of: settingsStore.settings.defaultBackendID) { _ in
             setupStore.runChecks(profile: selectedBackend)
+        }
+    }
+
+    @ViewBuilder
+    private var assistantContent: some View {
+        if setupStore.selectedStage == .checks {
+            activePane
+                .padding(28)
+                .frame(maxWidth: 760, maxHeight: .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else {
+            ScrollView {
+                activePane
+                    .padding(28)
+                    .frame(maxWidth: 760, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
         }
     }
 
@@ -403,41 +416,97 @@ private struct AssistantStatusHeader: View {
     let report: BackendSetupReport?
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: status.state == .ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(status.state == .ready ? .green : .orange)
-                .font(.title3)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: status.state == .ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(status.state.tint)
+                    .font(.title3)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(profile.displayName)
-                    .font(.headline)
-                Text(nextAction)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Backend Readiness")
+                        .font(.headline)
+                    Text(nextAction)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                Text(status.state.displayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(status.state.tint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(status.state.tint.opacity(0.12), in: Capsule())
             }
 
-            Spacer()
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
+                GridRow {
+                    AssistantStatusHeaderValue(title: "Selected Backend", value: profile.displayName)
+                    AssistantStatusHeaderValue(title: "Runtime State", value: "\(status.runtime.displayName) / \(status.state.displayName)")
+                }
+                GridRow {
+                    AssistantStatusHeaderValue(title: "Current Blocking Issue", value: blockingIssue)
+                    AssistantStatusHeaderValue(title: "Next Recommended Action", value: nextAction)
+                }
+            }
 
-            Text(status.state.displayName)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(status.state == .ready ? .green : .secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.quaternary, in: Capsule())
+            if let details = status.technicalDetails,
+               !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                DisclosureGroup("Show Details") {
+                    Text(details)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                }
+                .font(.caption)
+            }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
+    }
+
+    private var blockingIssue: String {
+        if let failed = report?.blockingChecks.first {
+            return "\(failed.title): \(failed.message)"
+        }
+        if status.state == .ready {
+            return "None"
+        }
+        return status.userMessage
     }
 
     private var nextAction: String {
         if status.state == .ready {
-            return "Backend is ready for generation."
+            return "Continue to model, voice, and test generation."
         }
         if let failed = report?.checks.first(where: { $0.state == .failed }) {
             return failed.recoverySuggestion ?? failed.message
         }
-        return status.userMessage
+        return status.recoverySuggestion ?? status.userMessage
+    }
+}
+
+private struct AssistantStatusHeaderValue: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            Text(value)
+                .font(.caption)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
     }
 }
 
@@ -1128,9 +1197,38 @@ private struct CheckList: View {
     let isChecking: Bool
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Check Results")
+                        .font(.headline)
+                    Text(summaryText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if let report {
+                    HStack(spacing: 6) {
+                        CheckSummaryBadge(title: "Passed", count: count(.passed, in: report), tint: .green)
+                        CheckSummaryBadge(title: "Warnings", count: count(.warning, in: report), tint: .orange)
+                        CheckSummaryBadge(title: "Blocking", count: report.blockingChecks.count, tint: .red)
+                    }
+                }
+            }
+
+            Divider()
+
             if isChecking {
-                ProgressView("Checking backend...")
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Checking backend readiness...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let report {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -1138,21 +1236,40 @@ private struct CheckList: View {
                             CheckRow(check: check)
                         }
                     }
-                    .padding(10)
+                    .padding(.vertical, 2)
                 }
-                .frame(minHeight: 220, maxHeight: 340)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "checklist")
                         .font(.title2)
                         .foregroundStyle(.secondary)
                     Text("No checks yet")
+                        .font(.headline)
+                    Text("Run checks to see backend readiness, recovery actions, and technical details.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-                .frame(maxWidth: .infinity, minHeight: 260)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 300, maxHeight: .infinity, alignment: .topLeading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var summaryText: String {
+        if isChecking {
+            return "Running system checks now."
+        }
+        guard let report else {
+            return "No results yet."
+        }
+        return "Checked \(report.checks.count) item\(report.checks.count == 1 ? "" : "s") at \(report.generatedAt.formatted(date: .omitted, time: .shortened))."
+    }
+
+    private func count(_ state: BackendSetupCheckState, in report: BackendSetupReport) -> Int {
+        report.checks.filter { $0.state == state }.count
     }
 }
 
@@ -1160,19 +1277,95 @@ private struct CheckRow: View {
     let check: BackendSetupCheck
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(check.title, systemImage: check.state.systemImage)
-                .font(.headline)
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: check.state.systemImage)
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(check.state.tint)
-            Text(check.message)
-                .foregroundStyle(.secondary)
-            if let recovery = check.recoverySuggestion {
-                Text(recovery)
-                    .font(.caption)
+                .font(.title3)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(check.title)
+                        .font(.headline)
+                    Spacer()
+                    Text(check.state.displayName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(check.state.tint)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(check.state.tint.opacity(0.12), in: Capsule())
+                }
+
+                Text(check.message)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let recovery = check.recoverySuggestion,
+                   !recovery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    HStack(alignment: .top, spacing: 8) {
+                        Label("Recommended", systemImage: "arrow.turn.down.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(recovery)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Button("Copy Fix") {
+                            copy(recovery)
+                        }
+                        .font(.caption)
+                        .controlSize(.small)
+                    }
+                    .padding(8)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+                }
+
+                if let details = check.technicalDetails,
+                   !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    DisclosureGroup("Show Details") {
+                        Text(details)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 4)
+                    }
+                    .font(.caption)
+                }
             }
         }
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+private struct CheckSummaryBadge: View {
+    let title: String
+    let count: Int
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(tint)
+                .frame(width: 6, height: 6)
+            Text("\(count)")
+                .monospacedDigit()
+            Text(title)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(count == 0 ? .secondary : tint)
+        .padding(.horizontal, 7)
         .padding(.vertical, 4)
+        .background(.quaternary, in: Capsule())
     }
 }
 
@@ -1191,6 +1384,16 @@ private struct Header: View {
 }
 
 private extension BackendSetupCheckState {
+    var displayName: String {
+        switch self {
+        case .waiting: "Waiting"
+        case .checking: "Checking"
+        case .passed: "Passed"
+        case .warning: "Warning"
+        case .failed: "Needs Action"
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .waiting: "clock"
@@ -1207,6 +1410,17 @@ private extension BackendSetupCheckState {
         case .passed: .green
         case .warning: .orange
         case .failed: .red
+        }
+    }
+}
+
+private extension BackendRuntimeState {
+    var tint: Color {
+        switch self {
+        case .ready: .green
+        case .runningJob, .installing, .downloadingModel, .starting: .blue
+        case .missing, .stopped, .failed: .orange
+        case .unknown: .secondary
         }
     }
 }
