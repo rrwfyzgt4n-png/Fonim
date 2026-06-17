@@ -12,22 +12,6 @@ struct BackendSetupAssistantView: View {
         settingsStore.selectedBackendProfile
     }
 
-    private var highestUnlockedStage: BackendSetupStage {
-        if setupStore.testRecord != nil {
-            return .confirm
-        }
-        if setupStore.catalogReport != nil || setupStore.report?.isReady == true {
-            return .test
-        }
-        if setupStore.discoveryReport != nil || operationsStore.latestResult?.status == .succeeded {
-            return .models
-        }
-        if setupStore.report != nil {
-            return .install
-        }
-        return .checks
-    }
-
     private var canContinueFromCurrentStage: Bool {
         switch setupStore.selectedStage {
         case .welcome, .backend:
@@ -48,8 +32,9 @@ struct BackendSetupAssistantView: View {
     var body: some View {
         HStack(spacing: 0) {
             AssistantStepRail(
-                selectedStage: $setupStore.selectedStage,
-                highestUnlockedStage: highestUnlockedStage
+                selectedStage: setupStore.selectedStage,
+                highestUnlockedStage: setupStore.highestUnlockedStage,
+                selectStage: setupStore.selectStage
             )
             .frame(width: 210)
 
@@ -77,12 +62,13 @@ struct BackendSetupAssistantView: View {
                     canGoBack: setupStore.selectedStage != .welcome,
                     canContinue: canContinueFromCurrentStage,
                     isFinalStage: setupStore.selectedStage == .confirm,
+                    selectedStage: setupStore.selectedStage,
                     back: goBack,
                     continueAction: continueAssistant
                 )
             }
         }
-        .frame(minWidth: 880, minHeight: 620)
+        .frame(width: 960, height: 680)
         .onAppear {
             if setupStore.report == nil {
                 setupStore.runChecks(profile: selectedBackend)
@@ -160,7 +146,7 @@ struct BackendSetupAssistantView: View {
                 isReady: setupStore.report?.isReady == true,
                 complete: completeSetup,
                 rerunChecks: {
-                    setupStore.selectedStage = .checks
+                    setupStore.selectStage(.checks)
                     setupStore.runChecks(profile: selectedBackend)
                 }
             )
@@ -175,9 +161,7 @@ struct BackendSetupAssistantView: View {
     }
 
     private func goBack() {
-        guard let index = BackendSetupStage.allCases.firstIndex(of: setupStore.selectedStage),
-              index > 0 else { return }
-        setupStore.selectedStage = BackendSetupStage.allCases[index - 1]
+        setupStore.goBack()
     }
 
     private func continueAssistant() {
@@ -185,9 +169,7 @@ struct BackendSetupAssistantView: View {
             completeSetup()
             return
         }
-        guard let index = BackendSetupStage.allCases.firstIndex(of: setupStore.selectedStage),
-              index < BackendSetupStage.allCases.count - 1 else { return }
-        setupStore.selectedStage = BackendSetupStage.allCases[index + 1]
+        setupStore.continueToNextStage()
     }
 
     private var backendBinding: Binding<String> {
@@ -197,6 +179,8 @@ struct BackendSetupAssistantView: View {
                 appStore.selectBackend(backendID)
                 setupStore.clearDiscovery()
                 setupStore.clearCatalog()
+                setupStore.clearTest()
+                setupStore.restartProgress(at: .backend)
                 setupStore.runChecks(profile: settingsStore.selectedBackendProfile)
             }
         )
@@ -293,15 +277,16 @@ struct BackendSetupAssistantView: View {
 }
 
 private struct AssistantStepRail: View {
-    @Binding var selectedStage: BackendSetupStage
+    let selectedStage: BackendSetupStage
     let highestUnlockedStage: BackendSetupStage
+    let selectStage: (BackendSetupStage) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Setup")
+                Text("Setup Assistant")
                     .font(.title3.weight(.semibold))
-                Text("Guided local backend readiness")
+                Text("Step \(selectedStage.stepNumber) of \(BackendSetupStage.allCases.count)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -312,15 +297,28 @@ private struct AssistantStepRail: View {
                 ForEach(BackendSetupStage.allCases) { stage in
                     Button {
                         if isUnlocked(stage) {
-                            selectedStage = stage
+                            selectStage(stage)
                         }
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: stage.systemImage)
-                                .frame(width: 18, height: 18)
-                                .foregroundStyle(selectedStage == stage ? Color.accentColor : Color.secondary)
-                            Text(stage.title)
-                                .lineLimit(1)
+                            ZStack {
+                                Circle()
+                                    .fill(stepFill(for: stage))
+                                    .frame(width: 22, height: 22)
+                                Image(systemName: stepSymbol(for: stage))
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(stepSymbolTint(for: stage))
+                            }
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(stage.title)
+                                    .lineLimit(1)
+                                Text(stepCaption(for: stage))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+
                             Spacer()
                             if !isUnlocked(stage) {
                                 Image(systemName: "lock.fill")
@@ -345,11 +343,57 @@ private struct AssistantStepRail: View {
     }
 
     private func isUnlocked(_ stage: BackendSetupStage) -> Bool {
-        guard let stageIndex = BackendSetupStage.allCases.firstIndex(of: stage),
-              let unlockedIndex = BackendSetupStage.allCases.firstIndex(of: highestUnlockedStage) else {
-            return false
+        stage.isUnlocked(through: highestUnlockedStage)
+    }
+
+    private func isCompleted(_ stage: BackendSetupStage) -> Bool {
+        stage.isBefore(selectedStage) || (stage.isBefore(highestUnlockedStage) && stage != selectedStage)
+    }
+
+    private func stepSymbol(for stage: BackendSetupStage) -> String {
+        if isCompleted(stage) {
+            return "checkmark"
         }
-        return stageIndex <= unlockedIndex
+        if !isUnlocked(stage) {
+            return "lock.fill"
+        }
+        return stage.systemImage
+    }
+
+    private func stepFill(for stage: BackendSetupStage) -> Color {
+        if selectedStage == stage {
+            return .accentColor
+        }
+        if isCompleted(stage) {
+            return .green.opacity(0.2)
+        }
+        if !isUnlocked(stage) {
+            return .secondary.opacity(0.12)
+        }
+        return .secondary.opacity(0.16)
+    }
+
+    private func stepSymbolTint(for stage: BackendSetupStage) -> Color {
+        if selectedStage == stage {
+            return .white
+        }
+        if isCompleted(stage) {
+            return .green
+        }
+        return .secondary
+    }
+
+    private func stepCaption(for stage: BackendSetupStage) -> String {
+        if selectedStage == stage {
+            return "Current"
+        }
+        if isCompleted(stage) {
+            return "Completed"
+        }
+        if isUnlocked(stage) {
+            return "Available"
+        }
+        return "Locked"
     }
 }
 
@@ -401,6 +445,7 @@ private struct AssistantFooter: View {
     let canGoBack: Bool
     let canContinue: Bool
     let isFinalStage: Bool
+    let selectedStage: BackendSetupStage
     let back: () -> Void
     let continueAction: () -> Void
 
@@ -409,6 +454,9 @@ private struct AssistantFooter: View {
             Button("Back", action: back)
                 .disabled(!canGoBack)
             Spacer()
+            Text("Step \(selectedStage.stepNumber) of \(BackendSetupStage.allCases.count)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Button(isFinalStage ? "Finish" : "Continue", action: continueAction)
                 .buttonStyle(.borderedProminent)
                 .disabled(!canContinue)

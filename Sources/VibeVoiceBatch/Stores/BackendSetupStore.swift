@@ -15,7 +15,8 @@ final class BackendSetupStore: ObservableObject {
     @Published private(set) var testProgress: GenerationProgressSnapshot?
     @Published private(set) var testRecord: GenerationRecord?
     @Published private(set) var testError: GenerationErrorRecord?
-    @Published var selectedStage: BackendSetupStage = .welcome
+    @Published private(set) var selectedStage: BackendSetupStage = .welcome
+    @Published private(set) var highestUnlockedStage: BackendSetupStage = .welcome
 
     private let backendManager: BackendManager
     private let voiceTestRunner: BackendVoiceTestRunner
@@ -118,6 +119,34 @@ final class BackendSetupStore: ObservableObject {
         catalogReport = nil
         clearTest()
         selectedStage = .welcome
+        highestUnlockedStage = .welcome
+    }
+
+    func selectStage(_ stage: BackendSetupStage) {
+        guard stage.isUnlocked(through: highestUnlockedStage) else { return }
+        selectedStage = stage
+    }
+
+    func goBack() {
+        guard let previous = selectedStage.previous else { return }
+        selectedStage = previous
+    }
+
+    func continueToNextStage() {
+        guard let next = selectedStage.next else { return }
+        unlockThrough(next)
+        selectedStage = next
+    }
+
+    func unlockThrough(_ stage: BackendSetupStage) {
+        if highestUnlockedStage.isBefore(stage) {
+            highestUnlockedStage = stage
+        }
+    }
+
+    func restartProgress(at stage: BackendSetupStage) {
+        selectedStage = stage
+        highestUnlockedStage = stage
     }
 
     func clearDiscovery() {
@@ -203,5 +232,41 @@ enum BackendSetupStage: String, CaseIterable, Identifiable {
         case .test: "waveform"
         case .confirm: "checkmark.seal"
         }
+    }
+
+    var stepNumber: Int {
+        (Self.allCases.firstIndex(of: self) ?? 0) + 1
+    }
+
+    var next: BackendSetupStage? {
+        guard let index = Self.allCases.firstIndex(of: self),
+              index < Self.allCases.count - 1 else {
+            return nil
+        }
+        return Self.allCases[index + 1]
+    }
+
+    var previous: BackendSetupStage? {
+        guard let index = Self.allCases.firstIndex(of: self),
+              index > 0 else {
+            return nil
+        }
+        return Self.allCases[index - 1]
+    }
+
+    func isBefore(_ other: BackendSetupStage) -> Bool {
+        guard let lhs = Self.allCases.firstIndex(of: self),
+              let rhs = Self.allCases.firstIndex(of: other) else {
+            return false
+        }
+        return lhs < rhs
+    }
+
+    func isUnlocked(through highestUnlockedStage: BackendSetupStage) -> Bool {
+        guard let stageIndex = Self.allCases.firstIndex(of: self),
+              let unlockedIndex = Self.allCases.firstIndex(of: highestUnlockedStage) else {
+            return false
+        }
+        return stageIndex <= unlockedIndex
     }
 }

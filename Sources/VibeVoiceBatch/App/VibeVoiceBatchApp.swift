@@ -89,11 +89,13 @@ struct VibeVoiceBatchApp: App {
                 .environmentObject(store)
         }
 
-        Window("Backend Setup", id: "backend-setup") {
+        Window("Setup Assistant", id: "backend-setup") {
             BackendSetupAssistantView()
                 .environmentObject(settingsStore)
                 .environmentObject(store)
         }
+        .defaultSize(width: 960, height: 680)
+        .windowResizability(.contentSize)
     }
 }
 
