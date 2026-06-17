@@ -619,31 +619,283 @@ private struct BackendInstallSetupPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Header(title: "Backend", subtitle: profile.role)
+            Header(title: "Install / Connect", subtitle: profile.role)
 
-            Form {
-                LabeledContent("Runtime", value: profile.runtime.displayName)
-                LabeledContent("Image", value: profile.dockerImage ?? "Not required")
-                LabeledContent("Model", value: profile.requiredModels.first?.displayName ?? "Not configured")
-                LabeledContent("Memory", value: profile.requiredMemoryGB.map { "\(Int($0)) GB" } ?? "Not specified")
-            }
-            .formStyle(.grouped)
+            RuntimeStatusPanel(
+                profile: profile,
+                report: report,
+                isChecking: isChecking,
+                isOperationRunning: isOperationRunning,
+                activeOperation: activeOperation,
+                prepare: prepare,
+                runChecks: runChecks
+            )
 
-            if profile.engineType == .kokoro {
-                KokoroDiscoveryPanel(
-                    report: discoveryReport,
-                    isDiscovering: isDiscovering,
-                    discover: discover,
-                    applyCandidate: applyCandidate
-                )
+            BackendAssetsPanel(
+                profile: profile,
+                report: report,
+                isOperationRunning: isOperationRunning,
+                activeOperation: activeOperation,
+                install: install,
+                repair: repair
+            )
 
-                KokoroConnectionForm(connection: $connection)
-            }
+            ServiceConnectionPanel(
+                profile: profile,
+                report: report,
+                connection: $connection,
+                runChecks: runChecks
+            )
 
-            CheckList(report: report, isChecking: false)
+            BackendDiscoveryPanel(
+                profile: profile,
+                report: discoveryReport,
+                isDiscovering: isDiscovering,
+                discover: discover,
+                applyCandidate: applyCandidate
+            )
 
             if let operationResult {
                 SetupOperationResult(result: operationResult, isRunning: isOperationRunning)
+            }
+        }
+    }
+}
+
+private struct SetupTaskPanel<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let state: BackendSetupCheckState?
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: systemImage)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(state?.tint ?? .secondary)
+                    .font(.title3)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                if let state {
+                    Text(state.displayName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(state.tint)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(state.tint.opacity(0.12), in: Capsule())
+                }
+            }
+
+            content
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct SetupCheckInline: View {
+    let check: BackendSetupCheck?
+
+    var body: some View {
+        if let check {
+            VStack(alignment: .leading, spacing: 6) {
+                SetupStatusRow(title: check.title, message: check.message, state: check.state)
+                if let recovery = check.recoverySuggestion,
+                   !recovery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(recovery)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else {
+            SetupPlaceholderLine(text: "Run checks to see the current status.")
+        }
+    }
+}
+
+private struct SetupStatusRow: View {
+    let title: String
+    let message: String
+    let state: BackendSetupCheckState
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: state.systemImage)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(state.tint)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+    }
+}
+
+private struct SetupPlaceholderLine: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+        .padding(9)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+private struct SetupDetailGrid: View {
+    let items: [(String, String)]
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                GridRow {
+                    Text(item.0)
+                        .foregroundStyle(.secondary)
+                    Text(item.1.isEmpty ? "Not reported" : item.1)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .font(.caption)
+        .padding(.top, 4)
+    }
+}
+
+private struct RuntimeStatusPanel: View {
+    let profile: BackendProfile
+    let report: BackendSetupReport?
+    let isChecking: Bool
+    let isOperationRunning: Bool
+    let activeOperation: BackendOperationKind?
+    let prepare: () -> Void
+    let runChecks: () -> Void
+
+    private var check: BackendSetupCheck? {
+        report?.check(id: "docker-runtime") ??
+            report?.check(id: "runtime-\(profile.id)") ??
+            report?.check(id: "health-\(profile.id)")
+    }
+
+    var body: some View {
+        SetupTaskPanel(
+            title: "Runtime Status",
+            subtitle: runtimeSummary,
+            systemImage: "gearshape.2",
+            state: check?.state
+        ) {
+            if let check {
+                SetupCheckInline(check: check)
+            } else {
+                SetupPlaceholderLine(text: isChecking ? "Checking the local runtime..." : "Run checks to refresh runtime readiness.")
+            }
+
+            HStack {
+                Button {
+                    prepare()
+                } label: {
+                    Label("Prepare", systemImage: activeOperation == .prepare ? "hourglass" : "play.circle")
+                }
+                .disabled(isOperationRunning)
+
+                Button(isChecking ? "Checking..." : "Refresh", action: runChecks)
+                    .disabled(isOperationRunning || isChecking)
+
+                Spacer()
+            }
+
+            DisclosureGroup("Advanced Details") {
+                SetupDetailGrid(items: [
+                    ("Runtime", profile.runtime.displayName),
+                    ("Install Method", profile.installMethod.displayName),
+                    ("Container", profile.containerName ?? "Managed when needed"),
+                    ("Technical Details", check?.technicalDetails ?? "No runtime log yet")
+                ])
+            }
+            .font(.caption)
+        }
+    }
+
+    private var runtimeSummary: String {
+        switch profile.runtime {
+        case .docker:
+            return profile.engineType == .vibeVoiceTTS ?
+                "The app prepares an isolated local runtime for each generation." :
+                "The app can connect to or prepare an isolated local runtime."
+        case .externalService:
+            return "The app connects to a service you already run."
+        case .localPython:
+            return "The app uses a local Python environment when configured."
+        case .comfyUI:
+            return "The app connects to a ComfyUI workflow service."
+        case .native:
+            return "The app uses a native backend."
+        }
+    }
+}
+
+private struct BackendAssetsPanel: View {
+    let profile: BackendProfile
+    let report: BackendSetupReport?
+    let isOperationRunning: Bool
+    let activeOperation: BackendOperationKind?
+    let install: () -> Void
+    let repair: () -> Void
+
+    private var imageCheck: BackendSetupCheck? {
+        report?.check(id: "docker-image-\(profile.id)")
+    }
+
+    private var modelCheck: BackendSetupCheck? {
+        report?.check(id: "model-cache-\(profile.id)")
+    }
+
+    var body: some View {
+        SetupTaskPanel(
+            title: "Backend Assets",
+            subtitle: assetSummary,
+            systemImage: "shippingbox",
+            state: aggregateState
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                SetupStatusRow(
+                    title: "Runtime Package",
+                    message: imageCheck?.message ?? packageMessage,
+                    state: imageCheck?.state ?? .waiting
+                )
+                Divider()
+                SetupStatusRow(
+                    title: "Model Files",
+                    message: modelCheck?.message ?? modelMessage,
+                    state: modelCheck?.state ?? .waiting
+                )
             }
 
             HStack {
@@ -661,81 +913,203 @@ private struct BackendInstallSetupPane: View {
                 }
                 .disabled(isOperationRunning)
 
-                Button {
-                    prepare()
-                } label: {
-                    Label("Prepare", systemImage: activeOperation == .prepare ? "hourglass" : "play.circle")
-                }
-                .disabled(isOperationRunning)
+                Spacer()
+            }
 
-                Button(isChecking ? "Checking..." : "Refresh Checks", action: runChecks)
-                    .disabled(isOperationRunning || isChecking)
+            DisclosureGroup("Advanced Details") {
+                SetupDetailGrid(items: [
+                    ("Runtime Image", profile.dockerImage ?? "Not required"),
+                    ("Required Model", profile.requiredModels.first?.displayName ?? "Not configured"),
+                    ("Model Source", profile.requiredModels.first?.source ?? "Not configured"),
+                    ("Image Log", imageCheck?.technicalDetails ?? "No image log yet"),
+                    ("Model Log", modelCheck?.technicalDetails ?? "No model log yet")
+                ])
+            }
+            .font(.caption)
+        }
+    }
+
+    private var aggregateState: BackendSetupCheckState? {
+        if imageCheck?.state == .failed || modelCheck?.state == .failed {
+            return .failed
+        }
+        if imageCheck?.state == .warning || modelCheck?.state == .warning {
+            return .warning
+        }
+        if imageCheck?.state == .passed || modelCheck?.state == .passed {
+            return .passed
+        }
+        return .waiting
+    }
+
+    private var assetSummary: String {
+        profile.engineType == .vibeVoiceTTS ?
+            "Confirm the narration runtime and required model cache." :
+            "Confirm the runtime package and voice model choices."
+    }
+
+    private var packageMessage: String {
+        profile.dockerImage == nil ? "No managed runtime package is declared for this backend." : "Run checks to confirm the runtime package."
+    }
+
+    private var modelMessage: String {
+        profile.requiredModels.first.map { "Expected model: \($0.displayName)" } ?? "No required model is declared."
+    }
+}
+
+private struct ServiceConnectionPanel: View {
+    let profile: BackendProfile
+    let report: BackendSetupReport?
+    @Binding var connection: BackendConnectionSettings
+    let runChecks: () -> Void
+
+    private var serviceCheck: BackendSetupCheck? {
+        report?.check(id: "service-\(profile.id)") ?? report?.check(id: "health-\(profile.id)")
+    }
+
+    var body: some View {
+        SetupTaskPanel(
+            title: "Local Service Connection",
+            subtitle: connectionSummary,
+            systemImage: "point.3.connected.trianglepath.dotted",
+            state: serviceState
+        ) {
+            if profile.engineType == .vibeVoiceTTS {
+                ManagedServiceSummary(profile: profile)
+            } else {
+                SetupCheckInline(check: serviceCheck)
+                KokoroConnectionForm(connection: $connection)
+            }
+
+            HStack {
+                Button("Refresh Connection", action: runChecks)
                 Spacer()
             }
         }
     }
+
+    private var serviceState: BackendSetupCheckState? {
+        if profile.engineType == .vibeVoiceTTS {
+            return .passed
+        }
+        return serviceCheck?.state
+    }
+
+    private var connectionSummary: String {
+        if profile.engineType == .vibeVoiceTTS {
+            return "No always-on service is required; generation is staged per job."
+        }
+        if let serviceURL = connection.trimmedServiceBaseURL {
+            return "Connects to \(serviceURL)."
+        }
+        return "Choose or enter a local service address."
+    }
 }
 
-private struct KokoroDiscoveryPanel: View {
+private struct BackendDiscoveryPanel: View {
+    let profile: BackendProfile
     let report: BackendDiscoveryReport?
     let isDiscovering: Bool
     let discover: () -> Void
     let applyCandidate: (BackendDiscoveryCandidate) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        SetupTaskPanel(
+            title: "Available Backend Choices",
+            subtitle: discoverySummary,
+            systemImage: "sparkle.magnifyingglass",
+            state: discoveryState
+        ) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Installed Kokoro")
-                        .font(.headline)
-                    Text("Find local Kokoro images and running services on this Mac.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if profile.engineType == .kokoro {
+                    Button {
+                        discover()
+                    } label: {
+                        Label(isDiscovering ? "Finding..." : "Find Installed Kokoro", systemImage: isDiscovering ? "hourglass" : "magnifyingglass")
+                    }
+                    .disabled(isDiscovering)
                 }
-
                 Spacer()
-
-                Button {
-                    discover()
-                } label: {
-                    Label(isDiscovering ? "Finding..." : "Find Kokoro", systemImage: isDiscovering ? "hourglass" : "magnifyingglass")
-                }
-                .disabled(isDiscovering)
             }
 
-            if isDiscovering {
-                ProgressView("Looking for installed Kokoro runtimes...")
-            } else if let report {
-                Text(report.message)
+            if profile.engineType == .kokoro {
+                kokoroDiscoveryContent
+            } else {
+                ManagedBackendCandidate(profile: profile)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var kokoroDiscoveryContent: some View {
+        if isDiscovering {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Looking for installed Kokoro runtimes...")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Spacer()
+            }
+        } else if let report {
+            Text(report.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-                if report.candidates.isEmpty {
-                    Text("Start your Kokoro container or enter its details manually below.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(spacing: 8) {
-                        ForEach(report.candidates) { candidate in
-                            KokoroDiscoveryCandidateRow(
-                                candidate: candidate,
-                                apply: { applyCandidate(candidate) }
-                            )
+            if report.candidates.isEmpty {
+                SetupPlaceholderLine(text: "No installed Kokoro option was selected automatically. Start your service, then run discovery again, or enter connection details above.")
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(report.candidates.enumerated()), id: \.element.id) { index, candidate in
+                        BackendDiscoveryCandidateRow(
+                            candidate: candidate,
+                            apply: { applyCandidate(candidate) }
+                        )
+                        if index < report.candidates.count - 1 {
+                            Divider()
+                                .padding(.leading, 34)
                         }
                     }
                 }
-            } else {
-                Text("Use discovery if you already have Kokoro installed and running.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+
+            if let technicalDetails = report.technicalDetails,
+               !technicalDetails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                DisclosureGroup("Discovery Details") {
+                    Text(technicalDetails)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption)
+            }
+        } else {
+            SetupPlaceholderLine(text: "Use discovery if Kokoro is already installed on this Mac.")
         }
-        .padding(12)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var discoverySummary: String {
+        profile.engineType == .kokoro ?
+            "Choose from detected local services or installed runtime packages." :
+            "Use the selected managed backend profile."
+    }
+
+    private var discoveryState: BackendSetupCheckState? {
+        if profile.engineType != .kokoro {
+            return .passed
+        }
+        if isDiscovering {
+            return .checking
+        }
+        guard let report else {
+            return .waiting
+        }
+        return report.candidates.isEmpty ? .warning : .passed
     }
 }
 
-private struct KokoroDiscoveryCandidateRow: View {
+private struct BackendDiscoveryCandidateRow: View {
     let candidate: BackendDiscoveryCandidate
     let apply: () -> Void
 
@@ -743,12 +1117,13 @@ private struct KokoroDiscoveryCandidateRow: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: candidate.serviceBaseURL == nil ? "shippingbox" : "server.rack")
                 .foregroundStyle(candidate.confidence.tint)
-                .frame(width: 18)
+                .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(candidate.title)
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
                     Text(candidate.confidence.displayName)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(candidate.confidence.tint)
@@ -757,32 +1132,114 @@ private struct KokoroDiscoveryCandidateRow: View {
                         .background(candidate.confidence.tint.opacity(0.14), in: Capsule())
                 }
 
-                if let image = candidate.dockerImage {
-                    Text(image)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                if let serviceBaseURL = candidate.serviceBaseURL {
-                    Text(serviceBaseURL)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                Text(candidate.notes)
+                Text(candidateSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if !candidate.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(candidate.notes)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                DisclosureGroup("Details") {
+                    SetupDetailGrid(items: [
+                        ("Connection", candidate.connectionKind.assistantDisplayName),
+                        ("Service", candidate.serviceBaseURL ?? "Not published to this Mac"),
+                        ("Runtime Image", candidate.dockerImage ?? "Not reported"),
+                        ("Container", candidate.containerName ?? "Not reported"),
+                        ("Model", candidate.modelID),
+                        ("Default Voice", candidate.defaultVoice),
+                        ("Technical Details", candidate.technicalDetails ?? "No discovery log")
+                    ])
+                }
+                .font(.caption)
             }
 
             Spacer()
 
             Button("Use", action: apply)
                 .buttonStyle(.borderedProminent)
+                .controlSize(.small)
         }
-        .padding(10)
-        .background(.background, in: RoundedRectangle(cornerRadius: 7))
+        .padding(.vertical, 10)
+    }
+
+    private var candidateSummary: String {
+        if candidate.serviceBaseURL != nil {
+            return "Ready to connect as a local service."
+        }
+        if candidate.dockerImage != nil {
+            return "Installed runtime package found; service address can be confirmed later."
+        }
+        return "Possible local backend option."
+    }
+}
+
+private struct ManagedBackendCandidate: View {
+    let profile: BackendProfile
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.seal.fill")
+                .foregroundStyle(.green)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(profile.displayName)
+                        .font(.subheadline.weight(.semibold))
+                    Text("Selected")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.green.opacity(0.14), in: Capsule())
+                }
+
+                Text("Managed local narration backend. The app stages text, runs generation, archives logs and audio, then cleans up staging files.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                DisclosureGroup("Advanced Details") {
+                    SetupDetailGrid(items: [
+                        ("Runtime", profile.runtime.displayName),
+                        ("Runtime Image", profile.dockerImage ?? "Not required"),
+                        ("Model", profile.requiredModels.first?.displayName ?? "Not configured"),
+                        ("Parser", profile.progressParser)
+                    ])
+                }
+                .font(.caption)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+private struct ManagedServiceSummary: View {
+    let profile: BackendProfile
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("No server setup is required for this backend.", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text("When you generate audio, the app creates a protected session, stages the text, runs the backend, captures logs, and moves the final WAV into history.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            DisclosureGroup("Advanced Details") {
+                SetupDetailGrid(items: [
+                    ("Backend", profile.displayName),
+                    ("Runtime", profile.runtime.displayName),
+                    ("Runtime Image", profile.dockerImage ?? "Not required"),
+                    ("Required Model", profile.requiredModels.first?.source ?? "Not configured"),
+                    ("Service Endpoint", "Not used")
+                ])
+            }
+            .font(.caption)
+        }
     }
 }
 
@@ -791,72 +1248,73 @@ private struct KokoroConnectionForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Kokoro Connection")
-                .font(.headline)
-
-            Text("Save the details for the Kokoro install you already have. The assistant will verify what it can and clearly mark anything still missing.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             Picker("Connection", selection: binding(\.connectionKind)) {
                 ForEach(BackendConnectionKind.allCases, id: \.self) { kind in
-                    Text(kind.displayName).tag(kind)
+                    Text(kind.assistantDisplayName).tag(kind)
                 }
             }
             .pickerStyle(.segmented)
 
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                if connection.connectionKind == .installedDockerImage {
-                    GridRow {
-                        Text("Image").foregroundStyle(.secondary)
-                        TextField("kokoro image name", text: binding(\.dockerImage))
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    GridRow {
-                        Text("Container").foregroundStyle(.secondary)
-                        TextField("optional container name", text: optionalBinding(\.containerName))
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
+            SetupDetailGrid(items: [
+                ("Connection", connection.connectionKind.assistantDisplayName),
+                ("Service", connection.trimmedServiceBaseURL ?? "Not set"),
+                ("Model", connection.trimmedModelID ?? "Not set"),
+                ("Voice", connection.trimmedDefaultVoice ?? "Not set")
+            ])
 
-                if connection.connectionKind == .installedDockerImage ||
-                    connection.connectionKind == .externalService {
-                    GridRow {
-                        Text("Service URL").foregroundStyle(.secondary)
-                        TextField("http://127.0.0.1:PORT", text: binding(\.serviceBaseURL))
-                            .textFieldStyle(.roundedBorder)
+            DisclosureGroup("Edit Connection Details") {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                    if connection.connectionKind == .installedDockerImage {
+                        GridRow {
+                            Text("Image").foregroundStyle(.secondary)
+                            TextField("kokoro image name", text: binding(\.dockerImage))
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        GridRow {
+                            Text("Container").foregroundStyle(.secondary)
+                            TextField("optional container name", text: optionalBinding(\.containerName))
+                                .textFieldStyle(.roundedBorder)
+                        }
                     }
-                    GridRow {
-                        Text("Health").foregroundStyle(.secondary)
-                        TextField("/health", text: binding(\.healthPath))
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    GridRow {
-                        Text("Generate").foregroundStyle(.secondary)
-                        TextField("/v1/audio/speech", text: binding(\.generatePath))
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
 
-                GridRow {
-                    Text("Model").foregroundStyle(.secondary)
-                    TextField("kokoro/default", text: binding(\.modelID))
-                        .textFieldStyle(.roundedBorder)
-                }
-                GridRow {
-                    Text("Voice").foregroundStyle(.secondary)
-                    TextField("default voice", text: binding(\.defaultVoice))
-                        .textFieldStyle(.roundedBorder)
-                }
-                GridRow {
-                    Text("Notes").foregroundStyle(.secondary)
-                    TextField("launch command, port, or anything useful", text: binding(\.notes))
-                        .textFieldStyle(.roundedBorder)
+                    if connection.connectionKind == .installedDockerImage ||
+                        connection.connectionKind == .externalService {
+                        GridRow {
+                            Text("Service URL").foregroundStyle(.secondary)
+                            TextField("http://127.0.0.1:PORT", text: binding(\.serviceBaseURL))
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        GridRow {
+                            Text("Health").foregroundStyle(.secondary)
+                            TextField("/health", text: binding(\.healthPath))
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        GridRow {
+                            Text("Generate").foregroundStyle(.secondary)
+                            TextField("/v1/audio/speech", text: binding(\.generatePath))
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    }
+
+                    GridRow {
+                        Text("Model").foregroundStyle(.secondary)
+                        TextField("kokoro/default", text: binding(\.modelID))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    GridRow {
+                        Text("Voice").foregroundStyle(.secondary)
+                        TextField("default voice", text: binding(\.defaultVoice))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    GridRow {
+                        Text("Notes").foregroundStyle(.secondary)
+                        TextField("launch command, port, or anything useful", text: binding(\.notes))
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
             }
+            .font(.caption)
         }
-        .padding(12)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<BackendConnectionSettings, Value>) -> Binding<Value> {
@@ -1410,6 +1868,35 @@ private extension BackendSetupCheckState {
         case .passed: .green
         case .warning: .orange
         case .failed: .red
+        }
+    }
+}
+
+private extension BackendSetupReport {
+    func check(id: String) -> BackendSetupCheck? {
+        checks.first { $0.id == id }
+    }
+}
+
+private extension BackendInstallMethod {
+    var displayName: String {
+        switch self {
+        case .managedDockerImage: "Managed Runtime Package"
+        case .localPythonEnvironment: "Local Python Environment"
+        case .externalServer: "External Server"
+        case .bundledNative: "Bundled Native Runtime"
+        case .manual: "Manual"
+        }
+    }
+}
+
+private extension BackendConnectionKind {
+    var assistantDisplayName: String {
+        switch self {
+        case .managed: "Managed"
+        case .installedDockerImage: "Installed Runtime"
+        case .externalService: "External Service"
+        case .localPython: "Local Python"
         }
     }
 }
