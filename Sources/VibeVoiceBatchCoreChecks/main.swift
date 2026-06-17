@@ -17,10 +17,14 @@ struct VibeVoiceBatchCoreChecks {
         try await checkBackendProfilesAndAdapterContracts()
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
+        try checkAssistantStageLockingAndCheckPresentation()
+        try checkWorkstationToolbarPolicy()
+        try checkOutputsInspectorAggregation()
         try checkKokoroDiscoveryReport()
         try checkKokoroCatalogReport()
         try checkBackendManagerOperations()
         try checkWorkspaceDataModel()
+        try checkMultiSelectArchiveMovesAllSessions()
         try checkWorkspacePresets()
         try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
@@ -154,6 +158,29 @@ struct VibeVoiceBatchCoreChecks {
             let markerText = try String(contentsOf: marker, encoding: .utf8)
             precondition(markerText == "keep")
             precondition(FileManager.default.fileExists(atPath: destination.appendingPathComponent("input.txt").path))
+        }
+    }
+
+    private static func checkMultiSelectArchiveMovesAllSessions() throws {
+        try withStore { _, store in
+            let createdAt = Date(timeIntervalSince1970: 1_718_171_695)
+            let archivedAt = Date(timeIntervalSince1970: 1_718_172_000)
+            let first = try store.createDraft(text: "First output.", voice: "en-carter", cfgScale: "1.8", now: createdAt)
+            let second = try store.createDraft(text: "Second output.", voice: "en-mike", cfgScale: "1.6", now: createdAt)
+
+            let destinations = try [first, second].map {
+                try store.archiveDeletedSession($0, now: archivedAt)
+            }
+
+            let activeSessions = try store.loadSessions()
+            precondition(activeSessions.isEmpty)
+            precondition(destinations.count == 2)
+            precondition(Set(destinations.map(\.lastPathComponent)).count == 2)
+            for destination in destinations {
+                precondition(destination.path.contains("/recovered/deleted_sessions/"))
+                precondition(FileManager.default.fileExists(atPath: destination.appendingPathComponent("input.txt").path))
+                precondition(FileManager.default.fileExists(atPath: destination.appendingPathComponent("metadata.json").path))
+            }
         }
     }
 
@@ -426,6 +453,120 @@ struct VibeVoiceBatchCoreChecks {
         let kokoroServiceStatus = kokoroServiceManager.statusSnapshot(for: kokoroServiceProfile)
         precondition(kokoroServiceStatus.state == .ready)
         precondition(kokoroServiceStatus.userMessage.contains("health check"))
+    }
+
+    private static func checkAssistantStageLockingAndCheckPresentation() throws {
+        let locking = BackendSetupStageLockingPolicy(
+            selectedStage: .checks,
+            highestUnlockedStage: .checks
+        )
+        precondition(locking.isUnlocked(.welcome))
+        precondition(locking.isUnlocked(.backend))
+        precondition(locking.isUnlocked(.checks))
+        precondition(!locking.isUnlocked(.install))
+        precondition(locking.lockedStages == [.install, .models, .test, .confirm])
+        precondition(locking.isCompleted(.welcome))
+        precondition(locking.isCompleted(.backend))
+        precondition(!locking.isCompleted(.checks))
+        precondition(BackendSetupStage.welcome.next == .backend)
+        precondition(BackendSetupStage.confirm.next == nil)
+        precondition(BackendSetupStage.install.previous == .checks)
+
+        let emptyPresentation = BackendSetupCheckListPresentation(report: nil, isChecking: false)
+        precondition(emptyPresentation.state == .empty)
+        precondition(!emptyPresentation.usesScrollableResults)
+        precondition(emptyPresentation.minimumHeight == 300)
+
+        let checkingPresentation = BackendSetupCheckListPresentation(report: nil, isChecking: true)
+        precondition(checkingPresentation.state == .checking)
+        precondition(!checkingPresentation.usesScrollableResults)
+
+        let report = BackendSetupReport(
+            profileID: BackendProfiles.vibeVoiceTTS.id,
+            checks: [
+                BackendSetupCheck(id: "runtime", title: "Runtime", state: .passed, message: "Ready"),
+                BackendSetupCheck(id: "image", title: "Image", state: .failed, message: "Missing")
+            ]
+        )
+        let resultsPresentation = BackendSetupCheckListPresentation(report: report, isChecking: false)
+        precondition(resultsPresentation.state == .results(count: 2))
+        precondition(resultsPresentation.usesScrollableResults)
+    }
+
+    private static func checkWorkstationToolbarPolicy() throws {
+        precondition(WorkstationSelection.section(.history).toolbarKind == .editor)
+        precondition(WorkstationSelection.historySession("session").toolbarKind == .session)
+        precondition(WorkstationSelection.section(.outputs).toolbarKind == .outputs)
+        precondition(WorkstationSelection.section(.backends).toolbarKind == .backends)
+        precondition(WorkstationSelection.section(.projects).toolbarKind == .workspace)
+        precondition(WorkstationSelection.section(.scripts).toolbarKind == .workspace)
+        precondition(WorkstationSelection.section(.batches).toolbarKind == .workspace)
+        precondition(WorkstationSelection.section(.voices).toolbarKind == .workspace)
+        precondition(WorkstationSelection.section(.presets).toolbarKind == .workspace)
+        precondition(WorkstationSelection.historySession("abc").id == "history-abc")
+        precondition(WorkstationSection.allCases.map(\.title) == [
+            "Projects",
+            "Scripts",
+            "Batches",
+            "Voices",
+            "Presets",
+            "History",
+            "Outputs",
+            "Backends"
+        ])
+    }
+
+    private static func checkOutputsInspectorAggregation() throws {
+        try withStore { _, store in
+            let date = Date(timeIntervalSince1970: 1_718_171_695)
+            let first = try completedOutputRecord(
+                store: store,
+                text: "First output",
+                voice: "en-carter",
+                backendImage: "vibevoice-cpu",
+                audioDuration: 2.5,
+                outputBytes: Data([1, 2, 3, 4]),
+                now: date
+            )
+            let second = try completedOutputRecord(
+                store: store,
+                text: "Second output",
+                voice: "af_heart",
+                backendImage: "",
+                audioDuration: 3.5,
+                outputBytes: Data([5, 6]),
+                now: date.addingTimeInterval(10)
+            )
+            let summary = OutputHousekeepingSummary(
+                selectedRecords: [first, second],
+                totalOutputCount: 3,
+                projectTitlesBySessionID: [
+                    first.id: ["Novel"],
+                    second.id: []
+                ],
+                fileSizeBySessionID: [
+                    first.id: 4,
+                    second.id: 2
+                ]
+            )
+
+            precondition(summary.selectedCount == 2)
+            precondition(summary.totalOutputCount == 3)
+            precondition(summary.totalAudioDurationSeconds == 6.0)
+            precondition(summary.totalFileSizeBytes == 6)
+            precondition(summary.filedCount == 1)
+            precondition(summary.unfiledCount == 1)
+            precondition(summary.voices == ["af_heart", "en-carter"])
+            precondition(summary.backends == ["Local service", "vibevoice-cpu"])
+            precondition(summary.projectTitles == ["Novel"])
+            precondition(summary.filingSummary == "Novel")
+            precondition(summary.archiveEligibility == "Ready")
+            precondition(summary.outputFileNames == ["output.wav", "output.wav"])
+
+            let emptySummary = OutputHousekeepingSummary(selectedRecords: [], totalOutputCount: 3)
+            precondition(emptySummary.filingSummary == "No selection")
+            precondition(emptySummary.archiveEligibility == "No selection")
+        }
     }
 
     private static func checkKokoroDiscoveryReport() throws {
@@ -1293,6 +1434,27 @@ struct VibeVoiceBatchCoreChecks {
         try store.ensureBaseDirectories()
         defer { try? FileManager.default.removeItem(at: root) }
         return try body(root, store)
+    }
+
+    private static func completedOutputRecord(
+        store: SessionFileStore,
+        text: String,
+        voice: String,
+        backendImage: String,
+        audioDuration: Double,
+        outputBytes: Data,
+        now: Date
+    ) throws -> SessionRecord {
+        let record = try store.createDraft(text: text, voice: voice, cfgScale: "1.8", now: now)
+        try outputBytes.write(to: record.folderURL.appendingPathComponent("output.wav", isDirectory: false))
+        var metadata = record.metadata
+        metadata.status = .completed
+        metadata.completedAt = now.addingTimeInterval(1)
+        metadata.dockerImage = backendImage
+        metadata.audioDurationSeconds = audioDuration
+        metadata.outputFile = record.folderURL.appendingPathComponent("output.wav", isDirectory: false).path
+        try store.writeMetadata(metadata, in: record.folderURL)
+        return try store.loadRecord(folderURL: record.folderURL)
     }
 
     private static func makePCM16MonoWav(durationSeconds: Double, sampleRate: Int) -> Data {

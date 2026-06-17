@@ -342,6 +342,13 @@ private struct AssistantStepRail: View {
     let highestUnlockedStage: BackendSetupStage
     let selectStage: (BackendSetupStage) -> Void
 
+    private var lockingPolicy: BackendSetupStageLockingPolicy {
+        BackendSetupStageLockingPolicy(
+            selectedStage: selectedStage,
+            highestUnlockedStage: highestUnlockedStage
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
@@ -404,11 +411,11 @@ private struct AssistantStepRail: View {
     }
 
     private func isUnlocked(_ stage: BackendSetupStage) -> Bool {
-        stage.isUnlocked(through: highestUnlockedStage)
+        lockingPolicy.isUnlocked(stage)
     }
 
     private func isCompleted(_ stage: BackendSetupStage) -> Bool {
-        stage.isBefore(selectedStage) || (stage.isBefore(highestUnlockedStage) && stage != selectedStage)
+        lockingPolicy.isCompleted(stage)
     }
 
     private func stepSymbol(for stage: BackendSetupStage) -> String {
@@ -2052,6 +2059,10 @@ private struct CheckList: View {
     let report: BackendSetupReport?
     let isChecking: Bool
 
+    private var presentation: BackendSetupCheckListPresentation {
+        BackendSetupCheckListPresentation(report: report, isChecking: isChecking)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -2076,7 +2087,8 @@ private struct CheckList: View {
 
             Divider()
 
-            if isChecking {
+            switch presentation.state {
+            case .checking:
                 VStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
@@ -2085,16 +2097,18 @@ private struct CheckList: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let report {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(report.checks) { check in
-                            CheckRow(check: check)
+            case .results:
+                if let report {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(report.checks) { check in
+                                CheckRow(check: check)
+                            }
                         }
+                        .padding(.vertical, 2)
                     }
-                    .padding(.vertical, 2)
                 }
-            } else {
+            case .empty:
                 VStack(spacing: 8) {
                     Image(systemName: "checklist")
                         .font(.title2)
@@ -2110,7 +2124,7 @@ private struct CheckList: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 300, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: presentation.minimumHeight, maxHeight: .infinity, alignment: .topLeading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 

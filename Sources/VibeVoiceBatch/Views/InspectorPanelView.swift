@@ -177,20 +177,20 @@ struct InspectorPanelView: View {
 
     private var outputsHousekeepingSection: some View {
         let selected = store.selectedOutputSessions
-        let selectedProjects = projectTitles(for: selected)
+        let summary = outputSummary(for: selected)
         return VStack(alignment: .leading, spacing: 16) {
-            OutputsInspectorHeader(selectedCount: selected.count, totalCount: store.outputSessions.count)
+            OutputsInspectorHeader(selectedCount: summary.selectedCount, totalCount: summary.totalOutputCount)
 
             InspectorGroup(title: "Housekeeping") {
-                InspectorValue(label: "Outputs", value: "\(store.outputSessions.count)")
-                InspectorValue(label: "Selected", value: "\(selected.count)")
-                InspectorValue(label: "Duration", value: SessionFormatters.duration(totalDuration(selected)))
-                InspectorValue(label: "Disk", value: totalSize(selected).formattedByteCount)
-                InspectorValue(label: "Archive", value: selected.isEmpty ? "No selection" : "Ready")
+                InspectorValue(label: "Outputs", value: "\(summary.totalOutputCount)")
+                InspectorValue(label: "Selected", value: "\(summary.selectedCount)")
+                InspectorValue(label: "Duration", value: SessionFormatters.duration(summary.totalAudioDurationSeconds))
+                InspectorValue(label: "Disk", value: summary.totalFileSizeBytes.formattedByteCount)
+                InspectorValue(label: "Archive", value: summary.archiveEligibility)
             }
 
             InspectorGroup(title: "Filing") {
-                InspectorValue(label: "Projects", value: filingSummary(for: selected, projectTitles: selectedProjects))
+                InspectorValue(label: "Projects", value: summary.filingSummary)
                 InspectorValue(label: "Available projects", value: "\(workspaceStore.projects.count)")
             }
 
@@ -198,12 +198,12 @@ struct InspectorPanelView: View {
                 NoSelectedOutputInspectorCard()
             } else {
                 outputActionSection(selected)
-                outputBreakdownSection(selected)
+                outputBreakdownSection(summary)
 
                 if selected.count == 1, let record = selected.first {
                     singleOutputSection(record)
                 } else {
-                    multiOutputSection(selected)
+                    multiOutputSection(summary)
                 }
             }
         }
@@ -246,14 +246,14 @@ struct InspectorPanelView: View {
         }
     }
 
-    private func outputBreakdownSection(_ selected: [SessionRecord]) -> some View {
+    private func outputBreakdownSection(_ summary: OutputHousekeepingSummary) -> some View {
         InspectorGroup(title: "Breakdown") {
             OutputInspectorChipGrid(
                 items: [
-                    OutputInspectorChip(label: "Voices", value: "\(uniqueVoices(selected).count)"),
-                    OutputInspectorChip(label: "Backends", value: "\(uniqueBackends(selected).count)"),
-                    OutputInspectorChip(label: "Filed", value: "\(filedCount(selected))"),
-                    OutputInspectorChip(label: "Unfiled", value: "\(max(0, selected.count - filedCount(selected)))")
+                    OutputInspectorChip(label: "Voices", value: "\(summary.voices.count)"),
+                    OutputInspectorChip(label: "Backends", value: "\(summary.backends.count)"),
+                    OutputInspectorChip(label: "Filed", value: "\(summary.filedCount)"),
+                    OutputInspectorChip(label: "Unfiled", value: "\(summary.unfiledCount)")
                 ]
             )
         }
@@ -273,24 +273,14 @@ struct InspectorPanelView: View {
         }
     }
 
-    private func multiOutputSection(_ selected: [SessionRecord]) -> some View {
+    private func multiOutputSection(_ summary: OutputHousekeepingSummary) -> some View {
         InspectorGroup(title: "Selected Set") {
-            InspectorValue(label: "Voices", value: uniqueVoices(selected).joined(separator: ", "))
-            InspectorValue(label: "Backends", value: uniqueBackends(selected).joined(separator: ", "))
-            InspectorValue(label: "Oldest", value: selected.map(\.metadata.createdAt).min().map(SessionFormatters.displayDateFormatter.string(from:)) ?? "n/a")
-            InspectorValue(label: "Newest", value: selected.map(\.metadata.createdAt).max().map(SessionFormatters.displayDateFormatter.string(from:)) ?? "n/a")
-            InspectorValue(label: "Files", value: selected.compactMap { $0.outputURL?.lastPathComponent }.joined(separator: "\n"))
+            InspectorValue(label: "Voices", value: summary.voices.joined(separator: ", "))
+            InspectorValue(label: "Backends", value: summary.backends.joined(separator: ", "))
+            InspectorValue(label: "Oldest", value: summary.oldestCreatedAt.map(SessionFormatters.displayDateFormatter.string(from:)) ?? "n/a")
+            InspectorValue(label: "Newest", value: summary.newestCreatedAt.map(SessionFormatters.displayDateFormatter.string(from:)) ?? "n/a")
+            InspectorValue(label: "Files", value: summary.outputFileNames.joined(separator: "\n"))
         }
-    }
-
-    private func totalDuration(_ records: [SessionRecord]) -> Double? {
-        let durations = records.compactMap(\.metadata.audioDurationSeconds)
-        guard !durations.isEmpty else { return nil }
-        return durations.reduce(0, +)
-    }
-
-    private func totalSize(_ records: [SessionRecord]) -> UInt64 {
-        records.reduce(0) { $0 + outputSize($1) }
     }
 
     private func outputSize(_ record: SessionRecord) -> UInt64 {
@@ -302,29 +292,20 @@ struct InspectorPanelView: View {
         return UInt64(max(0, fileSize))
     }
 
-    private func projectTitles(for records: [SessionRecord]) -> [String] {
-        let titles = records.flatMap { record in
-            workspaceStore.projects(containingGenerationSession: record.id).map(\.title)
-        }
-        return Array(Set(titles)).sorted()
-    }
-
-    private func filingSummary(for records: [SessionRecord], projectTitles: [String]) -> String {
-        guard !records.isEmpty else { return "No selection" }
-        guard !projectTitles.isEmpty else { return "Unfiled" }
-        return projectTitles.joined(separator: ", ")
-    }
-
-    private func filedCount(_ records: [SessionRecord]) -> Int {
-        records.filter { !workspaceStore.projects(containingGenerationSession: $0.id).isEmpty }.count
-    }
-
-    private func uniqueVoices(_ records: [SessionRecord]) -> [String] {
-        Array(Set(records.map(\.metadata.voice))).sorted()
-    }
-
-    private func uniqueBackends(_ records: [SessionRecord]) -> [String] {
-        Array(Set(records.map(backendDisplayName))).sorted()
+    private func outputSummary(for records: [SessionRecord]) -> OutputHousekeepingSummary {
+        let projectTitlesByID = Dictionary(uniqueKeysWithValues: records.map { record in
+            (record.id, workspaceStore.projects(containingGenerationSession: record.id).map(\.title))
+        })
+        let fileSizeByID = Dictionary(uniqueKeysWithValues: records.map { record in
+            (record.id, outputSize(record))
+        })
+        return OutputHousekeepingSummary(
+            selectedRecords: records,
+            totalOutputCount: store.outputSessions.count,
+            projectTitlesBySessionID: projectTitlesByID,
+            fileSizeBySessionID: fileSizeByID,
+            backendName: backendDisplayName
+        )
     }
 
     private func backendDisplayName(for record: SessionRecord) -> String {

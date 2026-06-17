@@ -141,16 +141,16 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var contextualToolbar: some ToolbarContent {
-        switch selection ?? .section(.history) {
-        case .section(.history):
+        switch (selection ?? .section(.history)).toolbarKind {
+        case .editor:
             editorToolbar
-        case .historySession:
+        case .session:
             sessionToolbar
-        case .section(.outputs):
+        case .outputs:
             outputsToolbar
-        case .section(.backends):
+        case .backends:
             backendToolbar
-        case .section(.projects), .section(.scripts), .section(.batches), .section(.voices), .section(.presets):
+        case .workspace:
             workspaceToolbar
         }
     }

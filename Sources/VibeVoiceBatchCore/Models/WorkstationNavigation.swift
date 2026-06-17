@@ -1,6 +1,14 @@
 import Foundation
 
-enum WorkstationSection: String, CaseIterable, Identifiable {
+public enum WorkstationToolbarKind: String, Equatable, Sendable {
+    case editor
+    case session
+    case outputs
+    case backends
+    case workspace
+}
+
+public enum WorkstationSection: String, CaseIterable, Identifiable, Sendable {
     case projects
     case scripts
     case batches
@@ -10,9 +18,9 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
     case outputs
     case backends
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .projects: "Projects"
         case .scripts: "Scripts"
@@ -25,7 +33,7 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
+    public var systemImage: String {
         switch self {
         case .projects: "folder"
         case .scripts: "doc.text"
@@ -37,18 +45,40 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
         case .backends: "server.rack"
         }
     }
+
+    public var toolbarKind: WorkstationToolbarKind {
+        switch self {
+        case .history:
+            return .editor
+        case .outputs:
+            return .outputs
+        case .backends:
+            return .backends
+        case .projects, .scripts, .batches, .voices, .presets:
+            return .workspace
+        }
+    }
 }
 
-enum WorkstationSelection: Hashable, Identifiable {
+public enum WorkstationSelection: Hashable, Identifiable, Sendable {
     case section(WorkstationSection)
     case historySession(String)
 
-    var id: String {
+    public var id: String {
         switch self {
         case .section(let section):
             return "section-\(section.rawValue)"
         case .historySession(let sessionID):
             return "history-\(sessionID)"
+        }
+    }
+
+    public var toolbarKind: WorkstationToolbarKind {
+        switch self {
+        case .section(let section):
+            return section.toolbarKind
+        case .historySession:
+            return .session
         }
     }
 }
