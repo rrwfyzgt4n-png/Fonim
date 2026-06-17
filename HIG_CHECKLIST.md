@@ -4,7 +4,7 @@ The app should feel like a Mac narration workstation, not a terminal frontend.
 
 ## Native Structure
 
-- Sidebar for Projects, Scripts, Batches, Outputs, Voices, Presets, History, Backends, and Settings.
+- Sidebar for Projects, Scripts, Batches, Voices, Presets, History, Outputs, and Backends.
 - Toolbar for primary context actions.
 - Inspector for voice, model, inference settings, export settings, and metadata.
 - Real Settings window for backend and generation defaults.
@@ -13,13 +13,13 @@ The app should feel like a Mac narration workstation, not a terminal frontend.
 Current implementation note:
 
 - The core data model supports Projects, Scripts, and Batches separately from History.
-- The main window now uses a native source-list sidebar for Projects, Scripts, Batches, Outputs, Voices, Presets, History, Backends, and Settings.
-- History sessions remain selectable beneath History so existing session detail, playback, duplicate, and folder actions continue to work.
-- Outputs has its own browser for archived WAV files, with in-app playback, Finder reveal, Quick Look, path copy, drag-out support, and duplicate-as-new.
+- The main window now uses a native source-list sidebar for workstation destinations only: Projects, Scripts, Batches, Voices, Presets, History, Outputs, and Backends.
+- History owns its own in-content session list, current-text editor state, session detail, playback, duplicate, and folder actions.
+- Outputs has its own housekeeping browser for archived WAV files, with Finder reveal, Quick Look, path copy, sharing, project filing, drag-out support, and archive-first cleanup.
 - Voices and Presets are library surfaces backed by workspace records, with native apply/save actions instead of model-specific terminal concepts.
 - Backends can show additional registered profiles, including unavailable ones, with plain-language status rather than terminal errors.
 - Core actions are available from native menus and keyboard shortcuts, including New Text, Save Draft, Generate WAV, Cancel Generation, Refresh History, Refresh Backend Status, and Apply Default Generation Settings.
-- The Settings sidebar destination opens toward the native Settings scene instead of replacing preferences with an in-window settings clone.
+- Settings and the Backend Setup Assistant open as proper auxiliary windows rather than main-window destinations.
 
 ## Progressive Disclosure
 

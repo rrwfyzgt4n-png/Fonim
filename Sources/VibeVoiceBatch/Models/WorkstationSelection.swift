@@ -4,10 +4,10 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
     case projects
     case scripts
     case batches
-    case outputs
     case voices
     case presets
     case history
+    case outputs
     case backends
 
     var id: String { rawValue }
@@ -17,10 +17,10 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
         case .projects: "Projects"
         case .scripts: "Scripts"
         case .batches: "Batches"
-        case .outputs: "Outputs"
         case .voices: "Voices"
         case .presets: "Presets"
         case .history: "History"
+        case .outputs: "Outputs"
         case .backends: "Backends"
         }
     }
@@ -30,10 +30,10 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
         case .projects: "folder"
         case .scripts: "doc.text"
         case .batches: "tray.full"
-        case .outputs: "music.note.list"
         case .voices: "waveform"
         case .presets: "slider.horizontal.3"
         case .history: "clock.arrow.circlepath"
+        case .outputs: "music.note.list"
         case .backends: "server.rack"
         }
     }
@@ -41,14 +41,11 @@ enum WorkstationSection: String, CaseIterable, Identifiable {
 
 enum WorkstationSelection: Hashable, Identifiable {
     case section(WorkstationSection)
-    case historySession(String)
 
     var id: String {
         switch self {
         case .section(let section):
             return "section-\(section.rawValue)"
-        case .historySession(let sessionID):
-            return "history-\(sessionID)"
         }
     }
 }

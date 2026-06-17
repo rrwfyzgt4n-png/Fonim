@@ -61,13 +61,6 @@ struct ContentView: View {
                 openWindow(id: "backend-setup")
             }
         }
-        .onChange(of: selection) { newValue in
-            if case .historySession(let sessionID) = newValue {
-                store.selectedSessionID = sessionID
-            } else {
-                store.selectedSessionID = nil
-            }
-        }
         .onChange(of: store.requestedSelection) { requestedSelection in
             guard let requestedSelection else { return }
             selection = requestedSelection
@@ -102,15 +95,9 @@ struct ContentView: View {
         case .section(.outputs):
             OutputBrowserView()
         case .section(.history):
-            EditorView()
+            HistoryWorkspaceView()
         case .section(.backends):
             BackendsView()
-        case .historySession(let sessionID):
-            if let session = store.session(id: sessionID) {
-                SessionDetailView(record: session)
-            } else {
-                EditorView()
-            }
         }
     }
 
@@ -140,9 +127,11 @@ struct ContentView: View {
     private var contextualToolbar: some ToolbarContent {
         switch selection ?? .section(.history) {
         case .section(.history):
-            editorToolbar
-        case .historySession:
-            sessionToolbar
+            if store.selectedSession == nil {
+                editorToolbar
+            } else {
+                sessionToolbar
+            }
         case .section(.outputs):
             outputsToolbar
         case .section(.backends):

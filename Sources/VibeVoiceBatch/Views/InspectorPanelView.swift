@@ -103,21 +103,6 @@ struct InspectorPanelView: View {
     @ViewBuilder
     private var metadataSection: some View {
         switch selection ?? .section(.history) {
-        case .historySession:
-            if let session = store.selectedSession {
-                InspectorGroup(title: "Session Metadata") {
-                    InspectorValue(label: "Status", value: session.metadata.status.displayName)
-                    InspectorValue(label: "Voice", value: session.metadata.voice)
-                    InspectorValue(label: "CFG", value: session.metadata.cfgScale)
-                    InspectorValue(label: "Steps", value: session.metadata.ddpmInferenceSteps.map(String.init) ?? "--")
-                    InspectorValue(label: "Words", value: "\(session.metadata.inputWordCount)")
-                    InspectorValue(label: "Generation", value: SessionFormatters.duration(session.metadata.generationTimeSeconds))
-                    InspectorValue(label: "Audio", value: SessionFormatters.duration(session.metadata.audioDurationSeconds))
-                    InspectorValue(label: "RTF", value: SessionFormatters.rtf(session.metadata.rtf))
-                }
-            } else {
-                editorMetadata
-            }
         case .section(.projects):
             InspectorGroup(title: "Projects") {
                 InspectorValue(label: "Count", value: "\(workspaceStore.projects.count)")
@@ -155,7 +140,24 @@ struct InspectorPanelView: View {
                 InspectorValue(label: "Image", value: store.selectedBackendProfile.dockerImage ?? "Not required")
             }
         case .section(.history):
-            editorMetadata
+            if let session = store.selectedSession {
+                sessionMetadata(session)
+            } else {
+                editorMetadata
+            }
+        }
+    }
+
+    private func sessionMetadata(_ session: SessionRecord) -> some View {
+        InspectorGroup(title: "Session Metadata") {
+            InspectorValue(label: "Status", value: session.metadata.status.displayName)
+            InspectorValue(label: "Voice", value: session.metadata.voice)
+            InspectorValue(label: "CFG", value: session.metadata.cfgScale)
+            InspectorValue(label: "Steps", value: session.metadata.ddpmInferenceSteps.map(String.init) ?? "--")
+            InspectorValue(label: "Words", value: "\(session.metadata.inputWordCount)")
+            InspectorValue(label: "Generation", value: SessionFormatters.duration(session.metadata.generationTimeSeconds))
+            InspectorValue(label: "Audio", value: SessionFormatters.duration(session.metadata.audioDurationSeconds))
+            InspectorValue(label: "RTF", value: SessionFormatters.rtf(session.metadata.rtf))
         }
     }
 

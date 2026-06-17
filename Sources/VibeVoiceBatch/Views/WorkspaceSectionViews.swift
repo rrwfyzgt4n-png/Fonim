@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import VibeVoiceBatchCore
 
@@ -1181,27 +1180,6 @@ struct BackendsView: View {
             .padding()
         }
         .navigationTitle("Backends")
-    }
-}
-
-struct SettingsLandingView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionHeader(
-                title: "Settings",
-                subtitle: "App preferences."
-            )
-
-            Button {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            } label: {
-                Label("Open Settings", systemImage: "gearshape")
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .navigationTitle("Settings")
     }
 }
 
