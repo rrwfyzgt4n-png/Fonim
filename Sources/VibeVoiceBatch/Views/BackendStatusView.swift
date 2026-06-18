@@ -44,11 +44,7 @@ struct BackendStatusView: View {
                         .background(statusTint.opacity(0.12), in: Capsule())
                 }
 
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                subtitleContent
             }
 
             Spacer(minLength: 10)
@@ -135,13 +131,30 @@ struct BackendStatusView: View {
     }
 
     private var subtitle: String {
-        if store.isGenerating || store.isPreparingGeneration {
-            return "\(store.selectedVoice)  CFG \(store.cfgScale)  DDPM \(store.ddpmInferenceSteps)"
-        }
         if store.isPlayingWAV {
             return store.playingSessionID ?? "Audio output"
         }
         return store.backendStatus.userMessage
+    }
+
+    @ViewBuilder
+    private var subtitleContent: some View {
+        if store.isGenerating || store.isPreparingGeneration {
+            HStack(spacing: 8) {
+                VoiceInlineLabel(voiceID: store.selectedVoice, compact: true)
+                Text("CFG \(store.cfgScale)  DDPM \(store.ddpmInferenceSteps)")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            .lineLimit(1)
+            .truncationMode(.middle)
+        } else {
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
     }
 
     private var statusBadge: String {
@@ -229,7 +242,7 @@ struct BackendStatusView: View {
             return clock(store.playbackElapsedSeconds)
         }
         if store.isGenerating || store.isPreparingGeneration {
-            return clock(store.activeGenerationProgress?.elapsedSeconds ?? store.elapsedSeconds)
+            return clock(activeElapsedSeconds)
         }
         return "--:--"
     }
@@ -253,12 +266,11 @@ struct BackendStatusView: View {
         }
         if store.isGenerating || store.isPreparingGeneration {
             if let remaining = store.estimatedGenerationRemainingSeconds {
-                return clock(store.elapsedSeconds + remaining)
+                return clock(activeElapsedSeconds + remaining)
             }
             if let progress = store.activeGenerationProgress,
-               let elapsed = progress.elapsedSeconds,
                let remaining = progress.estimatedRemainingSeconds {
-                return clock(elapsed + remaining)
+                return clock(activeElapsedSeconds + remaining)
             }
         }
         return "--:--"
@@ -292,6 +304,10 @@ struct BackendStatusView: View {
 
     private func clock(_ seconds: TimeInterval) -> String {
         GenerationTickerState.clock(seconds)
+    }
+
+    private var activeElapsedSeconds: TimeInterval {
+        max(store.elapsedSeconds, store.activeGenerationProgress?.elapsedSeconds ?? 0)
     }
 
     private var runtimeDisplayName: String {

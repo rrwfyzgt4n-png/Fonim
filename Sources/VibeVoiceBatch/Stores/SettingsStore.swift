@@ -55,7 +55,10 @@ final class SettingsStore: ObservableObject {
            !catalog.voices.isEmpty {
             return catalog.voices
         }
-        if profile.engineType == .kokoro || profile.engineType == .chatterbox {
+        if profile.engineType == .chatterbox {
+            return ChatterboxVoiceCatalog.catalogVoices
+        }
+        if profile.engineType == .kokoro {
             let connection = settings.backendConnection(for: profile.id)
             let voice = connection.trimmedDefaultVoice ?? settings.defaultVoice
             return [BackendCatalogVoice(id: voice, displayName: voice)]

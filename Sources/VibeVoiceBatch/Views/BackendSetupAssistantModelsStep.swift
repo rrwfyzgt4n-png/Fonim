@@ -68,7 +68,8 @@ struct ModelsVoicesSetupPane: View {
             AssistantCatalogChoice(
                 id: model.id,
                 displayName: model.displayName,
-                detail: model.owner.map { "Owner: \($0)" } ?? "Model ID: \(model.id)"
+                detail: model.owner.map { "Owner: \($0)" } ?? "Model ID: \(model.id)",
+                voiceID: nil
             )
         }
     }
@@ -78,7 +79,8 @@ struct ModelsVoicesSetupPane: View {
             AssistantCatalogChoice(
                 id: voice.id,
                 displayName: voice.displayName,
-                detail: "Voice ID: \(voice.id)"
+                detail: "Voice ID: \(voice.id)",
+                voiceID: voice.id
             )
         }
     }
@@ -207,6 +209,7 @@ struct AssistantCatalogChoice: Identifiable, Equatable {
     let id: String
     let displayName: String
     let detail: String
+    let voiceID: String?
 }
 
 struct ChoiceSelectionPanel: View {
@@ -234,7 +237,13 @@ struct ChoiceSelectionPanel: View {
             } else {
                 Picker(title, selection: $selectedID) {
                     ForEach(choices) { choice in
-                        Text(menuTitle(for: choice)).tag(choice.id)
+                        if let voiceID = choice.voiceID {
+                            VoiceInlineLabel(voiceID: voiceID, displayName: choice.displayName)
+                                .tag(choice.id)
+                        } else {
+                            Text(menuTitle(for: choice))
+                                .tag(choice.id)
+                        }
                     }
                 }
                 .pickerStyle(.menu)
@@ -268,8 +277,13 @@ struct ChoiceSelectionRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(choice.displayName)
-                        .font(.subheadline.weight(.semibold))
+                    if let voiceID = choice.voiceID {
+                        VoiceInlineLabel(voiceID: voiceID, displayName: choice.displayName)
+                            .font(.subheadline.weight(.semibold))
+                    } else {
+                        Text(choice.displayName)
+                            .font(.subheadline.weight(.semibold))
+                    }
                     Text("Selected")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.green)

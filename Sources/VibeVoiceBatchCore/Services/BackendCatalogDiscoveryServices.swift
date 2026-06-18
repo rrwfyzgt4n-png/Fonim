@@ -292,7 +292,7 @@ internal struct BackendCatalogReporter {
         let models = catalogParser.parseChatterboxModels(from: modelResponse.body)
         let predefinedVoices = catalogParser.parseChatterboxPredefinedVoices(from: predefinedResponse.body)
         let referenceVoices = catalogParser.parseChatterboxReferenceVoices(from: referencesResponse.body)
-        let voices = (predefinedVoices + referenceVoices).sorted { lhs, rhs in
+        let voices = (predefinedVoices.isEmpty ? ChatterboxVoiceCatalog.catalogVoices : predefinedVoices).sorted { lhs, rhs in
             lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
         }
         let ok = httpClient.isSuccessful(modelResponse) &&
@@ -305,13 +305,14 @@ internal struct BackendCatalogReporter {
             models: models.isEmpty ? [BackendCatalogModel(id: "chatterbox", displayName: "Chatterbox TTS")] : models,
             voices: voices,
             message: ok ?
-                "Loaded Chatterbox model state and \(voices.count) voice\(voices.count == 1 ? "" : "s")." :
+                "Loaded Chatterbox model state and \(voices.count) predefined voice\(voices.count == 1 ? "" : "s")." :
                 "Could not read every Chatterbox model and voice list.",
             technicalDetails: [
                 "Model URL: \(modelURL.absoluteString)",
                 httpClient.details(modelResponse),
                 "Predefined Voices URL: \(predefinedURL.absoluteString)",
                 httpClient.details(predefinedResponse),
+                "Reference voices discovered: \(referenceVoices.count)",
                 "Reference Voices URL: \(referencesURL.absoluteString)",
                 httpClient.details(referencesResponse)
             ]

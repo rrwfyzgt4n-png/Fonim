@@ -67,6 +67,68 @@ public struct EstimatedGenerationProgress: Equatable {
     }
 }
 
+public struct ChatterboxGenerationProgress: Equatable {
+    public var chunkIndex: Int?
+    public var chunkCount: Int?
+    public var currentStep: Int?
+    public var totalSteps: Int?
+    public var reportedElapsedSeconds: TimeInterval?
+    public var phase: String
+
+    public var fraction: Double {
+        guard let currentStep,
+              let totalSteps,
+              totalSteps > 0 else {
+            guard let chunkIndex, let chunkCount, chunkCount > 0 else {
+                return 0
+            }
+            return min(1, max(0, Double(max(0, chunkIndex - 1)) / Double(chunkCount)))
+        }
+
+        let stepFraction = min(1, max(0, Double(currentStep) / Double(totalSteps)))
+        guard let chunkIndex, let chunkCount, chunkCount > 0 else {
+            return stepFraction
+        }
+
+        let completedChunks = Double(max(0, chunkIndex - 1))
+        let weightedChunkProgress: Double
+        if totalSteps <= 10 {
+            weightedChunkProgress = 0.90 + (stepFraction * 0.10)
+        } else {
+            weightedChunkProgress = stepFraction * 0.90
+        }
+        return min(1, max(0, (completedChunks + weightedChunkProgress) / Double(chunkCount)))
+    }
+
+    public var percent: Double {
+        fraction * 100
+    }
+
+    public var displayMessage: String {
+        var parts: [String] = [phase]
+        if let chunkIndex, let chunkCount {
+            parts.append("chunk \(chunkIndex)/\(chunkCount)")
+        }
+        if let currentStep, let totalSteps {
+            parts.append("step \(currentStep)/\(totalSteps)")
+        }
+        return parts.joined(separator: " - ")
+    }
+
+    public var progressKey: String {
+        let chunkIndexText = chunkIndex.map { String($0) } ?? "_"
+        let chunkCountText = chunkCount.map { String($0) } ?? "_"
+        let currentStepText = currentStep.map { String($0) } ?? "_"
+        let totalStepsText = totalSteps.map { String($0) } ?? "_"
+        return "\(phase):\(chunkIndexText):\(chunkCountText):\(currentStepText):\(totalStepsText)"
+    }
+
+    public func estimatedRemainingSeconds(elapsedSeconds: TimeInterval) -> TimeInterval? {
+        guard fraction > 0.01, fraction < 1 else { return nil }
+        return max(0, elapsedSeconds * (1 - fraction) / fraction)
+    }
+}
+
 public enum GenerationOutputParser {
     public static func latestProgress(in logText: String) -> LiveGenerationProgress? {
         let suffix = normalizedSuffix(logText)
@@ -139,6 +201,61 @@ public enum GenerationOutputParser {
         )
     }
 
+    public static func latestChatterboxProgress(in logText: String) -> ChatterboxGenerationProgress? {
+        let suffix = normalizedSuffix(logText)
+        guard suffix.localizedCaseInsensitiveContains("chatterbox") ||
+            suffix.localizedCaseInsensitiveContains("synthesizing chunk") ||
+            suffix.localizedCaseInsensitiveContains("s3 token") ||
+            suffix.localizedCaseInsensitiveContains("/tts request") else {
+            return nil
+        }
+
+        let chunkMatch = lastMatch(pattern: #"Synthesizing chunk\s+(\d+)\s*/\s*(\d+)"#, in: suffix)
+        let chunkIndex = chunkMatch.flatMap { int(at: 1, in: suffix, match: $0) }
+        let chunkCountFromChunk = chunkMatch.flatMap { int(at: 2, in: suffix, match: $0) }
+        let chunkCount = chunkCountFromChunk ?? lastInt(pattern: #"Text chunking complete\.\s+Generated\s+(\d+)\s+chunk"#, in: suffix)
+
+        let progressSearchText: String
+        if let chunkMatch,
+           let range = Range(chunkMatch.range, in: suffix) {
+            progressSearchText = String(suffix[range.lowerBound...])
+        } else {
+            progressSearchText = suffix
+        }
+
+        let tqdmPattern = #"(\d+(?:\.\d+)?)%\|[^\r\n]*?\|\s*(\d+)\s*/\s*(\d+)\s*\[\s*([0-9:.]+)(?:<\s*([0-9:.?]+))?"#
+        let progressMatch = lastMatch(pattern: tqdmPattern, in: progressSearchText)
+        let currentStep = progressMatch.flatMap { int(at: 2, in: progressSearchText, match: $0) }
+        let totalSteps = progressMatch.flatMap { int(at: 3, in: progressSearchText, match: $0) }
+        let elapsed = progressMatch
+            .flatMap { string(at: 4, in: progressSearchText, match: $0) }
+            .flatMap(parseClock)
+
+        guard chunkIndex != nil || chunkCount != nil || currentStep != nil else {
+            return nil
+        }
+
+        let phase: String
+        if let totalSteps, totalSteps <= 10 {
+            phase = "Mel inference"
+        } else if currentStep != nil {
+            phase = "Speech tokens"
+        } else if chunkCount != nil {
+            phase = "Preparing chunks"
+        } else {
+            phase = "Chatterbox generation"
+        }
+
+        return ChatterboxGenerationProgress(
+            chunkIndex: chunkIndex,
+            chunkCount: chunkCount,
+            currentStep: currentStep,
+            totalSteps: totalSteps,
+            reportedElapsedSeconds: elapsed,
+            phase: phase
+        )
+    }
+
     private static func normalizedSuffix(_ text: String) -> String {
         String(removingANSIEscapeSequences(from: text).suffix(64_000))
     }
@@ -178,17 +295,21 @@ public enum GenerationOutputParser {
     }
 
     private static func lastString(pattern: String, in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return nil
-        }
-
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.matches(in: text, range: range).last,
+        guard let match = lastMatch(pattern: pattern, in: text),
               let captureRange = Range(match.range(at: 1), in: text) else {
             return nil
         }
 
         return String(text[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func lastMatch(pattern: String, in text: String) -> NSTextCheckingResult? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).last
     }
 
     private static func string(at index: Int, in text: String, match: NSTextCheckingResult) -> String? {

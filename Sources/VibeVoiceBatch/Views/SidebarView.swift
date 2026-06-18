@@ -216,10 +216,13 @@ private struct HistorySidebarRow: View {
                     .fontWeight(isSelected ? .semibold : .regular)
                     .lineLimit(1)
 
-                Text(detailText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    VoiceInlineLabel(voiceID: record.metadata.voice, compact: true)
+                    Text("\(record.metadata.inputWordCount) words")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                .lineLimit(1)
             }
 
             Spacer(minLength: 8)
@@ -230,12 +233,8 @@ private struct HistorySidebarRow: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private var detailText: String {
-        "\(record.metadata.voice)  \(record.metadata.inputWordCount) words"
-    }
-
     private var accessibilityLabel: String {
-        "\(record.metadata.status.displayName), \(record.metadata.voice), \(record.metadata.inputWordCount) words"
+        "\(record.metadata.status.displayName), \(VoiceDisplayFormatter.displayText(for: record.metadata.voice)), \(record.metadata.inputWordCount) words"
     }
 
     private var statusIcon: String {

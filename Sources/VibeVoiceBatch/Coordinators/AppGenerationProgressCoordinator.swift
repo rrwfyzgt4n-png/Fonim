@@ -183,6 +183,23 @@ final class AppGenerationProgressCoordinator {
             )
         }
 
+        if let progress = GenerationOutputParser.latestChatterboxProgress(in: line) {
+            phaseName = progress.phase
+            estimatedProgressFraction = progress.fraction
+            let elapsed = currentElapsedSeconds
+            estimatedRemainingSeconds = progress.estimatedRemainingSeconds(elapsedSeconds: elapsed)
+
+            return GenerationQueueProgressUpdate(
+                progressFraction: progress.fraction,
+                currentStep: progress.currentStep,
+                totalSteps: progress.totalSteps,
+                elapsedSeconds: elapsed,
+                estimatedRemainingSeconds: estimatedRemainingSeconds,
+                shouldUpdateEstimatedRemainingSeconds: true,
+                statusMessage: progress.displayMessage
+            )
+        }
+
         phaseName = phaseName(for: line)
         return nil
     }
@@ -208,6 +225,10 @@ final class AppGenerationProgressCoordinator {
         if normalized.contains("ddpm inference steps") { return "Diffusion Ready" }
         if normalized.contains("language model attention") { return "Attention Ready" }
         if normalized.contains("using voice preset") { return "Voice Loaded" }
+        if normalized.contains("received /tts request") { return "Request Received" }
+        if normalized.contains("text chunking complete") { return "Text Chunked" }
+        if normalized.contains("synthesizing chunk") { return "Synthesizing Chunk" }
+        if normalized.contains("s3 token") { return "Mel Inference" }
         if normalized.contains("generation time") { return "Finalizing" }
         if normalized.contains("saved output") || normalized.contains("output ready") { return "Output Ready" }
         if normalized.contains("completed") { return "Completed" }

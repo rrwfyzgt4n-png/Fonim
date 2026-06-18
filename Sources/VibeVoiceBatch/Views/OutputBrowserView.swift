@@ -16,6 +16,7 @@ struct OutputBrowserView: View {
             return [
                 record.id,
                 record.metadata.voice,
+                VoiceDisplayFormatter.displayText(for: record.metadata.voice),
                 record.metadata.cfgScale,
                 record.metadata.dockerImage,
                 record.metadata.status.rawValue,
@@ -125,7 +126,8 @@ struct OutputBrowserView: View {
                 .width(min: 130, ideal: 180)
 
                 TableColumn("Voice") { record in
-                    OutputTableText(record.metadata.voice)
+                    VoiceInlineLabel(voiceID: record.metadata.voice, compact: true)
+                        .padding(.vertical, 6)
                 }
                 .width(min: 120, ideal: 160)
 

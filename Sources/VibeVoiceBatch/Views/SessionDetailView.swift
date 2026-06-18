@@ -39,7 +39,7 @@ struct SessionDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 StatusBadge(status: record.metadata.status)
-                Text(record.metadata.voice)
+                VoiceInlineLabel(voiceID: record.metadata.voice)
                 Text("cfg \(record.metadata.cfgScale)")
                 Text("steps \(stepsText)")
             }

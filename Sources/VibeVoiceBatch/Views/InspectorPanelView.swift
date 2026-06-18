@@ -142,7 +142,8 @@ struct InspectorPanelView: View {
         InspectorGroup(title: "Generation") {
             Picker("Voice", selection: $store.selectedVoice) {
                 ForEach(store.availableVoiceOptions) { voice in
-                    Text(voice.displayName).tag(voice.id)
+                    VoiceInlineLabel(voiceID: voice.id, displayName: voice.displayName)
+                        .tag(voice.id)
                 }
             }
             .pickerStyle(.menu)
@@ -231,7 +232,7 @@ struct InspectorPanelView: View {
         case .section(.voices):
             InspectorGroup(title: "Voices") {
                 InspectorValue(label: "Available", value: "\(workspaceStore.voicePresets.count)")
-                InspectorValue(label: "Selected", value: store.selectedVoice)
+                InspectorVoiceValue(label: "Selected", voiceID: store.selectedVoice)
             }
         case .section(.presets):
             InspectorGroup(title: "Preset Metadata") {
@@ -266,7 +267,7 @@ struct InspectorPanelView: View {
     private func sessionMetadata(_ session: SessionRecord) -> some View {
         InspectorGroup(title: "Session Metadata") {
             InspectorValue(label: "Status", value: session.metadata.status.displayName)
-            InspectorValue(label: "Voice", value: session.metadata.voice)
+            InspectorVoiceValue(label: "Voice", voiceID: session.metadata.voice)
             InspectorValue(label: "CFG", value: session.metadata.cfgScale)
             InspectorValue(label: "Steps", value: session.metadata.ddpmInferenceSteps.map(String.init) ?? "--")
             InspectorValue(label: "Words", value: "\(session.metadata.inputWordCount)")
@@ -372,7 +373,7 @@ struct InspectorPanelView: View {
         InspectorGroup(title: "Selected Output") {
             InspectorValue(label: "Session", value: record.id)
             InspectorValue(label: "Created", value: SessionFormatters.displayDateFormatter.string(from: record.metadata.createdAt))
-            InspectorValue(label: "Voice", value: record.metadata.voice)
+            InspectorVoiceValue(label: "Voice", voiceID: record.metadata.voice)
             InspectorValue(label: "Backend", value: backendDisplayName(for: record))
             InspectorValue(label: "Generation", value: SessionFormatters.duration(record.metadata.generationTimeSeconds))
             InspectorValue(label: "Audio", value: SessionFormatters.duration(record.metadata.audioDurationSeconds))
@@ -508,10 +509,10 @@ private struct ChatterboxGenerationControls: View {
             }
             .disabled(!splitText)
 
-            ChatterboxDoubleField("Temperature", value: $temperature)
-            ChatterboxDoubleField("Exaggeration", value: $exaggeration)
-            ChatterboxDoubleField("CFG Weight", value: $cfgWeight)
-            ChatterboxDoubleField("Speed", value: $speedFactor)
+            ChatterboxDoubleStepper("Temperature", value: $temperature, range: 0.05...2.0, step: 0.05)
+            ChatterboxDoubleStepper("Exaggeration", value: $exaggeration, range: 0.25...3.0, step: 0.05)
+            ChatterboxDoubleStepper("CFG Weight", value: $cfgWeight, range: 0.0...2.0, step: 0.05)
+            ChatterboxDoubleStepper("Speed", value: $speedFactor, range: 0.25...4.0, step: 0.05)
 
             Stepper(value: $seed, in: 0...999_999, step: 1) {
                 HStack {
@@ -522,47 +523,52 @@ private struct ChatterboxGenerationControls: View {
                 }
             }
 
-            HStack {
-                Text("Language")
-                Spacer()
-                TextField("en", text: $language)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 82)
-                    .multilineTextAlignment(.trailing)
+            Picker("Language", selection: $language) {
+                ForEach(VoiceDisplayFormatter.supportedLanguages, id: \.code) { language in
+                    HStack {
+                        LanguageBadge(code: language.code, compact: true)
+                        Text(language.name)
+                    }
+                    .tag(language.code)
+                }
             }
+            .pickerStyle(.menu)
         }
         .font(.callout)
     }
 }
 
-private struct ChatterboxDoubleField: View {
+private struct ChatterboxDoubleStepper: View {
     let label: String
     @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
 
-    init(_ label: String, value: Binding<Double>) {
+    init(_ label: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double) {
         self.label = label
         _value = value
+        self.range = range
+        self.step = step
     }
 
     var body: some View {
-        HStack {
-            Text(label)
-            Spacer()
-            TextField("0.00", value: $value, formatter: Self.formatter)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 82)
-                .multilineTextAlignment(.trailing)
+        Stepper(value: normalizedValue, in: range, step: step) {
+            HStack {
+                Text(label)
+                Spacer()
+                Text(String(format: "%.2f", value))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
         }
     }
 
-    private static let formatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 2
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter
-    }()
+    private var normalizedValue: Binding<Double> {
+        Binding(
+            get: { min(range.upperBound, max(range.lowerBound, value)) },
+            set: { value = min(range.upperBound, max(range.lowerBound, $0)) }
+        )
+    }
 }
 
 private struct NoSelectedOutputInspectorCard: View {
@@ -630,6 +636,23 @@ private struct InspectorValue: View {
                 .lineLimit(value.contains("\n") ? 5 : 2)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.callout)
+    }
+}
+
+private struct InspectorVoiceValue: View {
+    let label: String
+    let voiceID: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 82, alignment: .leading)
+
+            VoiceInlineLabel(voiceID: voiceID)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.callout)

@@ -265,13 +265,18 @@ private struct VoicesSettingsPane: View {
         Form {
             Picker("Default voice", selection: binding(\.defaultVoice)) {
                 ForEach(settingsStore.voiceOptions(for: appStore.selectedBackendProfile)) { voice in
-                    Text(voice.displayName).tag(voice.id)
+                    VoiceInlineLabel(voiceID: voice.id, displayName: voice.displayName)
+                        .tag(voice.id)
                 }
             }
             .pickerStyle(.menu)
 
             LabeledContent("Available voices", value: "\(settingsStore.voiceOptions(for: appStore.selectedBackendProfile).count)")
-            LabeledContent("Current default", value: settingsStore.settings.defaultVoice)
+            HStack {
+                Text("Current default")
+                Spacer()
+                VoiceInlineLabel(voiceID: settingsStore.settings.defaultVoice)
+            }
         }
         .formStyle(.grouped)
     }

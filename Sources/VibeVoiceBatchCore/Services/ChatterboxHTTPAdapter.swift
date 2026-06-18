@@ -184,27 +184,187 @@ public final class ChatterboxSpeechClient: ChatterboxSpeechGenerating, @unchecke
     }
 }
 
+public protocol ChatterboxLogFollowing: AnyObject {
+    func followLogs(
+        since: Date,
+        profile: BackendProfile,
+        endpoint: URL?,
+        onChunk: @escaping (String) -> Void
+    ) -> ChatterboxLogFollowHandle?
+}
+
+public final class ChatterboxLogFollowHandle {
+    private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.chatterbox-log-handle")
+    private var hasStopped = false
+    private let stopAction: () -> Void
+
+    public init(stopAction: @escaping () -> Void) {
+        self.stopAction = stopAction
+    }
+
+    public func stop() {
+        stateQueue.sync {
+            guard !hasStopped else { return }
+            hasStopped = true
+            stopAction()
+        }
+    }
+
+    deinit {
+        stop()
+    }
+}
+
+public final class ChatterboxDockerLogFollower: ChatterboxLogFollowing {
+    public init() {}
+
+    public func followLogs(
+        since: Date,
+        profile: BackendProfile,
+        endpoint: URL?,
+        onChunk: @escaping (String) -> Void
+    ) -> ChatterboxLogFollowHandle? {
+        guard let docker = dockerExecutablePath(),
+              let containerName = containerName(for: profile, endpoint: endpoint, docker: docker) else {
+            return nil
+        }
+
+        let sinceText = ISO8601DateFormatter().string(from: since)
+        let process = Process()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        let deliveryQueue = DispatchQueue(label: "local.vibevoice.batch.chatterbox-log-delivery-\(UUID().uuidString)")
+
+        process.executableURL = URL(fileURLWithPath: docker)
+        process.arguments = ["logs", "--timestamps", "--since", sinceText, "-f", containerName]
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        let handler: (FileHandle) -> Void = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            let text = String(decoding: data, as: UTF8.self)
+            deliveryQueue.async {
+                onChunk(text)
+            }
+        }
+        stdout.fileHandleForReading.readabilityHandler = handler
+        stderr.fileHandleForReading.readabilityHandler = handler
+
+        do {
+            try process.run()
+        } catch {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stderr.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+
+        return ChatterboxLogFollowHandle {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stderr.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+    }
+
+    private func dockerExecutablePath() -> String? {
+        let candidates = [
+            "/usr/local/bin/docker",
+            "/opt/homebrew/bin/docker",
+            "/usr/bin/docker"
+        ]
+        if let candidate = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return candidate
+        }
+        return commandOutput(executablePath: "/usr/bin/which", arguments: ["docker"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty
+    }
+
+    private func containerName(for profile: BackendProfile, endpoint: URL?, docker: String) -> String? {
+        if let containerName = profile.containerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !containerName.isEmpty {
+            return containerName
+        }
+
+        guard let output = commandOutput(
+            executablePath: docker,
+            arguments: ["ps", "--format", "{{.Names}}\t{{.Image}}\t{{.Ports}}"]
+        ) else {
+            return nil
+        }
+
+        let port = endpoint?.port ?? profile.exposedPort
+        let rows = output
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+        if let port,
+           let match = rows.first(where: { row in
+               let lower = row.lowercased()
+               return lower.contains("chatterbox") && lower.contains(":\(port)->")
+           }) {
+            return match.split(separator: "\t").first.map(String.init)
+        }
+
+        if let match = rows.first(where: { $0.lowercased().contains("chatterbox") }) {
+            return match.split(separator: "\t").first.map(String.init)
+        }
+
+        if let port,
+           let match = rows.first(where: { $0.contains(":\(port)->") }) {
+            return match.split(separator: "\t").first.map(String.init)
+        }
+
+        return nil
+    }
+
+    private func commandOutput(executablePath: String, arguments: [String]) -> String? {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
+    }
+}
+
 public final class ChatterboxHTTPAdapter: EngineAdapter {
     public let profile: BackendProfile
     private let backendManager: BackendManager
     private let fileStore: SessionFileStore
     private let client: ChatterboxSpeechGenerating
+    private let logFollower: ChatterboxLogFollowing
     private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.chatterbox-adapter")
     private var activeJobID: String?
     private var cancelledJobIDs: Set<String> = []
     private var progressByJobID: [String: GenerationProgressSnapshot] = [:]
+    private var progressKeyByJobID: [String: String] = [:]
 
     public init(
         profile: BackendProfile = BackendProfiles.chatterboxTTS,
         projectRoot: URL = AppDefaults.projectRoot,
         backendManager: BackendManager? = nil,
         fileStore: SessionFileStore? = nil,
-        client: ChatterboxSpeechGenerating? = nil
+        client: ChatterboxSpeechGenerating? = nil,
+        logFollower: ChatterboxLogFollowing? = nil
     ) {
         self.profile = profile
         self.backendManager = backendManager ?? BackendManager(projectRoot: projectRoot)
         self.fileStore = fileStore ?? SessionFileStore(projectRoot: projectRoot)
         self.client = client ?? ChatterboxSpeechClient()
+        self.logFollower = logFollower ?? ChatterboxDockerLogFollower()
     }
 
     public func healthCheck() async -> BackendHealthReport {
@@ -212,10 +372,7 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
     }
 
     public func listVoices() async throws -> [VoiceDescriptor] {
-        [
-            VoiceDescriptor(id: "Emily.wav", displayName: "Emily"),
-            VoiceDescriptor(id: "Michael.wav", displayName: "Michael")
-        ]
+        ChatterboxVoiceCatalog.voiceDescriptors
     }
 
     public func listModels() async throws -> [ModelDescriptor] {
@@ -262,6 +419,7 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
                 activeJobID = nil
                 cancelledJobIDs.remove(job.id)
                 progressByJobID[job.id] = nil
+                progressKeyByJobID[job.id] = nil
             }
         }
 
@@ -274,12 +432,18 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
         events(.sessionStarted(session))
         events(.status("Running"))
 
+        let logQueue = DispatchQueue(label: "local.vibevoice.batch.chatterbox-log-\(job.id)")
         var logText = initialLog(session: session, job: job, endpoint: endpoint, startedAt: startedAt)
 
-        func appendLog(_ text: String) {
-            logText += text
+        @discardableResult
+        func appendLog(_ text: String) -> String {
+            let currentLog = logQueue.sync { () -> String in
+                logText += text
+                return logText
+            }
             try? fileStore.appendLog(text, to: session.folderURL)
             events(.log(text))
+            return currentLog
         }
 
         try? fileStore.replaceLog(logText, in: session.folderURL)
@@ -317,6 +481,28 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
         )
         appendLog("Sending request to Chatterbox.\n")
         appendLog(requestLog(request))
+        let logHandle = logFollower.followLogs(
+            since: startedAt.addingTimeInterval(-2),
+            profile: profile,
+            endpoint: endpoint
+        ) { [weak self] chunk in
+            guard let self else { return }
+            let currentLog = appendLog(chunk)
+            self.emitChatterboxProgress(
+                jobID: job.id,
+                logText: currentLog,
+                startedAt: startedAt,
+                events: events
+            )
+        }
+        if logHandle == nil {
+            appendLog("Chatterbox runtime log stream unavailable; progress will use request milestones.\n")
+        } else {
+            appendLog("Following Chatterbox runtime logs for live progress.\n")
+        }
+        defer {
+            logHandle?.stop()
+        }
 
         do {
             let response = try await client.generateSpeech(request)
@@ -490,6 +676,38 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
         events(.progress(snapshot))
     }
 
+    private func emitChatterboxProgress(
+        jobID: String,
+        logText: String,
+        startedAt: Date,
+        events: @escaping (GenerationEvent) -> Void
+    ) {
+        guard let progress = GenerationOutputParser.latestChatterboxProgress(in: logText) else {
+            return
+        }
+
+        let elapsedSeconds = Date().timeIntervalSince(startedAt)
+        let snapshot = GenerationProgressSnapshot(
+            jobID: jobID,
+            fractionComplete: progress.fraction,
+            currentStep: progress.currentStep,
+            totalSteps: progress.totalSteps,
+            elapsedSeconds: elapsedSeconds,
+            estimatedRemainingSeconds: progress.estimatedRemainingSeconds(elapsedSeconds: elapsedSeconds),
+            message: progress.displayMessage
+        )
+        let shouldEmit = stateQueue.sync { () -> Bool in
+            guard progressKeyByJobID[jobID] != progress.progressKey else {
+                return false
+            }
+            progressKeyByJobID[jobID] = progress.progressKey
+            progressByJobID[jobID] = snapshot
+            return true
+        }
+        guard shouldEmit else { return }
+        events(.progress(snapshot))
+    }
+
     private func finalize(
         session: SessionRecord,
         job: GenerationJob,
@@ -630,5 +848,11 @@ private extension Dictionary where Key == String, Value == String {
             return false
         }
         return nil
+    }
+}
+
+private extension String {
+    var nonEmpty: String? {
+        isEmpty ? nil : self
     }
 }

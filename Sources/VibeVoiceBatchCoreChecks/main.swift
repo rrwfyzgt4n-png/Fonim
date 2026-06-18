@@ -243,6 +243,32 @@ struct VibeVoiceBatchCoreChecks {
         precondition(preciseEstimatedProgress.elapsedSeconds == 114)
         precondition(preciseEstimatedProgress.estimatedSeconds == 501)
 
+        let chatterboxText = """
+        2026-06-18T20:43:44Z Received /tts request: mode='predefined', format='wav'
+        2026-06-18T20:43:45Z Text chunking complete. Generated 18 chunk(s).
+        2026-06-18T20:43:46Z Synthesizing chunk 3/18...
+        2026-06-18T20:43:47Z 10%|#         | 100/1000 [02:21<22:44, 1.52s/it]
+        """
+        guard let chatterboxProgress = GenerationOutputParser.latestChatterboxProgress(in: chatterboxText) else {
+            throw CheckError("Expected Chatterbox progress")
+        }
+        precondition(chatterboxProgress.chunkIndex == 3)
+        precondition(chatterboxProgress.chunkCount == 18)
+        precondition(chatterboxProgress.currentStep == 100)
+        precondition(chatterboxProgress.totalSteps == 1000)
+        precondition(chatterboxProgress.reportedElapsedSeconds == 141)
+        precondition(chatterboxProgress.displayMessage.contains("chunk 3/18"))
+        precondition(chatterboxProgress.fraction > 0.11 && chatterboxProgress.fraction < 0.12)
+
+        let chatterboxMelText = chatterboxText + "\nS3 Token -> Mel Inference...\n100%|##########| 2/2 [00:09<00:00, 4.50s/it]\n"
+        guard let chatterboxMel = GenerationOutputParser.latestChatterboxProgress(in: chatterboxMelText) else {
+            throw CheckError("Expected Chatterbox mel progress")
+        }
+        precondition(chatterboxMel.phase == "Mel inference")
+        precondition(chatterboxMel.currentStep == 2)
+        precondition(chatterboxMel.totalSteps == 2)
+        precondition(chatterboxMel.fraction > chatterboxProgress.fraction)
+
         let summaryText = """
         Input file: /app/input.txt
         Output file: /app/outputs/input_generated.wav
@@ -718,8 +744,10 @@ struct VibeVoiceBatchCoreChecks {
         let catalog = manager.catalogReport(for: profile)
         precondition(catalog.models.map(\.id) == ["chatterbox"])
         precondition(catalog.voices.map(\.id).contains("Emily.wav"))
-        precondition(catalog.voices.map(\.id).contains("reference:Gianna.wav"))
-        precondition(catalog.message.contains("Loaded Chatterbox model state and 3 voices"))
+        precondition(catalog.voices.map(\.id).contains("Michael.wav"))
+        precondition(!catalog.voices.map(\.id).contains("reference:Gianna.wav"))
+        precondition(catalog.message.contains("Loaded Chatterbox model state and 2 predefined voices"))
+        precondition(catalog.technicalDetails?.contains("Reference voices discovered: 1") == true)
     }
 
 
@@ -1850,7 +1878,21 @@ struct VibeVoiceBatchCoreChecks {
                 contentType: "audio/wav"
             )
         )
-        let adapter = ChatterboxHTTPAdapter(profile: profile, projectRoot: root, fileStore: fileStore, client: client)
+        let logFollower = FakeChatterboxLogFollower(chunks: [
+            """
+            Received /tts request: mode='predefined', format='wav'
+            Text chunking complete. Generated 2 chunk(s).
+            Synthesizing chunk 1/2...
+            20%|##        | 200/1000 [00:20<01:20, 10.00it/s]
+            """
+        ])
+        let adapter = ChatterboxHTTPAdapter(
+            profile: profile,
+            projectRoot: root,
+            fileStore: fileStore,
+            client: client,
+            logFollower: logFollower
+        )
         let job = GenerationJob(
             id: "chatterbox-adapter-job",
             createdAt: Date(timeIntervalSince1970: 1_718_171_995),
@@ -1915,6 +1957,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(session.metadata.outputFile?.hasSuffix("/output.wav") == true)
         precondition(session.logText.contains("Runtime: Chatterbox HTTP service"))
         precondition(session.logText.contains("Voice mode: clone"))
+        precondition(session.logText.contains("Synthesizing chunk 1/2"))
         precondition(session.outputURL?.lastPathComponent == "output.wav")
 
         let recoveredFiles = try FileManager.default.contentsOfDirectory(
@@ -1926,6 +1969,16 @@ struct VibeVoiceBatchCoreChecks {
             switch event {
             case .progress(let snapshot):
                 return snapshot.message == "sending request to Chatterbox"
+            case .sessionStarted, .status, .log, .output:
+                return false
+            }
+        })
+        precondition(events.contains { event in
+            switch event {
+            case .progress(let snapshot):
+                return snapshot.currentStep == 200 &&
+                    snapshot.totalSteps == 1000 &&
+                    snapshot.message.contains("chunk 1/2")
             case .sessionStarted, .status, .log, .output:
                 return false
             }
@@ -2233,6 +2286,26 @@ private final class FakeChatterboxSpeechClient: ChatterboxSpeechGenerating, @unc
         stateQueue.sync {
             cancelFlag = true
         }
+    }
+}
+
+private final class FakeChatterboxLogFollower: ChatterboxLogFollowing {
+    private let chunks: [String]
+
+    init(chunks: [String]) {
+        self.chunks = chunks
+    }
+
+    func followLogs(
+        since: Date,
+        profile: BackendProfile,
+        endpoint: URL?,
+        onChunk: @escaping (String) -> Void
+    ) -> ChatterboxLogFollowHandle? {
+        for chunk in chunks {
+            onChunk(chunk)
+        }
+        return ChatterboxLogFollowHandle {}
     }
 }
 
