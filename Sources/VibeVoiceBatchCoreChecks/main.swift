@@ -22,6 +22,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkOutputsInspectorAggregation()
         try checkKokoroDiscoveryReport()
         try checkKokoroCatalogReport()
+        try checkBackendManagerFacadePreservesInjectedRuntimeHooks()
         try checkBackendManagerOperations()
         try checkWorkspaceDataModel()
         try checkMultiSelectArchiveMovesAllSessions()
@@ -642,6 +643,71 @@ struct VibeVoiceBatchCoreChecks {
         precondition(catalog.models.map(\.id) == ["tts-1", "tts-1-hd"])
         precondition(catalog.voices.map(\.id) == ["af_heart", "am_adam"])
         precondition(catalog.message.contains("Loaded 2 models and 2 voices"))
+    }
+
+
+    private static func checkBackendManagerFacadePreservesInjectedRuntimeHooks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchFacadeChecks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let profile = BackendProfiles.kokoroTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .installedDockerImage,
+                dockerImage: "kokoro-local",
+                containerName: "vibevoice_batch_kokoro_tts",
+                serviceBaseURL: "http://127.0.0.1:8880",
+                modelID: "tts-1",
+                defaultVoice: "af_heart"
+            )
+        )
+        let processSpy = BackendProcessSpy { arguments in
+            if arguments.contains("info") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+            if arguments.contains("images") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro-local\timage-id\t1GB\n")
+            }
+            if arguments.contains("inspect") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro image")
+            }
+            if arguments.contains("pull") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "pulled")
+            }
+            if arguments.contains("ps") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "vibevoice_batch_kokoro_tts\tkokoro-local\t0.0.0.0:8880->8880/tcp\trunning\n")
+            }
+            return BackendProcessResult(exitCode: 0, combinedOutput: "")
+        }
+        let urlSpy = BackendURLSpy()
+        let manager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { executable, arguments in
+                processSpy.run(executable: executable, arguments: arguments)
+            },
+            httpRunner: { url in
+                urlSpy.record(url.absoluteString)
+                if url.path == "/v1/models" {
+                    return BackendHTTPResult(statusCode: 200, body: "{\"data\":[{\"id\":\"tts-1\",\"owned_by\":\"kokoro\"}]}")
+                }
+                if url.path == "/v1/audio/voices" {
+                    return BackendHTTPResult(statusCode: 200, body: "{\"voices\":[\"af_heart\"]}")
+                }
+                return BackendHTTPResult(statusCode: 200, body: "{\"status\":\"ready\"}")
+            }
+        )
+
+        precondition(manager.dockerRuntimeReport().isRunning)
+        precondition(manager.statusSnapshot(for: profile).state == .ready)
+        precondition(manager.setupReport(for: profile).isReady)
+        precondition(manager.discoveryReport(for: profile).candidates.contains { $0.title == "vibevoice_batch_kokoro_tts" })
+        precondition(manager.catalogReport(for: profile).voices.map(\.id) == ["af_heart"])
+        precondition(manager.performOperation(.install, for: profile).status == .succeeded)
+        precondition(processSpy.calls.contains { $0.contains("pull") && $0.contains("kokoro-local") })
+        precondition(urlSpy.urls.contains("http://127.0.0.1:8880/health"))
+        precondition(urlSpy.urls.contains("http://127.0.0.1:8880/v1/models"))
+        precondition(urlSpy.urls.contains("http://127.0.0.1:8880/v1/audio/voices"))
     }
 
     private static func checkBackendManagerOperations() throws {
@@ -1569,6 +1635,21 @@ private final class FakeKokoroSpeechClient: KokoroSpeechGenerating, @unchecked S
     func cancel() {
         stateQueue.sync {
             cancelFlag = true
+        }
+    }
+}
+
+private final class BackendURLSpy: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "local.vibevoice.batch.checks.backend-url-spy")
+    private var recordedURLs: [String] = []
+
+    var urls: [String] {
+        queue.sync { recordedURLs }
+    }
+
+    func record(_ url: String) {
+        queue.sync {
+            recordedURLs.append(url)
         }
     }
 }
