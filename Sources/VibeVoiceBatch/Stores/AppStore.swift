@@ -1,10 +1,8 @@
-import AppKit
-import AVFoundation
 import Foundation
 import VibeVoiceBatchCore
 
 @MainActor
-final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
+final class AppStore: ObservableObject {
     @Published private(set) var sessions: [SessionRecord] = []
     @Published var selectedSessionID: String?
     @Published var editorText = ""
@@ -36,32 +34,51 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var estimatedGenerationRemainingSeconds: TimeInterval?
     @Published private(set) var generationPhaseName = "idle"
     @Published private(set) var requestedSelection: WorkstationSelection?
-    @Published private var liveLogBySessionID: [String: String] = [:]
 
     private let settingsStore: SettingsStore
-    private let fileStore = SessionFileStore()
-    private let quickLookPreviewer = QuickLookPreviewer()
-    private let backendManager = BackendManager()
-    private let vibeVoiceAdapter: VibeVoiceDockerAdapter
-    private let kokoroAdapter: KokoroHTTPAdapter
-    private lazy var jobQueue = JobQueue(adapters: [vibeVoiceAdapter, kokoroAdapter])
+    private let fileStore: SessionFileStore
+    private let playbackCoordinator: AppAudioPlaybackCoordinator
+    private let outputActionCoordinator: AppOutputActionCoordinator
+    private let backendStatusCoordinator: AppBackendStatusCoordinator
+    private let generationQueueCoordinator: AppGenerationQueueCoordinator
+    private let progressCoordinator = AppGenerationProgressCoordinator()
     private var activeTask: Task<Void, Never>?
     private var activeJobID: String?
-    private var queuedJobPayloads: [String: GenerationJob] = [:]
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
-    private var audioPlayer: AVAudioPlayer?
-    private var playbackTimer: Timer?
 
     init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
-        vibeVoiceAdapter = VibeVoiceDockerAdapter()
-        kokoroAdapter = KokoroHTTPAdapter()
-        super.init()
+        let fileStore = SessionFileStore()
+        let quickLookPreviewer = QuickLookPreviewer()
+        let playbackCoordinator = AppAudioPlaybackCoordinator()
+        let adapters: [any EngineAdapter] = [
+            VibeVoiceDockerAdapter(),
+            KokoroHTTPAdapter()
+        ]
+
+        self.fileStore = fileStore
+        self.playbackCoordinator = playbackCoordinator
+        outputActionCoordinator = AppOutputActionCoordinator(
+            fileStore: fileStore,
+            quickLookPreviewer: quickLookPreviewer
+        )
+        backendStatusCoordinator = AppBackendStatusCoordinator(adapters: adapters)
+        generationQueueCoordinator = AppGenerationQueueCoordinator(adapters: adapters)
+
         selectedVoice = settingsStore.settings.defaultVoice
         cfgScale = settingsStore.settings.defaultCFGScale
         ddpmInferenceSteps = settingsStore.settings.defaultDDPMInferenceSteps
         backendStatus = BackendStatusSnapshot.unknown(profile: selectedBackendProfile)
+        playbackCoordinator.onStateChange = { [weak self] state in
+            self?.applyPlaybackState(state)
+        }
+        playbackCoordinator.onStatus = { [weak self] message in
+            self?.statusMessage = message
+        }
+        playbackCoordinator.onError = { [weak self] message in
+            self?.alertMessage = message
+        }
     }
 
     var selectedSession: SessionRecord? {
@@ -162,8 +179,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
         let outputURL = URL(fileURLWithPath: exportPath)
-        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
-        statusMessage = "Revealed \(outputURL.lastPathComponent)"
+        statusMessage = outputActionCoordinator.revealOutputURL(outputURL)
     }
 
     func refreshBackendStatus() {
@@ -185,7 +201,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         statusMessage = "\(kind.displayName) is running."
         let profile = selectedBackendProfile
         Task {
-            let result = await backendManager.performOperationAsync(kind, for: profile)
+            let result = await backendStatusCoordinator.performOperation(kind, for: profile)
             await MainActor.run {
                 activeBackendOperation = nil
                 statusMessage = result.message
@@ -221,7 +237,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         statusMessage = "New blank editor"
         requestedSelection = .section(.history)
         if !isGenerating {
-            generationTicker = .idle
+            progressCoordinator.resetToIdle()
+            syncGenerationProgressState()
         }
     }
 
@@ -278,12 +295,10 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         elapsedSeconds = 0
         activeStartedAt = Date()
         startElapsedTimer()
-        estimatedGenerationProgressFraction = nil
-        estimatedGenerationRemainingSeconds = nil
-        generationPhaseName = "checking backend"
         isPreparingGeneration = true
         statusMessage = "Checking backend..."
-        setLatestGenerationLogLine("Checking backend")
+        progressCoordinator.prepareForBackendCheck()
+        syncGenerationProgressState()
         Task {
             let status = await refreshBackendStatusNow()
             guard status.canStartGeneration else {
@@ -314,7 +329,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             guard item.id == activeJobID else { return }
             cancelGeneration()
         case .queued:
-            queuedJobPayloads[item.id] = nil
+            generationQueueCoordinator.cancelQueuedPayload(id: item.id)
             updateQueuedGeneration(id: item.id) { queuedItem in
                 queuedItem.status = .cancelled
                 queuedItem.statusMessage = "Cancelled before start"
@@ -411,19 +426,17 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         cfgScale: String,
         ddpmInferenceSteps: Int
     ) {
-        let job = GenerationJob(
-            inputText: text,
+        let enqueued = generationQueueCoordinator.enqueue(
+            text: text,
             backendID: selectedBackendProfile.id,
             modelID: selectedModelID,
-            voiceID: voice,
-            settings: GenerationSettings(
-                cfgScale: cfgScale,
-                ddpmInferenceSteps: ddpmInferenceSteps,
-                extraParameters: selectedBackendProfile.generationExtraParameters
-            )
+            voice: voice,
+            cfgScale: cfgScale,
+            ddpmInferenceSteps: ddpmInferenceSteps,
+            extraParameters: selectedBackendProfile.generationExtraParameters
         )
-        queuedJobPayloads[job.id] = job
-        queuedGenerations.append(QueuedGenerationItem(job: job))
+        let job = enqueued.job
+        queuedGenerations.append(enqueued.item)
         selectedQueueItemID = job.id
         selectedSessionID = nil
         hasUnsavedEditorText = false
@@ -434,8 +447,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private func startNextQueuedGenerationIfIdle() {
         guard !isGenerating else { return }
-        guard let nextItem = queuedGenerations.first(where: { $0.status == .queued }),
-              let job = queuedJobPayloads[nextItem.id] else {
+        guard let job = generationQueueCoordinator.nextQueuedJob(from: queuedGenerations) else {
             return
         }
 
@@ -443,7 +455,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private func startQueuedGeneration(_ job: GenerationJob) {
-        let queue = jobQueue
+        let queue = generationQueueCoordinator
 
         selectedSessionID = nil
         activeSessionID = nil
@@ -454,12 +466,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             activeStartedAt = Date()
         }
         activeGenerationProgress = nil
-        estimatedGenerationProgressFraction = nil
-        estimatedGenerationRemainingSeconds = nil
-        generationPhaseName = "starting"
         activeStartedAt = Date()
         statusMessage = "Starting queued generation"
-        setLatestGenerationLogLine("Starting queued generation")
+        progressCoordinator.startGeneration(
+            voice: job.voiceID,
+            cfgScale: job.settings.cfgScale,
+            ddpmInferenceSteps: job.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
+        )
+        syncGenerationProgressState()
         updateQueuedGeneration(id: job.id) { item in
             item.status = .running
             item.statusMessage = "Starting"
@@ -470,11 +484,6 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             .runningJob,
             userMessage: "\(backendStatus.displayName) is generating audio.",
             recoverySuggestion: "You can cancel the running job from the toolbar."
-        )
-        generationTicker = .started(
-            voice: job.voiceID,
-            cfgScale: job.settings.cfgScale,
-            ddpmInferenceSteps: job.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
         )
         startElapsedTimer()
 
@@ -501,7 +510,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             userMessage: "Cancelling the current generation.",
             recoverySuggestion: "The partial session will stay in history."
         )
-        let queue = jobQueue
+        let queue = generationQueueCoordinator
         Task {
             await queue.cancel(jobID: activeJobID)
         }
@@ -520,7 +529,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func archiveDeleteSession(_ record: SessionRecord) {
         do {
-            let destination = try fileStore.archiveDeletedSession(record)
+            let destination = try outputActionCoordinator.archiveDeletedSession(record)
             if selectedSessionID == record.id {
                 selectedSessionID = nil
             }
@@ -539,26 +548,19 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
 
-        var archivedCount = 0
-        var failures: [String] = []
-        for record in archiveTargets {
-            do {
-                _ = try fileStore.archiveDeletedSession(record)
-                selectedOutputSessionIDs.remove(record.id)
-                if selectedSessionID == record.id {
-                    selectedSessionID = nil
-                }
-                archivedCount += 1
-            } catch {
-                failures.append("\(record.id): \(error.localizedDescription)")
+        let summary = outputActionCoordinator.archiveDeletedSessions(archiveTargets)
+        for archivedID in summary.archivedIDs {
+            selectedOutputSessionIDs.remove(archivedID)
+            if selectedSessionID == archivedID {
+                selectedSessionID = nil
             }
         }
 
         refreshHistory()
-        if failures.isEmpty {
-            statusMessage = "Archived \(archivedCount) output\(archivedCount == 1 ? "" : "s") to recovered/deleted_sessions. Recover by moving session folders back into history."
+        if summary.failures.isEmpty {
+            statusMessage = "Archived \(summary.archivedCount) output\(summary.archivedCount == 1 ? "" : "s") to recovered/deleted_sessions. Recover by moving session folders back into history."
         } else {
-            alertMessage = "Archived \(archivedCount) output\(archivedCount == 1 ? "" : "s"), but \(failures.count) could not be archived. Files that failed to archive were left in place.\n\n\(failures.joined(separator: "\n"))"
+            alertMessage = "Archived \(summary.archivedCount) output\(summary.archivedCount == 1 ? "" : "s"), but \(summary.failures.count) could not be archived. Files that failed to archive were left in place.\n\n\(summary.failures.joined(separator: "\n"))"
         }
     }
 
@@ -567,16 +569,11 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func openSessionFolder(_ record: SessionRecord) {
-        NSWorkspace.shared.open(record.folderURL)
+        outputActionCoordinator.openSessionFolder(record)
     }
 
     func revealOutputFile(_ record: SessionRecord) {
-        guard let outputURL = record.outputURL else {
-            statusMessage = "No WAV file for this session"
-            return
-        }
-        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
-        statusMessage = "Revealed \(outputURL.lastPathComponent)"
+        statusMessage = outputActionCoordinator.revealOutputFile(record)
     }
 
     func revealSelectedOutputFile() {
@@ -588,33 +585,15 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func copyOutputPath(_ record: SessionRecord) {
-        guard let outputURL = record.outputURL else {
-            statusMessage = "No WAV file for this session"
-            return
-        }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(outputURL.path, forType: .string)
-        statusMessage = "Copied output path"
+        statusMessage = outputActionCoordinator.copyOutputPath(record)
     }
 
     func copySelectedOutputPaths() {
-        let paths = selectedOutputSessions.compactMap { $0.outputURL?.path }
-        guard !paths.isEmpty else {
-            statusMessage = "No output paths selected"
-            return
-        }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
-        statusMessage = "Copied \(paths.count) output path\(paths.count == 1 ? "" : "s")"
+        statusMessage = outputActionCoordinator.copyOutputPaths(selectedOutputSessions)
     }
 
     func quickLookOutputFile(_ record: SessionRecord) {
-        guard let outputURL = record.outputURL else {
-            statusMessage = "No WAV file for this session"
-            return
-        }
-        quickLookPreviewer.preview(outputURL)
-        statusMessage = "Previewing \(outputURL.lastPathComponent)"
+        statusMessage = outputActionCoordinator.quickLookOutputFile(record)
     }
 
     func quickLookSelectedOutputFile() {
@@ -626,25 +605,22 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func shareSelectedOutputFiles() {
-        let urls = selectedOutputSessions.compactMap(\.outputURL)
-        guard !urls.isEmpty else {
+        guard !selectedOutputSessions.isEmpty else {
             statusMessage = "No output selected"
             return
         }
 
-        guard let contentView = NSApp.keyWindow?.contentView else {
+        guard outputActionCoordinator.shareOutputFiles(selectedOutputSessions) else {
             copySelectedOutputPaths()
             return
         }
 
-        let picker = NSSharingServicePicker(items: urls)
-        picker.show(relativeTo: contentView.bounds, of: contentView, preferredEdge: .minY)
-        statusMessage = "Sharing \(urls.count) output\(urls.count == 1 ? "" : "s")"
+        statusMessage = "Sharing \(selectedOutputSessions.count) output\(selectedOutputSessions.count == 1 ? "" : "s")"
     }
 
     func playWAV(_ record: SessionRecord) {
         if isPlaying(record) {
-            stopWAVPlayback(status: "Stopped playback")
+            playbackCoordinator.stop(status: "Stopped playback")
             return
         }
 
@@ -653,32 +629,15 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private func playOutputURL(_ outputURL: URL, sessionID: String) {
-        do {
-            if isPlayingWAV {
-                stopWAVPlayback()
-            }
-            let player = try AVAudioPlayer(contentsOf: outputURL)
-            player.delegate = self
-            player.prepareToPlay()
-            player.play()
-            audioPlayer = player
-            playingSessionID = sessionID
-            playbackElapsedSeconds = player.currentTime
-            playbackDurationSeconds = player.duration
-            isPlayingWAV = true
-            startPlaybackTimer()
-            statusMessage = "Playing \(sessionID)"
-        } catch {
-            alertMessage = "Could not play WAV: \(error.localizedDescription)"
-        }
+        playbackCoordinator.play(outputURL: outputURL, sessionID: sessionID)
     }
 
     func isPlaying(_ record: SessionRecord) -> Bool {
-        isPlayingWAV && playingSessionID == record.id
+        playbackCoordinator.isPlaying(sessionID: record.id)
     }
 
     func logText(for record: SessionRecord) -> String {
-        liveLogBySessionID[record.id] ?? record.logText
+        progressCoordinator.logText(for: record)
     }
 
     func clearPendingScrollRequest() {
@@ -693,8 +652,8 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         switch event {
         case .sessionStarted(let record):
             activeSessionID = record.id
-            liveLogBySessionID[record.id] = ""
-            setLatestGenerationLogLine("Session created: \(record.id)")
+            progressCoordinator.startSession(id: record.id)
+            syncGenerationProgressState()
             if let activeJobID {
                 updateQueuedGeneration(id: activeJobID) { item in
                     item.sessionID = record.id
@@ -719,25 +678,17 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             }
         case .progress(let snapshot):
             activeGenerationProgress = snapshot
-            if let fraction = snapshot.fractionComplete {
-                estimatedGenerationProgressFraction = fraction
-            }
-            if let remaining = snapshot.estimatedRemainingSeconds {
-                estimatedGenerationRemainingSeconds = remaining
-            }
+            let queueUpdate = progressCoordinator.ingest(
+                snapshot: snapshot,
+                fallbackElapsedSeconds: elapsedSeconds
+            )
             if let elapsed = snapshot.elapsedSeconds {
                 elapsedSeconds = max(elapsedSeconds, elapsed)
             }
-            generationPhaseName = snapshot.message
-            setLatestGenerationLogLine(snapshot.message)
+            syncGenerationProgressState()
             updateQueuedGeneration(id: snapshot.jobID) { item in
                 item.status = .running
-                item.progressFraction = snapshot.fractionComplete
-                item.currentStep = snapshot.currentStep
-                item.totalSteps = snapshot.totalSteps
-                item.estimatedRemainingSeconds = snapshot.estimatedRemainingSeconds
-                item.elapsedSeconds = snapshot.elapsedSeconds ?? elapsedSeconds
-                item.statusMessage = snapshot.message
+                apply(queueUpdate, to: &item)
             }
         case .log(let chunk):
             guard let activeSessionID else { return }
@@ -749,141 +700,47 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private func appendLiveLog(_ chunk: String, sessionID: String) {
-        liveLogBySessionID[sessionID, default: ""] += chunk
-        if sessionID == activeSessionID {
-            if let latestLine = latestTerminalLine(from: liveLogBySessionID[sessionID, default: ""]) {
-                setLatestGenerationLogLine(latestLine)
-            }
-            generationTicker = generationTicker.ingesting(
-                logText: liveLogBySessionID[sessionID, default: ""],
-                elapsed: elapsedSeconds
-            )
-        }
+        let changedActiveLog = progressCoordinator.appendLog(
+            chunk,
+            sessionID: sessionID,
+            elapsedSeconds: elapsedSeconds
+        )
+        syncGenerationProgressState()
         if sessionID == selectedSessionID {
             objectWillChange.send()
+        }
+        if changedActiveLog, let activeJobID {
+            updateQueuedGenerationFromLatestProgress(jobID: activeJobID)
         }
     }
 
     private func setLatestGenerationLogLine(_ line: String) {
-        latestGenerationLogLine = line
-        updateEstimatedGenerationProgress(from: line)
-    }
-
-    private func updateEstimatedGenerationProgress(from line: String) {
-        if let estimate = GenerationOutputParser.latestEstimatedProgress(in: line) {
-            let phaseName = estimate.displayPhase
-            generationPhaseName = phaseName
-            estimatedGenerationProgressFraction = estimate.fraction
-            if let elapsed = estimate.elapsedSeconds {
+        if let queueUpdate = progressCoordinator.setLatestLine(line, elapsedSeconds: elapsedSeconds) {
+            if let elapsed = queueUpdate.elapsedSeconds {
                 elapsedSeconds = max(elapsedSeconds, elapsed)
             }
-            if let elapsed = estimate.elapsedSeconds,
-               let estimated = estimate.estimatedSeconds,
-               estimated > elapsed {
-                estimatedGenerationRemainingSeconds = estimated - elapsed
-            } else {
-                estimatedGenerationRemainingSeconds = nil
-            }
             if let activeJobID {
                 updateQueuedGeneration(id: activeJobID) { item in
                     item.status = .running
-                    item.progressFraction = estimate.fraction
-                    item.elapsedSeconds = estimate.elapsedSeconds ?? item.elapsedSeconds
-                    item.estimatedRemainingSeconds = estimatedGenerationRemainingSeconds
-                    item.statusMessage = phaseName.capitalized
+                    apply(queueUpdate, to: &item)
                 }
             }
+        }
+        syncGenerationProgressState()
+    }
+
+    private func updateQueuedGenerationFromLatestProgress(jobID: String) {
+        guard let queueUpdate = progressCoordinator.setLatestLine(
+            latestGenerationLogLine,
+            elapsedSeconds: elapsedSeconds
+        ) else {
             return
         }
-
-        if let progress = GenerationOutputParser.latestProgress(in: line) {
-            generationPhaseName = "Current Step"
-            estimatedGenerationProgressFraction = progress.fraction
-            let elapsed = progress.reportedElapsedSeconds ?? elapsedSeconds
-            if let reportedElapsed = progress.reportedElapsedSeconds {
-                elapsedSeconds = max(elapsedSeconds, reportedElapsed)
-            }
-            estimatedGenerationRemainingSeconds = progress.estimatedRemainingSeconds(elapsedSeconds: elapsed)
-            if let activeJobID {
-                updateQueuedGeneration(id: activeJobID) { item in
-                    item.status = .running
-                    item.progressFraction = progress.fraction
-                    item.currentStep = progress.currentStep
-                    item.totalSteps = progress.maxSteps
-                    item.elapsedSeconds = elapsed
-                    item.estimatedRemainingSeconds = estimatedGenerationRemainingSeconds
-                    item.statusMessage = "Current Step"
-                }
-            }
-            return
+        updateQueuedGeneration(id: jobID) { item in
+            item.status = .running
+            apply(queueUpdate, to: &item)
         }
-
-        generationPhaseName = generationPhaseName(for: line)
-    }
-
-    private func generationPhaseName(for line: String) -> String {
-        let normalized = line.lowercased()
-        if normalized.contains("checking backend") { return "Checking Backend" }
-        if normalized.contains("queued") { return "Queued" }
-        if normalized.contains("session created") { return "Session Created" }
-        if normalized.contains("staged input") { return "Staging Input" }
-        if normalized.contains("starting generation") { return "Starting Backend" }
-        if normalized.contains("using device:") { return "Device Ready" }
-        if normalized.contains("found ") && normalized.contains("voice files") { return "Voices Loaded" }
-        if normalized.contains("reading script") { return "Reading Script" }
-        if normalized.contains("loading processor") { return "Loading Processor" }
-        if normalized.contains("loading file") { return "Loading Tokenizer" }
-        if normalized.contains("loading configuration") { return "Loading Config" }
-        if normalized.contains("model config") { return "Model Config" }
-        if normalized.contains("loading weights file") { return "Loading Weights" }
-        if normalized.contains("instantiating") { return "Instantiating Model" }
-        if normalized.contains("all model checkpoint weights") { return "Weights Loaded" }
-        if normalized.contains("some weights") { return "Model Initialized" }
-        if normalized.contains("ddpm inference steps") { return "Diffusion Ready" }
-        if normalized.contains("language model attention") { return "Attention Ready" }
-        if normalized.contains("using voice preset") { return "Voice Loaded" }
-        if normalized.contains("generation time") { return "Finalizing" }
-        if normalized.contains("saved output") || normalized.contains("output ready") { return "Output Ready" }
-        if normalized.contains("completed") { return "Completed" }
-        if normalized.contains("failed") { return "Failed" }
-        if normalized.contains("cancel") { return "Cancelled" }
-        return line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Working" : String(line.prefix(40))
-    }
-
-    private func latestTerminalLine(from text: String) -> String? {
-        let cleaned = removingANSIEscapeSequences(from: text)
-        let parts = cleaned.components(separatedBy: CharacterSet(charactersIn: "\r\n"))
-        guard let line = parts
-            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
-            .last(where: { !$0.isEmpty }) else {
-            return nil
-        }
-        return String(line.prefix(220))
-    }
-
-    private func removingANSIEscapeSequences(from text: String) -> String {
-        var output = String.UnicodeScalarView()
-        var iterator = text.unicodeScalars.makeIterator()
-
-        while let scalar = iterator.next() {
-            if scalar.value == 0x1B {
-                while let next = iterator.next() {
-                    if next.value >= 0x40, next.value <= 0x7E {
-                        break
-                    }
-                }
-                continue
-            }
-
-            if scalar.value == 0x09 ||
-                scalar.value == 0x0A ||
-                scalar.value == 0x0D ||
-                scalar.value >= 0x20 {
-                output.append(scalar)
-            }
-        }
-
-        return String(output)
+        syncGenerationProgressState()
     }
 
     private func completeGeneration(record: GenerationRecord) {
@@ -900,7 +757,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         elapsedSeconds = finalElapsed
         activeGenerationProgress = nil
         if let completedJobID {
-            queuedJobPayloads[completedJobID] = nil
+            generationQueueCoordinator.removePayload(id: completedJobID)
             updateQueuedGeneration(id: completedJobID) { item in
                 item.status = QueuedGenerationStatus(recordStatus: record.status)
                 item.sessionID = record.id
@@ -910,22 +767,17 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 item.errorMessage = record.error?.explanation
             }
         }
-        let logText = liveLogBySessionID[sessionID, default: record.logs]
-        generationTicker = generationTicker
-            .ingesting(logText: logText, elapsed: finalElapsed)
-            .finished(
-                message: record.status.displayName,
-                elapsed: finalElapsed,
-                phase: record.status.tickerPhase
-            )
+        let logText = progressCoordinator.liveLog(sessionID: sessionID, fallback: record.logs)
+        progressCoordinator.finish(
+            logText: logText,
+            elapsedSeconds: finalElapsed,
+            status: record.status
+        )
+        syncGenerationProgressState()
         stopElapsedTimer()
         refreshHistory()
         pendingScrollSessionID = sessionID
         statusMessage = record.status.displayName
-        estimatedGenerationProgressFraction = record.status == .completed ? 1 : estimatedGenerationProgressFraction
-        estimatedGenerationRemainingSeconds = nil
-        generationPhaseName = record.status.displayName.lowercased()
-        setLatestGenerationLogLine(record.status.displayName)
         if queuedGenerations.contains(where: { $0.status == .queued }) {
             startNextQueuedGenerationIfIdle()
         } else {
@@ -950,20 +802,14 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 item.statusMessage = "Failed"
                 item.errorMessage = userFacingMessage(for: error)
             }
-            queuedJobPayloads[failedJobID] = nil
+            generationQueueCoordinator.removePayload(id: failedJobID)
         }
         stopElapsedTimer()
-        generationTicker = generationTicker.finished(
-            message: "Failed",
-            elapsed: finalElapsed,
-            phase: .failed
-        )
+        progressCoordinator.fail(elapsedSeconds: finalElapsed)
+        syncGenerationProgressState()
         refreshHistory()
         alertMessage = userFacingMessage(for: error)
         statusMessage = "Failed"
-        estimatedGenerationRemainingSeconds = nil
-        generationPhaseName = "failed"
-        setLatestGenerationLogLine("Failed")
         if queuedGenerations.contains(where: { $0.status == .queued }) {
             startNextQueuedGenerationIfIdle()
         } else {
@@ -984,39 +830,46 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isRefreshingBackendStatus = true
         defer { isRefreshingBackendStatus = false }
         let profile = selectedBackendProfile
-        let report: BackendHealthReport
-        if profile.id == BackendProfiles.vibeVoiceTTS.id,
-           let adapter = adapter(for: profile.id) {
-            report = await adapter.healthCheck()
-        } else if BackendProfiles.baseProfile(id: profile.id) != nil {
-            report = await backendManager.healthReportAsync(for: profile)
-        } else {
-            report = BackendHealthReport(
-                profileID: profile.id,
-                state: .unknown,
-                userMessage: "\(profile.displayName) is registered, but no engine adapter is available.",
-                recoverySuggestion: "Choose an installed backend before generating."
-            )
-        }
-        let snapshot = BackendStatusSnapshot(profile: profile, report: report)
+        let snapshot = await backendStatusCoordinator.refreshStatus(for: profile)
         backendStatus = snapshot
         statusMessage = snapshot.state == .ready ? "Backend ready" : snapshot.state.displayName
         return snapshot
     }
 
     private var selectedBackendHasGenerationAdapter: Bool {
-        selectedBackendProfile.id == BackendProfiles.vibeVoiceTTS.id ||
-            selectedBackendProfile.id == BackendProfiles.kokoroTTS.id
+        backendStatusCoordinator.hasGenerationAdapter(for: selectedBackendProfile)
     }
 
-    private func adapter(for backendID: String) -> (any EngineAdapter)? {
-        if vibeVoiceAdapter.profile.id == backendID {
-            return vibeVoiceAdapter
+    private func apply(_ update: GenerationQueueProgressUpdate, to item: inout QueuedGenerationItem) {
+        item.progressFraction = update.progressFraction
+        if let currentStep = update.currentStep {
+            item.currentStep = currentStep
         }
-        if kokoroAdapter.profile.id == backendID {
-            return kokoroAdapter
+        if let totalSteps = update.totalSteps {
+            item.totalSteps = totalSteps
         }
-        return nil
+        if let elapsedSeconds = update.elapsedSeconds {
+            item.elapsedSeconds = elapsedSeconds
+        }
+        if update.shouldUpdateEstimatedRemainingSeconds {
+            item.estimatedRemainingSeconds = update.estimatedRemainingSeconds
+        }
+        item.statusMessage = update.statusMessage
+    }
+
+    private func syncGenerationProgressState() {
+        latestGenerationLogLine = progressCoordinator.latestLine
+        estimatedGenerationProgressFraction = progressCoordinator.estimatedProgressFraction
+        estimatedGenerationRemainingSeconds = progressCoordinator.estimatedRemainingSeconds
+        generationPhaseName = progressCoordinator.phaseName
+        generationTicker = progressCoordinator.ticker
+    }
+
+    private func applyPlaybackState(_ state: AppAudioPlaybackCoordinator.State) {
+        isPlayingWAV = state.isPlaying
+        playingSessionID = state.sessionID
+        playbackElapsedSeconds = state.elapsedSeconds
+        playbackDurationSeconds = state.durationSeconds
     }
 
     private func presentBlockedBackend(_ status: BackendStatusSnapshot) {
@@ -1043,12 +896,13 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 let previousElapsed = self.elapsedSeconds
                 let elapsed = max(previousElapsed, Date().timeIntervalSince(activeStartedAt))
                 self.elapsedSeconds = elapsed
-                if let remaining = self.estimatedGenerationRemainingSeconds {
-                    let delta = max(0, elapsed - previousElapsed)
-                    self.estimatedGenerationRemainingSeconds = max(0, remaining - delta)
-                }
+                self.progressCoordinator.tick(
+                    elapsedSeconds: elapsed,
+                    previousElapsedSeconds: previousElapsed,
+                    isActive: self.isGenerating || self.isPreparingGeneration
+                )
+                self.syncGenerationProgressState()
                 if self.isGenerating || self.isPreparingGeneration {
-                    self.generationTicker = self.generationTicker.ticking(elapsed: elapsed)
                     if let activeJobID = self.activeJobID {
                         self.updateQueuedGeneration(id: activeJobID) { item in
                             item.elapsedSeconds = elapsed
@@ -1065,66 +919,6 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         elapsedTimer?.invalidate()
         elapsedTimer = nil
         activeStartedAt = nil
-    }
-
-    private func startPlaybackTimer() {
-        stopPlaybackTimer(reset: false)
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, let audioPlayer = self.audioPlayer else { return }
-                self.playbackElapsedSeconds = audioPlayer.currentTime
-                self.playbackDurationSeconds = audioPlayer.duration
-            }
-        }
-        playbackTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    private func stopPlaybackTimer(reset: Bool) {
-        playbackTimer?.invalidate()
-        playbackTimer = nil
-        if reset {
-            playbackElapsedSeconds = 0
-            playbackDurationSeconds = 0
-        }
-    }
-
-    private func stopWAVPlayback(status: String? = nil) {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        playingSessionID = nil
-        isPlayingWAV = false
-        stopPlaybackTimer(reset: true)
-        if let status {
-            statusMessage = status
-        }
-    }
-
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in
-            self.stopWAVPlayback(status: flag ? "Playback finished" : "Playback stopped")
-        }
-    }
-
-    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        Task { @MainActor in
-            self.stopWAVPlayback(status: "Playback failed")
-            if let error {
-                self.alertMessage = "Could not play WAV: \(error.localizedDescription)"
-            }
-        }
-    }
-}
-
-private extension GenerationRecordStatus {
-    var tickerPhase: GenerationTickerState.Phase {
-        switch self {
-        case .completed: .completed
-        case .failed: .failed
-        case .cancelled: .cancelled
-        case .running: .running
-        case .queued: .running
-        }
     }
 }
 

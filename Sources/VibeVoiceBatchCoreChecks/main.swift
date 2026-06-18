@@ -32,6 +32,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkAppSettingsNormalizeInvalidValues()
         try checkDockerShimDocumentation()
         try checkAssistantViewDecomposition()
+        try checkAppStoreResponsibilitySplit()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
         try await checkBackendVoiceTestRunnerUsesAdapterQueue()
@@ -1436,6 +1437,40 @@ struct VibeVoiceBatchCoreChecks {
             precondition(text.contains(requiredType))
             precondition(text.contains("import SwiftUI"))
             precondition(text.split(separator: "\n", omittingEmptySubsequences: false).count < 900)
+        }
+    }
+
+    private static func checkAppStoreResponsibilitySplit() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let appStoreURL = root.appendingPathComponent("Sources/VibeVoiceBatch/Stores/AppStore.swift")
+        let appStore = try String(contentsOf: appStoreURL, encoding: .utf8)
+        let appStoreLineCount = appStore.split(separator: "\n", omittingEmptySubsequences: false).count
+
+        precondition(appStoreLineCount < 1_000)
+        precondition(appStore.contains("final class AppStore: ObservableObject"))
+        precondition(!appStore.contains("AVAudioPlayerDelegate"))
+        precondition(!appStore.contains("AVAudioPlayer(contentsOf:"))
+        precondition(!appStore.contains("NSSharingServicePicker"))
+        precondition(!appStore.contains("NSPasteboard.general"))
+        precondition(!appStore.contains("GenerationOutputParser"))
+        precondition(!appStore.contains("queuedJobPayloads"))
+        precondition(!appStore.contains("liveLogBySessionID"))
+
+        let coordinators = root.appendingPathComponent("Sources/VibeVoiceBatch/Coordinators", isDirectory: true)
+        let expectedTypes = [
+            "AppAudioPlaybackCoordinator.swift": "final class AppAudioPlaybackCoordinator",
+            "AppBackendStatusCoordinator.swift": "final class AppBackendStatusCoordinator",
+            "AppGenerationProgressCoordinator.swift": "final class AppGenerationProgressCoordinator",
+            "AppGenerationQueueCoordinator.swift": "final class AppGenerationQueueCoordinator",
+            "AppOutputActionCoordinator.swift": "struct AppOutputActionCoordinator",
+        ]
+
+        for (fileName, requiredType) in expectedTypes {
+            let text = try String(
+                contentsOf: coordinators.appendingPathComponent(fileName),
+                encoding: .utf8
+            )
+            precondition(text.contains(requiredType))
         }
     }
 
