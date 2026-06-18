@@ -29,8 +29,18 @@ RUN git lfs pull || true
 
 RUN pip install -e ".[streamingtts]"
 
-# Force VibeVoice voice-preset .pt loading to work with PyTorch 2.6+.
-# This intentionally overrides any explicit weights_only=True.
+# Compatibility shim for the current VibeVoice voice-preset loader under
+# PyTorch 2.6+. VibeVoice voice presets are loaded through torch.load(), and
+# current upstream code is not yet compatible with PyTorch's safer default
+# weights_only behavior.
+#
+# Scope: this creates sitecustomize.py inside this app-managed container only;
+# it does not patch the user's macOS Python environment.
+#
+# Risk: this globally forces torch.load(..., weights_only=False) inside the
+# image, which allows pickle-backed .pt loading. Do not reuse this image for
+# arbitrary untrusted model files. Remove this shim once upstream VibeVoice
+# supports safe voice-preset loading or pins a compatible loader directly.
 RUN python - <<'PY'
 import site
 from pathlib import Path

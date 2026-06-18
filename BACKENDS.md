@@ -36,6 +36,16 @@ Each backend profile defines:
 - Current image: `vibevoice-cpu`
 - Current model: `microsoft/VibeVoice-Realtime-0.5B`
 
+#### VibeVoice Docker Compatibility Shim
+
+The current `vibevoice-cpu` Dockerfile includes a container-local `sitecustomize.py` shim that forces `torch.load(..., weights_only=False)` for VibeVoice voice-preset `.pt` loading under PyTorch 2.6+.
+
+This is a compatibility workaround for the current upstream VibeVoice loader. It must remain scoped to the managed VibeVoice image and must not be applied to the user's macOS Python environment or to unrelated backend images.
+
+Risk: `weights_only=False` enables pickle-backed loading inside the container. The app should only use this image with the managed VibeVoice workflow and trusted model or preset sources; it should not present the image as a general-purpose PyTorch runtime for arbitrary `.pt` files.
+
+Removal condition: remove the shim when upstream VibeVoice supports safe voice-preset loading with PyTorch's current defaults, or when the image pins and documents a VibeVoice loader that no longer requires the global `torch.load` override.
+
 ### Kokoro
 
 - Runtime: local Python placeholder

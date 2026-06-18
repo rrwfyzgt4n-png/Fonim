@@ -30,6 +30,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkWorkspacePresets()
         try checkAppSpecificErrors()
         try checkAppSettingsNormalizeInvalidValues()
+        try checkDockerShimDocumentation()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
         try await checkBackendVoiceTestRunnerUsesAdapterQueue()
@@ -1389,6 +1390,22 @@ struct VibeVoiceBatchCoreChecks {
             )
         ])
         precondition(corruptResult.recoveryNotes.first?.technicalDetails?.isEmpty == false)
+    }
+
+    private static func checkDockerShimDocumentation() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let dockerfile = try String(contentsOf: root.appendingPathComponent("Dockerfile"), encoding: .utf8)
+        let backends = try String(contentsOf: root.appendingPathComponent("BACKENDS.md"), encoding: .utf8)
+        let packaging = try String(contentsOf: root.appendingPathComponent("PACKAGING.md"), encoding: .utf8)
+
+        precondition(dockerfile.contains("Compatibility shim for the current VibeVoice voice-preset loader"))
+        precondition(dockerfile.contains("weights_only=False"))
+        precondition(dockerfile.contains("Remove this shim once upstream VibeVoice"))
+        precondition(backends.contains("VibeVoice Docker Compatibility Shim"))
+        precondition(backends.contains("Risk: `weights_only=False`"))
+        precondition(backends.contains("Removal condition"))
+        precondition(packaging.contains("Backend Image Compatibility Notes"))
+        precondition(packaging.contains("do not hide this workaround"))
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {

@@ -50,3 +50,9 @@ This builds, checks, launches, packages, validates bundle metadata, verifies sig
 - Docker and model backends remain external managed infrastructure.
 - The package does not install Docker, privileged helpers, or model files silently.
 - The app remains a direct-distribution candidate; App Store sandboxing needs a separate review because local backend orchestration may require permissions that are not App Store friendly.
+
+## Backend Image Compatibility Notes
+
+The local VibeVoice Docker image currently contains a container-only PyTorch compatibility shim for VibeVoice voice-preset loading. The shim is documented in `BACKENDS.md` and in the Dockerfile. It forces `torch.load(..., weights_only=False)` inside the managed image because current upstream VibeVoice voice-preset loading is not yet compatible with PyTorch's safer default loading behavior.
+
+Distribution rule: do not hide this workaround in release notes, backend setup copy, or support docs. It is acceptable for a local managed image, but it must not be described as a general-purpose safe model-loading environment. Remove it when upstream VibeVoice no longer needs the override.
