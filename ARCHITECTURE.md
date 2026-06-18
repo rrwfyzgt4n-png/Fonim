@@ -43,11 +43,11 @@ Voice and generation presets are represented by `NarrationVoicePreset` and `Narr
 
 Inspector state is window-scoped. `InspectorPanelView` owns the right-side desktop inspector surface for voice, model, inference, export, and contextual metadata controls. The editor stays focused on text and generation while advanced controls move into the inspector.
 
-Generation queue state is visible in the Batches destination. `AppStore` owns app-level `QueuedGenerationItem` presentation state, retry, duplicate, and cancel routing; actual work still enters through `JobQueue -> EngineAdapter`. The queue drains one job at a time for the current VibeVoice backend and keeps terminal queue rows visible so users can retry or duplicate without modifying original history sessions.
+Generation queue state is visible in the Batches destination. `AppStore` owns app-level `QueuedGenerationItem` presentation state, retry, duplicate, and cancel routing; actual work still enters through `JobQueue -> EngineAdapter`. The queue drains one job at a time for the selected backend and keeps terminal queue rows visible so users can retry or duplicate without modifying original history sessions.
 
 Backend readiness is represented by `BackendStatusSnapshot`. `BackendManager` owns runtime health checks and plain-language backend states; SwiftUI presents those states without exposing Docker commands as the primary interaction model.
 
-Additional backend expansion is represented by `BackendProfiles.kokoroTTS` and `UnavailableEngineAdapter`. Kokoro can be selected in native Settings, Backends, and Inspector surfaces, but it reports an unavailable state until managed install and generation support are implemented. This proves the profile and adapter route without faking backend capability.
+Additional backend expansion is represented by active `BackendProfiles.kokoroTTS` and `BackendProfiles.chatterboxTTS` profiles plus `UnavailableEngineAdapter` for future engines. Kokoro and Chatterbox can be selected in native Settings, Backends, assistant, and Inspector surfaces; both generate through `JobQueue -> EngineAdapter` without UI code calling model-specific services directly.
 
 Durable app preferences are represented by `AppSettings` and persisted by `SettingsStore`. The native macOS Settings scene edits backend, model, voice, output, and advanced defaults while generation continues to enter through `JobQueue -> EngineAdapter`. Settings load through `AppSettings.loadResult`, which applies schema migration and validation once, records recovery notes, and persists repaired values back to the existing settings key instead of silently repairing values on every read.
 

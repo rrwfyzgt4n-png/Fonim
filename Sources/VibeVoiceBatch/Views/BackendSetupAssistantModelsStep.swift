@@ -21,7 +21,7 @@ struct ModelsVoicesSetupPane: View {
 
             ModelVoiceBackendPanel(profile: profile)
 
-            if profile.engineType == .kokoro {
+            if profile.engineType == .kokoro || profile.engineType == .chatterbox {
                 CatalogReadPanel(
                     profile: profile,
                     report: catalogReport,
@@ -92,7 +92,7 @@ struct ModelsVoicesSetupPane: View {
     }
 
     private var modelSubtitle: String {
-        if profile.engineType == .kokoro {
+        if profile.engineType == .kokoro || profile.engineType == .chatterbox {
             return catalogReport == nil ?
                 "Use the saved model or read choices from the local service." :
                 "Choose from the models discovered on the local service."
@@ -101,7 +101,7 @@ struct ModelsVoicesSetupPane: View {
     }
 
     private var voiceSubtitle: String {
-        if profile.engineType == .kokoro {
+        if profile.engineType == .kokoro || profile.engineType == .chatterbox {
             return catalogReport == nil ?
                 "Use the saved voice or read choices from the local service." :
                 "Choose from the voices discovered on the local service."

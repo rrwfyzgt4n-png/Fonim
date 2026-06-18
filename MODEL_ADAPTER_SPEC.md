@@ -37,9 +37,13 @@ Required capabilities:
 - Adapters should not assume a particular SwiftUI view exists.
 - Adapters must produce or contribute to a reproducible generation record.
 
-## Current Adapter
+## Current Adapters
 
 `VibeVoiceDockerAdapter` is the first adapter. It owns the VibeVoice Docker session lifecycle behind the queue: session creation, staging-file preparation, stale WAV recovery, process execution, cancellation, log streaming, output archival, metadata finalization, and progress reporting.
+
+`KokoroHTTPAdapter` connects to a configured Kokoro HTTP service. It uses the same safe history-session lifecycle as the Docker adapter, writes final WAV output into the session folder, and preserves request logs and metadata.
+
+`ChatterboxHTTPAdapter` connects to a configured Chatterbox HTTP service. It calls the custom `/tts` endpoint with non-streaming WAV output and supports predefined voices plus `reference:<filename>` clone-reference voices discovered from the service catalog. Chatterbox-specific options are passed through `GenerationSettings.extraParameters`.
 
 `UnavailableEngineAdapter` is used for registered profiles whose runtime integration is not complete. It implements the same `EngineAdapter` contract, reports unavailable health, and returns plain-language operation errors so UI code can switch profiles without calling model-specific logic or pretending unsupported generation works.
 

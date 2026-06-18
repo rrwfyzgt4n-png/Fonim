@@ -250,6 +250,7 @@ public final class BackendManager: @unchecked Sendable {
         self.discoveryReporter = BackendDiscoveryReporter(
             dockerRuntimeInspector: dockerRuntimeInspector,
             processExecutor: processExecutor,
+            httpClient: httpClient,
             discoveryParser: discoveryParser
         )
         self.catalogReporter = BackendCatalogReporter(

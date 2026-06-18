@@ -316,7 +316,7 @@ struct BackendSetupAssistantView: View {
                 settings.backendCatalogs[selectedBackend.id] = catalog
             }
             var connection = settings.backendConnection(for: selectedBackend.id)
-            if selectedBackend.engineType == .kokoro {
+            if selectedBackend.engineType == .kokoro || selectedBackend.engineType == .chatterbox {
                 connection.modelID = modelID
                 connection.defaultVoice = voiceID
                 settings.backendConnections[selectedBackend.id] = connection

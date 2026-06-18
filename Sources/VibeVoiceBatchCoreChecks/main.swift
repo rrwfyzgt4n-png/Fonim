@@ -22,6 +22,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkOutputsInspectorAggregation()
         try checkKokoroDiscoveryReport()
         try checkKokoroCatalogReport()
+        try checkChatterboxCatalogReport()
         try checkBackendManagerFacadePreservesInjectedRuntimeHooks()
         try checkBackendManagerOperations()
         try checkWorkspaceDataModel()
@@ -36,6 +37,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkPostRefactorUXPolish()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
+        try await checkChatterboxHTTPAdapterGeneratesThroughSessionStore()
         try await checkBackendVoiceTestRunnerUsesAdapterQueue()
         try await checkJobQueueCancellationReachesAdapter()
         print("VibeVoiceBatchCoreChecks passed")
@@ -295,6 +297,11 @@ struct VibeVoiceBatchCoreChecks {
         precondition(BackendProfiles.kokoroTTS.engineType == .kokoro)
         precondition(BackendProfiles.kokoroTTS.requiredModels.first?.id == "kokoro/default")
         precondition(BackendProfiles.kokoroTTS.progressParser == "KokoroHTTPAdapter.progress")
+        precondition(BackendProfiles.all.contains(BackendProfiles.chatterboxTTS))
+        precondition(BackendProfiles.chatterboxTTS.engineType == .chatterbox)
+        precondition(BackendProfiles.chatterboxTTS.requiredModels.first?.id == "chatterbox")
+        precondition(BackendProfiles.chatterboxTTS.healthCheckURL?.absoluteString == "http://127.0.0.1:8004/api/model-info")
+        precondition(BackendConnectionSettings.defaultConfigurations[BackendProfiles.chatterboxTTS.id]?.generatePath == "/tts")
         let connectedKokoro = BackendProfiles.kokoroTTS.applying(
             BackendConnectionSettings(
                 connectionKind: .installedDockerImage,
@@ -306,10 +313,23 @@ struct VibeVoiceBatchCoreChecks {
         )
         precondition(connectedKokoro.generationExtraParameters["generate_endpoint"] == "http://127.0.0.1:8880/v1/audio/speech")
         precondition(connectedKokoro.generationExtraParameters["docker_image"] == "kokoro-local")
+        let connectedChatterbox = BackendProfiles.chatterboxTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .externalService,
+                serviceBaseURL: "http://127.0.0.1:8004",
+                healthPath: "/api/model-info",
+                generatePath: "/tts",
+                modelID: "chatterbox",
+                defaultVoice: "Emily.wav"
+            )
+        )
+        precondition(connectedChatterbox.generationExtraParameters["generate_endpoint"] == "http://127.0.0.1:8004/tts")
+        precondition(connectedChatterbox.generationExtraParameters["temperature"] == "0.8")
 
         let manager = BackendManager(projectRoot: FileManager.default.temporaryDirectory)
         precondition(manager.registeredProfiles().contains(profile))
         precondition(manager.registeredProfiles().contains(BackendProfiles.kokoroTTS))
+        precondition(manager.registeredProfiles().contains(BackendProfiles.chatterboxTTS))
 
         let adapter = VibeVoiceDockerAdapter(projectRoot: FileManager.default.temporaryDirectory)
         let job = GenerationJob(
@@ -332,6 +352,9 @@ struct VibeVoiceBatchCoreChecks {
         let kokoroHealth = await kokoroAdapter.healthCheck()
         precondition(kokoroHealth.profileID == BackendProfiles.kokoroTTS.id)
         precondition(kokoroHealth.state == .unknown)
+        let chatterboxAdapter = ChatterboxHTTPAdapter(projectRoot: FileManager.default.temporaryDirectory)
+        let chatterboxHealth = await chatterboxAdapter.healthCheck()
+        precondition(chatterboxHealth.profileID == BackendProfiles.chatterboxTTS.id)
     }
 
     private static func checkBackendStatusSnapshots() throws {
@@ -649,6 +672,54 @@ struct VibeVoiceBatchCoreChecks {
         precondition(catalog.models.map(\.id) == ["tts-1", "tts-1-hd"])
         precondition(catalog.voices.map(\.id) == ["af_heart", "am_adam"])
         precondition(catalog.message.contains("Loaded 2 models and 2 voices"))
+    }
+
+    private static func checkChatterboxCatalogReport() throws {
+        let profile = BackendProfiles.chatterboxTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .externalService,
+                serviceBaseURL: "http://127.0.0.1:8004",
+                healthPath: "/api/model-info",
+                generatePath: "/tts",
+                modelID: "chatterbox",
+                defaultVoice: "Emily.wav"
+            )
+        )
+        let manager = BackendManager(
+            httpRunner: { url in
+                switch url.path {
+                case "/api/model-info":
+                    return BackendHTTPResult(
+                        statusCode: 200,
+                        body: """
+                        {"loaded":true,"type":"original","class_name":"ChatterboxTTS","device":"cpu","sample_rate":24000}
+                        """
+                    )
+                case "/get_predefined_voices":
+                    return BackendHTTPResult(
+                        statusCode: 200,
+                        body: """
+                        [{"display_name":"Emily","filename":"Emily.wav"},{"display_name":"Michael","filename":"Michael.wav"}]
+                        """
+                    )
+                case "/get_reference_files":
+                    return BackendHTTPResult(
+                        statusCode: 200,
+                        body: """
+                        ["Gianna.wav"]
+                        """
+                    )
+                default:
+                    return BackendHTTPResult(statusCode: 404, body: "{}")
+                }
+            }
+        )
+
+        let catalog = manager.catalogReport(for: profile)
+        precondition(catalog.models.map(\.id) == ["chatterbox"])
+        precondition(catalog.voices.map(\.id).contains("Emily.wav"))
+        precondition(catalog.voices.map(\.id).contains("reference:Gianna.wav"))
+        precondition(catalog.message.contains("Loaded Chatterbox model state and 3 voices"))
     }
 
 
@@ -1296,7 +1367,7 @@ struct VibeVoiceBatchCoreChecks {
         let configuredKokoroResult = AppSettings(
             defaultBackendID: BackendProfiles.kokoroTTS.id,
             defaultModelID: "kokoro/custom",
-            backendConnections: [
+            backendConnections: BackendConnectionSettings.defaultConfigurations.merging([
                 BackendProfiles.kokoroTTS.id: BackendConnectionSettings(
                     connectionKind: .installedDockerImage,
                     dockerImage: "kokoro-local",
@@ -1305,7 +1376,7 @@ struct VibeVoiceBatchCoreChecks {
                     modelID: "kokoro/custom",
                     defaultVoice: "af_heart"
                 )
-            ]
+            ]) { _, new in new }
         ).normalizationResult()
         let configuredKokoro = configuredKokoroResult.settings
         precondition(!configuredKokoroResult.didRecover)
@@ -1349,6 +1420,43 @@ struct VibeVoiceBatchCoreChecks {
         precondition(catalogBackedKokoroResult.recoveryNotes.contains { $0.reason == .invalidVoice })
         precondition(catalogBackedKokoro.defaultModelID == "tts-1")
         precondition(catalogBackedKokoro.defaultVoice == "af_heart")
+
+        let chatterboxResult = AppSettings(
+            defaultBackendID: BackendProfiles.chatterboxTTS.id,
+            defaultModelID: "missing",
+            defaultVoice: "",
+            backendCatalogs: [
+                BackendProfiles.chatterboxTTS.id: BackendCatalogReport(
+                    profileID: BackendProfiles.chatterboxTTS.id,
+                    models: [BackendCatalogModel(id: "chatterbox")],
+                    voices: [
+                        BackendCatalogVoice(id: "Emily.wav", displayName: "Emily"),
+                        BackendCatalogVoice(id: "reference:Gianna.wav", displayName: "Gianna (Reference)")
+                    ],
+                    message: "Loaded"
+                )
+            ],
+            chatterboxTemperature: 9.0,
+            chatterboxExaggeration: -1.0,
+            chatterboxCFGWeight: 3.0,
+            chatterboxSeed: -42,
+            chatterboxSpeedFactor: 0.01,
+            chatterboxLanguage: "",
+            chatterboxChunkSize: 999
+        ).normalizationResult()
+        let chatterboxSettings = chatterboxResult.settings
+        precondition(chatterboxResult.recoveryNotes.contains { $0.reason == .invalidModel })
+        precondition(chatterboxResult.recoveryNotes.contains { $0.reason == .invalidVoice })
+        precondition(chatterboxResult.recoveryNotes.contains { $0.reason == .invalidChatterboxSetting })
+        precondition(chatterboxSettings.defaultModelID == "chatterbox")
+        precondition(chatterboxSettings.defaultVoice == "Emily.wav")
+        precondition(chatterboxSettings.chatterboxTemperature == 2.0)
+        precondition(chatterboxSettings.chatterboxExaggeration == 0.0)
+        precondition(chatterboxSettings.chatterboxCFGWeight == 2.0)
+        precondition(chatterboxSettings.chatterboxSeed == 0)
+        precondition(chatterboxSettings.chatterboxSpeedFactor == 0.25)
+        precondition(chatterboxSettings.chatterboxLanguage == "en")
+        precondition(chatterboxSettings.chatterboxChunkSize == 500)
 
         let validResult = AppSettings.defaults.normalizationResult()
         precondition(!validResult.didRecover)
@@ -1716,6 +1824,122 @@ struct VibeVoiceBatchCoreChecks {
         })
     }
 
+    private static func checkChatterboxHTTPAdapterGeneratesThroughSessionStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchChatterboxAdapterChecks-\(UUID().uuidString)", isDirectory: true)
+        let fileStore = SessionFileStore(projectRoot: root)
+        try fileStore.ensureBaseDirectories()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data([7, 7, 7]).write(to: root.generatedWAVFile)
+
+        let endpoint = URL(string: "http://127.0.0.1:8004/tts")!
+        let profile = BackendProfiles.chatterboxTTS.applying(
+            BackendConnectionSettings(
+                connectionKind: .externalService,
+                serviceBaseURL: "http://127.0.0.1:8004",
+                healthPath: "/api/model-info",
+                generatePath: "/tts",
+                modelID: "chatterbox",
+                defaultVoice: "Emily.wav"
+            )
+        )
+        let client = FakeChatterboxSpeechClient(
+            response: ChatterboxTTSResponse(
+                data: makePCM16MonoWav(durationSeconds: 2.0, sampleRate: 8_000),
+                contentType: "audio/wav"
+            )
+        )
+        let adapter = ChatterboxHTTPAdapter(profile: profile, projectRoot: root, fileStore: fileStore, client: client)
+        let job = GenerationJob(
+            id: "chatterbox-adapter-job",
+            createdAt: Date(timeIntervalSince1970: 1_718_171_995),
+            inputText: "Hello Chatterbox adapter.",
+            backendID: profile.id,
+            modelID: "chatterbox",
+            voiceID: "reference:Gianna.wav",
+            settings: GenerationSettings(
+                cfgScale: "0.5",
+                ddpmInferenceSteps: nil,
+                extraParameters: [
+                    "generate_endpoint": endpoint.absoluteString,
+                    "temperature": "0.7",
+                    "exaggeration": "1.2",
+                    "cfg_weight": "0.45",
+                    "seed": "12",
+                    "speed_factor": "1.1",
+                    "language": "en",
+                    "split_text": "true",
+                    "chunk_size": "180",
+                    "output_format": "wav"
+                ]
+            )
+        )
+
+        var events: [GenerationEvent] = []
+        let record = try await adapter.generate(job) { event in
+            events.append(event)
+        }
+
+        precondition(record.status == .completed)
+        precondition(record.backendID == profile.id)
+        precondition(record.backendDisplayName == "Chatterbox TTS")
+        precondition(record.modelID == "chatterbox")
+        precondition(record.voiceID == "reference:Gianna.wav")
+        precondition(record.exportPath?.hasSuffix("/output.wav") == true)
+        precondition(record.durationSeconds == 2.0)
+        precondition(!FileManager.default.fileExists(atPath: root.generatedWAVFile.path))
+
+        precondition(client.requests.count == 1)
+        let request = try unwrap(client.requests.first, "Expected Chatterbox request")
+        precondition(request.endpoint == endpoint)
+        precondition(request.voiceMode == "clone")
+        precondition(request.voiceFilename == "Gianna.wav")
+        precondition(request.inputText == "Hello Chatterbox adapter.")
+        precondition(request.chunkSize == 180)
+        precondition(request.temperature == 0.7)
+        precondition(request.exaggeration == 1.2)
+        precondition(request.cfgWeight == 0.45)
+        precondition(request.seed == 12)
+        precondition(request.speedFactor == 1.1)
+
+        let sessions = try fileStore.loadSessions()
+        precondition(sessions.count == 1)
+        let session = sessions[0]
+        precondition(session.metadata.status == .completed)
+        precondition(session.metadata.voice == "reference:Gianna.wav")
+        precondition(session.metadata.dockerImage == "Chatterbox service")
+        precondition(session.metadata.dockerCommand == "POST \(endpoint.absoluteString)")
+        precondition(session.metadata.inputWordCount == 3)
+        precondition(session.metadata.audioDurationSeconds == 2.0)
+        precondition(session.metadata.outputFile?.hasSuffix("/output.wav") == true)
+        precondition(session.logText.contains("Runtime: Chatterbox HTTP service"))
+        precondition(session.logText.contains("Voice mode: clone"))
+        precondition(session.outputURL?.lastPathComponent == "output.wav")
+
+        let recoveredFiles = try FileManager.default.contentsOfDirectory(
+            at: root.recoveredDirectory,
+            includingPropertiesForKeys: nil
+        )
+        precondition(recoveredFiles.contains { $0.lastPathComponent.hasSuffix("_pre_run_chatterbox_input_generated.wav") })
+        precondition(events.contains { event in
+            switch event {
+            case .progress(let snapshot):
+                return snapshot.message == "sending request to Chatterbox"
+            case .sessionStarted, .status, .log, .output:
+                return false
+            }
+        })
+        precondition(events.contains { event in
+            switch event {
+            case .output:
+                return true
+            case .sessionStarted, .status, .progress, .log:
+                return false
+            }
+        })
+    }
+
     private static func checkBackendVoiceTestRunnerUsesAdapterQueue() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("VibeVoiceBatchVoiceTestRunnerChecks-\(UUID().uuidString)", isDirectory: true)
@@ -1959,6 +2183,43 @@ private final class FakeKokoroSpeechClient: KokoroSpeechGenerating, @unchecked S
     }
 
     func generateSpeech(_ request: KokoroSpeechRequest) async throws -> KokoroSpeechResponse {
+        stateQueue.sync {
+            recordedRequests.append(request)
+        }
+        if let error {
+            throw error
+        }
+        return response
+    }
+
+    func cancel() {
+        stateQueue.sync {
+            cancelFlag = true
+        }
+    }
+}
+
+private final class FakeChatterboxSpeechClient: ChatterboxSpeechGenerating, @unchecked Sendable {
+    private let response: ChatterboxTTSResponse
+    private let error: Error?
+    private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.checks.chatterbox-client")
+    private var recordedRequests: [ChatterboxTTSRequest] = []
+    private var cancelFlag = false
+
+    init(response: ChatterboxTTSResponse, error: Error? = nil) {
+        self.response = response
+        self.error = error
+    }
+
+    var requests: [ChatterboxTTSRequest] {
+        stateQueue.sync { recordedRequests }
+    }
+
+    var didCancel: Bool {
+        stateQueue.sync { cancelFlag }
+    }
+
+    func generateSpeech(_ request: ChatterboxTTSRequest) async throws -> ChatterboxTTSResponse {
         stateQueue.sync {
             recordedRequests.append(request)
         }

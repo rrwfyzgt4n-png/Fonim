@@ -94,17 +94,34 @@ public struct BackendConnectionSettings: Codable, Equatable, Sendable {
         notes: ""
     )
 
+    public static let chatterboxDefaults = BackendConnectionSettings(
+        connectionKind: .externalService,
+        dockerImage: "",
+        serviceBaseURL: "http://127.0.0.1:8004",
+        healthPath: "/api/model-info",
+        generatePath: "/tts",
+        cancelPath: "",
+        modelID: "chatterbox",
+        defaultVoice: "Emily.wav",
+        notes: "Local Chatterbox TTS service on port 8004."
+    )
+
     public static func defaultSettings(for profileID: String) -> BackendConnectionSettings? {
         switch profileID {
         case BackendProfiles.kokoroTTS.id:
             return .kokoroDefaults
+        case BackendProfiles.chatterboxTTS.id:
+            return .chatterboxDefaults
         default:
             return nil
         }
     }
 
     public static var defaultConfigurations: [String: BackendConnectionSettings] {
-        [BackendProfiles.kokoroTTS.id: .kokoroDefaults]
+        [
+            BackendProfiles.kokoroTTS.id: .kokoroDefaults,
+            BackendProfiles.chatterboxTTS.id: .chatterboxDefaults
+        ]
     }
 
     public var trimmedDockerImage: String? {
@@ -339,9 +356,50 @@ public enum BackendProfiles {
         ]
     )
 
+    public static let chatterboxTTS = BackendProfile(
+        id: "chatterbox-tts",
+        displayName: "Chatterbox TTS",
+        engineType: .chatterbox,
+        installMethod: .externalServer,
+        runtime: .externalService,
+        dockerImage: nil,
+        requiredModels: [
+            RequiredModel(
+                id: "chatterbox",
+                displayName: "Chatterbox TTS",
+                source: "chatterbox",
+                approximateDiskSpaceGB: nil,
+                licenseNotes: "Chatterbox model and voice license terms must be reviewed before redistribution."
+            )
+        ],
+        requiredDiskSpaceGB: nil,
+        requiredMemoryGB: nil,
+        supportedArchitectures: [.appleSilicon, .intel],
+        exposedPort: 8004,
+        healthCheckURL: BackendConnectionSettings.chatterboxDefaults.healthCheckURL,
+        generateEndpoint: BackendConnectionSettings.chatterboxDefaults.generateEndpointURL,
+        cancelEndpoint: nil,
+        progressParser: "ChatterboxHTTPAdapter.progress",
+        logParser: "ChatterboxHTTPAdapter.log",
+        outputFormatSupport: [.wav],
+        licenseNotes: "Chatterbox support connects to an installed local service. The app keeps Docker or Python details as backend infrastructure.",
+        role: "Expressive local narration backend",
+        strengths: [
+            "Predefined voices and reference voice cloning",
+            "Useful expressive controls",
+            "Simple local HTTP service integration"
+        ],
+        risks: [
+            "Generation progress is request-based unless the running service exposes streaming status",
+            "Runtime must already expose the Chatterbox HTTP API",
+            "Model and voice behavior can vary by installed server package"
+        ]
+    )
+
     public static let all: [BackendProfile] = [
         vibeVoiceTTS,
-        kokoroTTS
+        kokoroTTS,
+        chatterboxTTS
     ]
 
     public static func baseProfile(id: String) -> BackendProfile? {
@@ -365,7 +423,7 @@ public enum BackendProfiles {
 
 public extension BackendProfile {
     func applying(_ connection: BackendConnectionSettings?) -> BackendProfile {
-        guard let connection, engineType == .kokoro else { return self }
+        guard let connection, engineType == .kokoro || engineType == .chatterbox else { return self }
 
         let runtime: BackendRuntime
         let installMethod: BackendInstallMethod
@@ -389,10 +447,11 @@ public extension BackendProfile {
             dockerImage = nil
         }
 
-        let modelID = connection.trimmedModelID ?? requiredModels.first?.id ?? "kokoro/default"
+        let defaultModelID = engineType == .chatterbox ? "chatterbox" : "kokoro/default"
+        let modelID = connection.trimmedModelID ?? requiredModels.first?.id ?? defaultModelID
         let model = RequiredModel(
             id: modelID,
-            displayName: modelID == "kokoro/default" ? "Kokoro Default Voice Model" : modelID,
+            displayName: modelDisplayName(for: modelID),
             source: modelID,
             approximateDiskSpaceGB: requiredModels.first?.approximateDiskSpaceGB,
             licenseNotes: requiredModels.first?.licenseNotes
@@ -414,18 +473,39 @@ public extension BackendProfile {
             healthCheckURL: connection.healthCheckURL,
             generateEndpoint: connection.generateEndpointURL,
             cancelEndpoint: connection.cancelEndpointURL,
-            progressParser: "KokoroProgressParser",
-            logParser: "KokoroLogParser",
+            progressParser: engineType == .chatterbox ? "ChatterboxProgressParser" : "KokoroProgressParser",
+            logParser: engineType == .chatterbox ? "ChatterboxLogParser" : "KokoroLogParser",
             outputFormatSupport: outputFormatSupport,
             licenseNotes: licenseNotes,
             role: role,
             strengths: strengths,
-            risks: [
-                "Generation adapter endpoint mapping still needs confirmation",
-                "Voice inventory must be read from the configured runtime",
-                "Runtime behavior depends on the installed Kokoro package or image"
-            ]
+            risks: appliedRisks
         )
+    }
+
+    private func modelDisplayName(for modelID: String) -> String {
+        if engineType == .kokoro, modelID == "kokoro/default" {
+            return "Kokoro Default Voice Model"
+        }
+        if engineType == .chatterbox, modelID == "chatterbox" {
+            return "Chatterbox TTS"
+        }
+        return modelID
+    }
+
+    private var appliedRisks: [String] {
+        if engineType == .chatterbox {
+            return [
+                "Generation progress depends on the Chatterbox server response contract",
+                "Voice inventory must be read from the configured runtime",
+                "Runtime behavior depends on the installed Chatterbox package or image"
+            ]
+        }
+        return [
+            "Generation adapter endpoint mapping still needs confirmation",
+            "Voice inventory must be read from the configured runtime",
+            "Runtime behavior depends on the installed Kokoro package or image"
+        ]
     }
 }
 

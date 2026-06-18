@@ -54,7 +54,8 @@ final class AppStore: ObservableObject {
         let playbackCoordinator = AppAudioPlaybackCoordinator()
         let adapters: [any EngineAdapter] = [
             VibeVoiceDockerAdapter(),
-            KokoroHTTPAdapter()
+            KokoroHTTPAdapter(),
+            ChatterboxHTTPAdapter()
         ]
 
         self.fileStore = fileStore
@@ -408,7 +409,7 @@ final class AppStore: ObservableObject {
             let profile = $0.backendProfile(id: backendID)
             let catalog = $0.backendCatalog(for: backendID)
             $0.defaultModelID = catalog?.models.first?.id ?? profile.requiredModels.first?.id ?? $0.defaultModelID
-            if profile.engineType == .kokoro {
+            if profile.engineType == .kokoro || profile.engineType == .chatterbox {
                 $0.defaultVoice = catalog?.voices.first?.id ?? $0.backendConnection(for: backendID).trimmedDefaultVoice ?? $0.defaultVoice
             }
             if !profile.outputFormatSupport.contains($0.exportFormat) {
@@ -433,7 +434,7 @@ final class AppStore: ObservableObject {
             voice: voice,
             cfgScale: cfgScale,
             ddpmInferenceSteps: ddpmInferenceSteps,
-            extraParameters: selectedBackendProfile.generationExtraParameters
+            extraParameters: settingsStore.settings.generationExtraParameters(for: selectedBackendProfile)
         )
         let job = enqueued.job
         queuedGenerations.append(enqueued.item)

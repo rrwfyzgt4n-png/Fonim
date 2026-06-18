@@ -20,6 +20,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var setupMode: BackendSetupMode
     public var backendConnections: [String: BackendConnectionSettings]
     public var backendCatalogs: [String: BackendCatalogReport]
+    public var chatterboxTemperature: Double
+    public var chatterboxExaggeration: Double
+    public var chatterboxCFGWeight: Double
+    public var chatterboxSeed: Int
+    public var chatterboxSpeedFactor: Double
+    public var chatterboxLanguage: String
+    public var chatterboxSplitText: Bool
+    public var chatterboxChunkSize: Int
 
     public init(
         schemaVersion: Int = AppSettingsKeys.currentSchemaVersion,
@@ -35,7 +43,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
         hasCompletedSetupAssistant: Bool = false,
         setupMode: BackendSetupMode = .simple,
         backendConnections: [String: BackendConnectionSettings] = BackendConnectionSettings.defaultConfigurations,
-        backendCatalogs: [String: BackendCatalogReport] = [:]
+        backendCatalogs: [String: BackendCatalogReport] = [:],
+        chatterboxTemperature: Double = 0.8,
+        chatterboxExaggeration: Double = 1.3,
+        chatterboxCFGWeight: Double = 0.5,
+        chatterboxSeed: Int = 0,
+        chatterboxSpeedFactor: Double = 1.0,
+        chatterboxLanguage: String = "en",
+        chatterboxSplitText: Bool = true,
+        chatterboxChunkSize: Int = 120
     ) {
         self.schemaVersion = schemaVersion
         self.defaultBackendID = defaultBackendID
@@ -51,6 +67,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.setupMode = setupMode
         self.backendConnections = backendConnections
         self.backendCatalogs = backendCatalogs
+        self.chatterboxTemperature = chatterboxTemperature
+        self.chatterboxExaggeration = chatterboxExaggeration
+        self.chatterboxCFGWeight = chatterboxCFGWeight
+        self.chatterboxSeed = chatterboxSeed
+        self.chatterboxSpeedFactor = chatterboxSpeedFactor
+        self.chatterboxLanguage = chatterboxLanguage
+        self.chatterboxSplitText = chatterboxSplitText
+        self.chatterboxChunkSize = chatterboxChunkSize
     }
 
     public static let defaults = AppSettings()
@@ -102,6 +126,23 @@ public struct AppSettings: Codable, Equatable, Sendable {
         backendCatalogs[profileID]
     }
 
+    public func generationExtraParameters(for profile: BackendProfile) -> [String: String] {
+        var parameters = profile.generationExtraParameters
+        guard profile.engineType == .chatterbox else {
+            return parameters
+        }
+        parameters["temperature"] = String(chatterboxTemperature)
+        parameters["exaggeration"] = String(chatterboxExaggeration)
+        parameters["cfg_weight"] = String(chatterboxCFGWeight)
+        parameters["seed"] = String(chatterboxSeed)
+        parameters["speed_factor"] = String(chatterboxSpeedFactor)
+        parameters["language"] = chatterboxLanguage
+        parameters["split_text"] = chatterboxSplitText ? "true" : "false"
+        parameters["chunk_size"] = String(chatterboxChunkSize)
+        parameters["output_format"] = "wav"
+        return parameters
+    }
+
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
         case defaultBackendID
@@ -117,6 +158,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case setupMode
         case backendConnections
         case backendCatalogs
+        case chatterboxTemperature
+        case chatterboxExaggeration
+        case chatterboxCFGWeight
+        case chatterboxSeed
+        case chatterboxSpeedFactor
+        case chatterboxLanguage
+        case chatterboxSplitText
+        case chatterboxChunkSize
     }
 
     public init(from decoder: Decoder) throws {
@@ -136,6 +185,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
         setupMode = try container.decodeIfPresent(BackendSetupMode.self, forKey: .setupMode) ?? defaults.setupMode
         backendConnections = try container.decodeIfPresent([String: BackendConnectionSettings].self, forKey: .backendConnections) ?? [:]
         backendCatalogs = try container.decodeIfPresent([String: BackendCatalogReport].self, forKey: .backendCatalogs) ?? defaults.backendCatalogs
+        chatterboxTemperature = try container.decodeIfPresent(Double.self, forKey: .chatterboxTemperature) ?? defaults.chatterboxTemperature
+        chatterboxExaggeration = try container.decodeIfPresent(Double.self, forKey: .chatterboxExaggeration) ?? defaults.chatterboxExaggeration
+        chatterboxCFGWeight = try container.decodeIfPresent(Double.self, forKey: .chatterboxCFGWeight) ?? defaults.chatterboxCFGWeight
+        chatterboxSeed = try container.decodeIfPresent(Int.self, forKey: .chatterboxSeed) ?? defaults.chatterboxSeed
+        chatterboxSpeedFactor = try container.decodeIfPresent(Double.self, forKey: .chatterboxSpeedFactor) ?? defaults.chatterboxSpeedFactor
+        chatterboxLanguage = try container.decodeIfPresent(String.self, forKey: .chatterboxLanguage) ?? defaults.chatterboxLanguage
+        chatterboxSplitText = try container.decodeIfPresent(Bool.self, forKey: .chatterboxSplitText) ?? defaults.chatterboxSplitText
+        chatterboxChunkSize = try container.decodeIfPresent(Int.self, forKey: .chatterboxChunkSize) ?? defaults.chatterboxChunkSize
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -154,5 +211,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         try container.encode(setupMode, forKey: .setupMode)
         try container.encode(backendConnections, forKey: .backendConnections)
         try container.encode(backendCatalogs, forKey: .backendCatalogs)
+        try container.encode(chatterboxTemperature, forKey: .chatterboxTemperature)
+        try container.encode(chatterboxExaggeration, forKey: .chatterboxExaggeration)
+        try container.encode(chatterboxCFGWeight, forKey: .chatterboxCFGWeight)
+        try container.encode(chatterboxSeed, forKey: .chatterboxSeed)
+        try container.encode(chatterboxSpeedFactor, forKey: .chatterboxSpeedFactor)
+        try container.encode(chatterboxLanguage, forKey: .chatterboxLanguage)
+        try container.encode(chatterboxSplitText, forKey: .chatterboxSplitText)
+        try container.encode(chatterboxChunkSize, forKey: .chatterboxChunkSize)
     }
 }

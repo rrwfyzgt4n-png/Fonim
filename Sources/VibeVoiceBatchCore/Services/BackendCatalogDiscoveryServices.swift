@@ -13,6 +13,46 @@ internal struct BackendCatalogParser {
         }
     }
 
+    func parseChatterboxModels(from body: String) -> [BackendCatalogModel] {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = json as? [String: Any] else {
+            return []
+        }
+        let isLoaded = dictionary["loaded"] as? Bool
+        let modelType = dictionary["type"] as? String
+        let className = dictionary["class_name"] as? String
+        let trimmedModelType = modelType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let identifier = (trimmedModelType?.isEmpty == false ? trimmedModelType : nil) ?? "chatterbox"
+        let displayName = [className, modelType]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return [
+            BackendCatalogModel(
+                id: identifier == "original" ? "chatterbox" : identifier,
+                displayName: displayName.isEmpty ? "Chatterbox TTS" : displayName + (isLoaded == false ? " (not loaded)" : ""),
+                owner: "chatterbox"
+            )
+        ]
+    }
+
+    func parseChatterboxPredefinedVoices(from body: String) -> [BackendCatalogVoice] {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) else {
+            return []
+        }
+        return parseChatterboxVoiceCollection(json, prefix: "", suffix: "")
+    }
+
+    func parseChatterboxReferenceVoices(from body: String) -> [BackendCatalogVoice] {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) else {
+            return []
+        }
+        return parseChatterboxVoiceCollection(json, prefix: "reference:", suffix: " (Reference)")
+    }
+
     private struct CatalogEntry {
         var id: String
         var name: String?
@@ -62,6 +102,33 @@ internal struct BackendCatalogParser {
                 name: dictionary["name"] as? String ?? dictionary["displayName"] as? String,
                 owner: dictionary["owned_by"] as? String ?? dictionary["owner"] as? String
             )
+        }
+    }
+
+    private func parseChatterboxVoiceCollection(_ value: Any, prefix: String, suffix: String) -> [BackendCatalogVoice] {
+        if let strings = value as? [String] {
+            return strings.map { voice in
+                BackendCatalogVoice(id: "\(prefix)\(voice)", displayName: "\(voice)\(suffix)")
+            }
+        }
+
+        guard let array = value as? [Any] else { return [] }
+        return array.compactMap { item in
+            if let string = item as? String {
+                return BackendCatalogVoice(id: "\(prefix)\(string)", displayName: "\(string)\(suffix)")
+            }
+            guard let dictionary = item as? [String: Any] else { return nil }
+            let id = dictionary["filename"] as? String ??
+                dictionary["id"] as? String ??
+                dictionary["name"] as? String
+            guard let id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            let displayName = dictionary["display_name"] as? String ??
+                dictionary["displayName"] as? String ??
+                dictionary["name"] as? String ??
+                id
+            return BackendCatalogVoice(id: "\(prefix)\(id)", displayName: "\(displayName)\(suffix)")
         }
     }
 }
@@ -151,7 +218,12 @@ internal struct BackendCatalogReporter {
     }
 
     func report(for profile: BackendProfile, generatedAt: Date = Date()) -> BackendCatalogReport {
-        guard profile.engineType == .kokoro else {
+        switch profile.engineType {
+        case .kokoro:
+            return kokoroReport(for: profile, generatedAt: generatedAt)
+        case .chatterbox:
+            return chatterboxReport(for: profile, generatedAt: generatedAt)
+        default:
             return BackendCatalogReport(
                 profileID: profile.id,
                 generatedAt: generatedAt,
@@ -160,6 +232,9 @@ internal struct BackendCatalogReporter {
                 message: "Model and voice catalog is not available for \(profile.displayName) yet."
             )
         }
+    }
+
+    private func kokoroReport(for profile: BackendProfile, generatedAt: Date) -> BackendCatalogReport {
         guard let modelsURL = serviceURL(for: profile, path: "/v1/models"),
               let voicesURL = serviceURL(for: profile, path: "/v1/audio/voices") else {
             return BackendCatalogReport(
@@ -197,6 +272,54 @@ internal struct BackendCatalogReporter {
         )
     }
 
+    private func chatterboxReport(for profile: BackendProfile, generatedAt: Date) -> BackendCatalogReport {
+        guard let modelURL = serviceURL(for: profile, path: "/api/model-info"),
+              let predefinedURL = serviceURL(for: profile, path: "/get_predefined_voices"),
+              let referencesURL = serviceURL(for: profile, path: "/get_reference_files") else {
+            return BackendCatalogReport(
+                profileID: profile.id,
+                generatedAt: generatedAt,
+                models: [],
+                voices: [],
+                message: "Chatterbox needs a service address before models and voices can be read.",
+                technicalDetails: "Add a service URL in the setup assistant."
+            )
+        }
+
+        let modelResponse = httpClient.get(url: modelURL)
+        let predefinedResponse = httpClient.get(url: predefinedURL)
+        let referencesResponse = httpClient.get(url: referencesURL)
+        let models = catalogParser.parseChatterboxModels(from: modelResponse.body)
+        let predefinedVoices = catalogParser.parseChatterboxPredefinedVoices(from: predefinedResponse.body)
+        let referenceVoices = catalogParser.parseChatterboxReferenceVoices(from: referencesResponse.body)
+        let voices = (predefinedVoices + referenceVoices).sorted { lhs, rhs in
+            lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+        }
+        let ok = httpClient.isSuccessful(modelResponse) &&
+            httpClient.isSuccessful(predefinedResponse) &&
+            httpClient.isSuccessful(referencesResponse)
+
+        return BackendCatalogReport(
+            profileID: profile.id,
+            generatedAt: generatedAt,
+            models: models.isEmpty ? [BackendCatalogModel(id: "chatterbox", displayName: "Chatterbox TTS")] : models,
+            voices: voices,
+            message: ok ?
+                "Loaded Chatterbox model state and \(voices.count) voice\(voices.count == 1 ? "" : "s")." :
+                "Could not read every Chatterbox model and voice list.",
+            technicalDetails: [
+                "Model URL: \(modelURL.absoluteString)",
+                httpClient.details(modelResponse),
+                "Predefined Voices URL: \(predefinedURL.absoluteString)",
+                httpClient.details(predefinedResponse),
+                "Reference Voices URL: \(referencesURL.absoluteString)",
+                httpClient.details(referencesResponse)
+            ]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        )
+    }
+
     private func serviceURL(for profile: BackendProfile, path: String) -> URL? {
         let referenceURL = profile.healthCheckURL ?? profile.generateEndpoint
         guard let referenceURL,
@@ -215,19 +338,25 @@ internal struct BackendCatalogReporter {
 internal struct BackendDiscoveryReporter {
     private let dockerRuntimeInspector: BackendDockerRuntimeInspector
     private let processExecutor: BackendProcessExecutor
+    private let httpClient: BackendHTTPClient
     private let discoveryParser: BackendDiscoveryParser
 
     init(
         dockerRuntimeInspector: BackendDockerRuntimeInspector,
         processExecutor: BackendProcessExecutor,
+        httpClient: BackendHTTPClient,
         discoveryParser: BackendDiscoveryParser
     ) {
         self.dockerRuntimeInspector = dockerRuntimeInspector
         self.processExecutor = processExecutor
+        self.httpClient = httpClient
         self.discoveryParser = discoveryParser
     }
 
     func report(for profile: BackendProfile, generatedAt: Date = Date()) -> BackendDiscoveryReport {
+        if profile.engineType == .chatterbox {
+            return chatterboxDiscoveryReport(for: profile, generatedAt: generatedAt)
+        }
         guard profile.engineType == .kokoro else {
             return BackendDiscoveryReport(
                 profileID: profile.id,
@@ -277,5 +406,58 @@ internal struct BackendDiscoveryReporter {
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n\n")
         )
+    }
+
+    private func chatterboxDiscoveryReport(for profile: BackendProfile, generatedAt: Date) -> BackendDiscoveryReport {
+        guard let healthCheckURL = profile.healthCheckURL else {
+            return BackendDiscoveryReport(
+                profileID: profile.id,
+                generatedAt: generatedAt,
+                candidates: [],
+                message: "No Chatterbox service address has been configured yet."
+            )
+        }
+
+        let response = httpClient.get(url: healthCheckURL)
+        guard httpClient.isSuccessful(response) else {
+            return BackendDiscoveryReport(
+                profileID: profile.id,
+                generatedAt: generatedAt,
+                candidates: [],
+                message: "No running Chatterbox service was found at the configured address.",
+                technicalDetails: httpClient.details(response)
+            )
+        }
+
+        let baseURL = serviceBaseURL(from: healthCheckURL)
+        let candidate = BackendDiscoveryCandidate(
+            id: "service-\(backendStableIdentifier(baseURL))",
+            title: "Chatterbox service",
+            confidence: .high,
+            connectionKind: .externalService,
+            serviceBaseURL: baseURL,
+            healthPath: "/api/model-info",
+            generatePath: "/tts",
+            modelID: "chatterbox",
+            defaultVoice: "Emily.wav",
+            notes: "A local Chatterbox service answered on \(baseURL).",
+            technicalDetails: httpClient.details(response)
+        )
+
+        return BackendDiscoveryReport(
+            profileID: profile.id,
+            generatedAt: generatedAt,
+            candidates: [candidate],
+            message: "Found a running Chatterbox service.",
+            technicalDetails: httpClient.details(response)
+        )
+    }
+
+    private func serviceBaseURL(from url: URL) -> String {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.path = ""
+        components?.query = nil
+        components?.fragment = nil
+        return components?.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? "http://127.0.0.1:8004"
     }
 }

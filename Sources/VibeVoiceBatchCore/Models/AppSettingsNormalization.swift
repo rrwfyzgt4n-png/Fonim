@@ -10,6 +10,7 @@ public enum AppSettingsRecoveryReason: String, Codable, Equatable, Sendable {
     case invalidVoice
     case invalidCFGScale
     case invalidDDPMInferenceSteps
+    case invalidChatterboxSetting
     case emptyOutputFolder
     case unsupportedExportFormat
 }
@@ -74,6 +75,33 @@ public struct AppSettingsNormalizationResult: Equatable, Sendable {
                     technicalDetails: technicalDetails
                 )
             )
+        }
+
+        func clampDouble(
+            _ value: inout Double,
+            field: String,
+            range: ClosedRange<Double>,
+            fallback: Double
+        ) {
+            guard value.isFinite else {
+                value = fallback
+                record(
+                    .invalidChatterboxSetting,
+                    field: field,
+                    message: "A saved Chatterbox setting was unreadable, so its default was restored."
+                )
+                return
+            }
+            if value < range.lowerBound || value > range.upperBound {
+                let oldValue = value
+                value = min(range.upperBound, max(range.lowerBound, value))
+                record(
+                    .invalidChatterboxSetting,
+                    field: field,
+                    message: "A saved Chatterbox setting was outside the supported range, so \(value) was selected.",
+                    technicalDetails: String(oldValue)
+                )
+            }
         }
 
         if copy.schemaVersion < AppSettingsKeys.currentSchemaVersion {
@@ -143,7 +171,7 @@ public struct AppSettingsNormalizationResult: Equatable, Sendable {
         }
 
         let selectedConnection = copy.backendConnection(for: copy.defaultBackendID)
-        if selectedProfile.engineType == .kokoro {
+        if selectedProfile.engineType == .kokoro || selectedProfile.engineType == .chatterbox {
             let catalogVoices = selectedCatalog?.voices ?? []
             if !catalogVoices.isEmpty {
                 if !catalogVoices.contains(where: { $0.id == copy.defaultVoice }) {
@@ -158,7 +186,7 @@ public struct AppSettingsNormalizationResult: Equatable, Sendable {
                 }
             } else if copy.defaultVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let oldValue = copy.defaultVoice
-                copy.defaultVoice = selectedConnection.trimmedDefaultVoice ?? "af_heart"
+                copy.defaultVoice = selectedConnection.trimmedDefaultVoice ?? (selectedProfile.engineType == .chatterbox ? "Emily.wav" : "af_heart")
                 record(
                     .invalidVoice,
                     field: "defaultVoice",
@@ -216,6 +244,59 @@ public struct AppSettingsNormalizationResult: Equatable, Sendable {
                 field: "exportFormat",
                 message: "The saved export format was unsupported by \(selectedProfile.displayName), so \(copy.exportFormat.rawValue.uppercased()) was selected.",
                 technicalDetails: oldValue.rawValue
+            )
+        }
+
+        clampDouble(
+            &copy.chatterboxTemperature,
+            field: "chatterboxTemperature",
+            range: 0.0...2.0,
+            fallback: 0.8
+        )
+        clampDouble(
+            &copy.chatterboxExaggeration,
+            field: "chatterboxExaggeration",
+            range: 0.0...3.0,
+            fallback: 1.3
+        )
+        clampDouble(
+            &copy.chatterboxCFGWeight,
+            field: "chatterboxCFGWeight",
+            range: 0.0...2.0,
+            fallback: 0.5
+        )
+        clampDouble(
+            &copy.chatterboxSpeedFactor,
+            field: "chatterboxSpeedFactor",
+            range: 0.25...4.0,
+            fallback: 1.0
+        )
+        if copy.chatterboxSeed < 0 {
+            let oldValue = copy.chatterboxSeed
+            copy.chatterboxSeed = 0
+            record(
+                .invalidChatterboxSetting,
+                field: "chatterboxSeed",
+                message: "The saved Chatterbox seed was invalid, so 0 was selected.",
+                technicalDetails: String(oldValue)
+            )
+        }
+        if copy.chatterboxChunkSize < 50 || copy.chatterboxChunkSize > 500 {
+            let oldValue = copy.chatterboxChunkSize
+            copy.chatterboxChunkSize = min(500, max(50, copy.chatterboxChunkSize))
+            record(
+                .invalidChatterboxSetting,
+                field: "chatterboxChunkSize",
+                message: "The saved Chatterbox chunk size was outside the supported range, so \(copy.chatterboxChunkSize) was selected.",
+                technicalDetails: String(oldValue)
+            )
+        }
+        if copy.chatterboxLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            copy.chatterboxLanguage = "en"
+            record(
+                .invalidChatterboxSetting,
+                field: "chatterboxLanguage",
+                message: "The saved Chatterbox language was empty, so English was selected."
             )
         }
 

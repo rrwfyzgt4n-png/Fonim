@@ -253,7 +253,7 @@ struct ServiceConnectionPanel: View {
                 ManagedServiceSummary(profile: profile)
             } else {
                 SetupCheckInline(check: serviceCheck)
-                KokoroConnectionForm(connection: $connection)
+                BackendConnectionForm(profile: profile, connection: $connection)
             }
 
             HStack {
@@ -296,19 +296,19 @@ struct BackendDiscoveryPanel: View {
             state: discoveryState
         ) {
             HStack {
-                if profile.engineType == .kokoro {
+                if supportsDiscovery {
                     Button {
                         discover()
                     } label: {
-                        Label(isDiscovering ? "Finding..." : "Find Installed Kokoro", systemImage: isDiscovering ? "hourglass" : "magnifyingglass")
+                        Label(isDiscovering ? "Finding..." : "Find Installed \(profile.displayName)", systemImage: isDiscovering ? "hourglass" : "magnifyingglass")
                     }
                     .disabled(isDiscovering)
                 }
                 Spacer()
             }
 
-            if profile.engineType == .kokoro {
-                kokoroDiscoveryContent
+            if supportsDiscovery {
+                discoveryContent
             } else {
                 ManagedBackendCandidate(profile: profile)
             }
@@ -316,12 +316,12 @@ struct BackendDiscoveryPanel: View {
     }
 
     @ViewBuilder
-    private var kokoroDiscoveryContent: some View {
+    private var discoveryContent: some View {
         if isDiscovering {
             HStack(spacing: 10) {
                 ProgressView()
                     .controlSize(.small)
-                Text("Looking for installed Kokoro runtimes...")
+                Text("Looking for installed \(profile.displayName) runtimes...")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -332,7 +332,7 @@ struct BackendDiscoveryPanel: View {
                 .foregroundStyle(.secondary)
 
             if report.candidates.isEmpty {
-                SetupPlaceholderLine(text: "No installed Kokoro option was selected automatically. Start your service, then run discovery again, or enter connection details above.")
+                SetupPlaceholderLine(text: "No installed \(profile.displayName) option was selected automatically. Start your service, then run discovery again, or enter connection details above.")
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(report.candidates.enumerated()), id: \.element.id) { index, candidate in
@@ -360,18 +360,18 @@ struct BackendDiscoveryPanel: View {
                 .font(.caption)
             }
         } else {
-            SetupPlaceholderLine(text: "Use discovery if Kokoro is already installed on this Mac.")
+            SetupPlaceholderLine(text: "Use discovery if \(profile.displayName) is already installed on this Mac.")
         }
     }
 
     private var discoverySummary: String {
-        profile.engineType == .kokoro ?
+        supportsDiscovery ?
             "Choose from detected local services or installed runtime packages." :
             "Use the selected managed backend profile."
     }
 
     private var discoveryState: BackendSetupCheckState? {
-        if profile.engineType != .kokoro {
+        if !supportsDiscovery {
             return .passed
         }
         if isDiscovering {
@@ -381,6 +381,10 @@ struct BackendDiscoveryPanel: View {
             return .waiting
         }
         return report.candidates.isEmpty ? .warning : .passed
+    }
+
+    private var supportsDiscovery: Bool {
+        profile.engineType == .kokoro || profile.engineType == .chatterbox
     }
 }
 
@@ -518,13 +522,14 @@ struct ManagedServiceSummary: View {
     }
 }
 
-struct KokoroConnectionForm: View {
+struct BackendConnectionForm: View {
+    let profile: BackendProfile
     @Binding var connection: BackendConnectionSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Picker("Connection", selection: binding(\.connectionKind)) {
-                ForEach(BackendConnectionKind.allCases, id: \.self) { kind in
+                ForEach(connectionKinds, id: \.self) { kind in
                     Text(kind.assistantDisplayName).tag(kind)
                 }
             }
@@ -542,7 +547,7 @@ struct KokoroConnectionForm: View {
                     if connection.connectionKind == .installedDockerImage {
                         GridRow {
                             Text("Image").foregroundStyle(.secondary)
-                            TextField("kokoro image name", text: binding(\.dockerImage))
+                            TextField("\(profile.displayName) image name", text: binding(\.dockerImage))
                                 .textFieldStyle(.roundedBorder)
                         }
                         GridRow {
@@ -561,19 +566,19 @@ struct KokoroConnectionForm: View {
                         }
                         GridRow {
                             Text("Health").foregroundStyle(.secondary)
-                            TextField("/health", text: binding(\.healthPath))
+                            TextField(defaultHealthPath, text: binding(\.healthPath))
                                 .textFieldStyle(.roundedBorder)
                         }
                         GridRow {
                             Text("Generate").foregroundStyle(.secondary)
-                            TextField("/v1/audio/speech", text: binding(\.generatePath))
+                            TextField(defaultGeneratePath, text: binding(\.generatePath))
                                 .textFieldStyle(.roundedBorder)
                         }
                     }
 
                     GridRow {
                         Text("Model").foregroundStyle(.secondary)
-                        TextField("kokoro/default", text: binding(\.modelID))
+                        TextField(defaultModelID, text: binding(\.modelID))
                             .textFieldStyle(.roundedBorder)
                     }
                     GridRow {
@@ -604,5 +609,21 @@ struct KokoroConnectionForm: View {
             get: { connection[keyPath: keyPath] ?? "" },
             set: { connection[keyPath: keyPath] = $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         )
+    }
+
+    private var defaultHealthPath: String {
+        profile.engineType == .chatterbox ? "/api/model-info" : "/health"
+    }
+
+    private var defaultGeneratePath: String {
+        profile.engineType == .chatterbox ? "/tts" : "/v1/audio/speech"
+    }
+
+    private var defaultModelID: String {
+        profile.engineType == .chatterbox ? "chatterbox" : "kokoro/default"
+    }
+
+    private var connectionKinds: [BackendConnectionKind] {
+        profile.engineType == .chatterbox ? [.externalService] : BackendConnectionKind.allCases
     }
 }

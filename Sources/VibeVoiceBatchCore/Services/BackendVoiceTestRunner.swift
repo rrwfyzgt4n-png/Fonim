@@ -104,11 +104,13 @@ public final class BackendVoiceTestRunner {
             return VibeVoiceDockerAdapter(projectRoot: projectRoot)
         case .kokoro:
             return KokoroHTTPAdapter(profile: profile, projectRoot: projectRoot)
-        case .comfyUITTS, .f5TTS, .chatterbox, .cosyVoice, .custom:
+        case .chatterbox:
+            return ChatterboxHTTPAdapter(profile: profile, projectRoot: projectRoot)
+        case .comfyUITTS, .f5TTS, .cosyVoice, .custom:
             return UnavailableEngineAdapter(
                 profile: profile,
                 explanation: "\(profile.displayName) can be configured, but test generation is not connected yet.",
-                recoverySuggestion: "Choose VibeVoice or Kokoro for the current setup test."
+                recoverySuggestion: "Choose VibeVoice, Kokoro, or Chatterbox for the current setup test."
             )
         }
     }
@@ -116,7 +118,7 @@ public final class BackendVoiceTestRunner {
 
 public extension BackendProfile {
     var generationExtraParameters: [String: String] {
-        guard engineType == .kokoro else { return [:] }
+        guard engineType == .kokoro || engineType == .chatterbox else { return [:] }
         var parameters: [String: String] = [:]
         if let generateEndpoint {
             parameters["generate_endpoint"] = generateEndpoint.absoluteString
@@ -129,6 +131,17 @@ public extension BackendProfile {
         }
         parameters["backend_display_name"] = displayName
         parameters["response_format"] = "wav"
+        if engineType == .chatterbox {
+            parameters["output_format"] = "wav"
+            parameters["split_text"] = "true"
+            parameters["chunk_size"] = "120"
+            parameters["temperature"] = "0.8"
+            parameters["exaggeration"] = "1.3"
+            parameters["cfg_weight"] = "0.5"
+            parameters["seed"] = "0"
+            parameters["speed_factor"] = "1.0"
+            parameters["language"] = "en"
+        }
         return parameters
     }
 }

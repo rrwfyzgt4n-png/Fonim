@@ -55,7 +55,7 @@ final class SettingsStore: ObservableObject {
            !catalog.voices.isEmpty {
             return catalog.voices
         }
-        if profile.engineType == .kokoro {
+        if profile.engineType == .kokoro || profile.engineType == .chatterbox {
             let connection = settings.backendConnection(for: profile.id)
             let voice = connection.trimmedDefaultVoice ?? settings.defaultVoice
             return [BackendCatalogVoice(id: voice, displayName: voice)]
@@ -110,7 +110,7 @@ final class SettingsStore: ObservableObject {
                 connection.modelID = catalog.models[0].id
             }
             if !catalog.voices.isEmpty {
-                connection.defaultVoice = catalog.voices[0].id
+                connection.defaultVoice = preferredVoice(in: catalog.voices, settings: settings, connection: connection)
             }
             settings.backendConnections[profileID] = connection
             if settings.defaultBackendID == profileID {
@@ -120,10 +120,25 @@ final class SettingsStore: ObservableObject {
                 }
                 if !catalog.voices.isEmpty,
                    !catalog.voices.contains(where: { $0.id == settings.defaultVoice }) {
-                    settings.defaultVoice = catalog.voices[0].id
+                    settings.defaultVoice = preferredVoice(in: catalog.voices, settings: settings, connection: connection)
                 }
             }
         }
+    }
+
+    private func preferredVoice(
+        in voices: [BackendCatalogVoice],
+        settings: AppSettings,
+        connection: BackendConnectionSettings
+    ) -> String {
+        if let saved = voices.first(where: { $0.id == settings.defaultVoice })?.id {
+            return saved
+        }
+        if let connected = connection.trimmedDefaultVoice,
+           let match = voices.first(where: { $0.id == connected })?.id {
+            return match
+        }
+        return voices[0].id
     }
 
     private func persist() {

@@ -396,7 +396,7 @@ internal struct BackendSetupReporter {
     }
 
     private func serviceEndpointCheck(profile: BackendProfile) -> BackendSetupCheck {
-        guard profile.engineType == .kokoro else {
+        guard profile.runtime == .externalService || profile.engineType == .kokoro else {
             return BackendSetupCheck(
                 id: "service-\(profile.id)",
                 title: "Service endpoint",
@@ -405,12 +405,13 @@ internal struct BackendSetupReporter {
             )
         }
         guard let healthCheckURL = profile.healthCheckURL else {
+            let backendName = profile.displayName
             return BackendSetupCheck(
                 id: "service-\(profile.id)",
                 title: "Service endpoint",
                 state: .warning,
-                message: "No Kokoro service address has been saved yet.",
-                recoverySuggestion: "If your Kokoro install runs as a local server, enter its address and health path. If it is only an image, this can wait until the adapter phase."
+                message: "No \(backendName) service address has been saved yet.",
+                recoverySuggestion: "If your install runs as a local server, enter its address and health path before generating."
             )
         }
 

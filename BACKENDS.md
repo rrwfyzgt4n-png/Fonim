@@ -48,12 +48,27 @@ Removal condition: remove the shim when upstream VibeVoice supports safe voice-p
 
 ### Kokoro
 
-- Runtime: local Python placeholder
+- Runtime: external service or installed Docker image
 - Role: fast clean preview and simple final narration
 - Strength: speed, simplicity, quality per complexity
-- Risk: managed install, voice inventory, and generation are not implemented yet
+- Risk: service contract depends on the installed Kokoro package or image
 - Current model id: `kokoro/default`
-- Current adapter: `UnavailableEngineAdapter`, which reports plain-language unavailable status instead of pretending generation is ready
+- Current adapter: `KokoroHTTPAdapter`
+- Default service paths: `/health`, `/v1/audio/speech`
+
+### Chatterbox TTS
+
+- Runtime: external local service
+- Role: expressive local narration with predefined and reference voices
+- Strength: temperature, exaggeration, CFG weight, seed, speed, language, and chunking controls
+- Risk: progress is request-based unless the running service exposes streaming job status
+- Current model id: `chatterbox`
+- Current adapter: `ChatterboxHTTPAdapter`
+- Default service URL: `http://127.0.0.1:8004`
+- Health endpoint: `/api/model-info`
+- Generation endpoint: `/tts`
+- Voice catalog endpoints: `/get_predefined_voices`, `/get_reference_files`
+- Output policy: the app requests non-streaming WAV output and archives it as `history/<session_id>/output.wav`
 
 ## Planned Backend Classes
 
@@ -64,7 +79,7 @@ Removal condition: remove the shim when upstream VibeVoice supports safe voice-p
 - Strength: extensibility
 - Risk: technical complexity
 
-### F5-TTS / Chatterbox / CosyVoice
+### F5-TTS / CosyVoice
 
 - Runtime: Docker
 - Role: experimental and high-quality alternatives

@@ -147,19 +147,32 @@ struct InspectorPanelView: View {
             }
             .pickerStyle(.menu)
 
-            Picker("CFG", selection: $store.cfgScale) {
-                ForEach(AppDefaults.availableCFGScales, id: \.self) { cfgScale in
-                    Text(cfgScale).tag(cfgScale)
+            if store.selectedBackendProfile.engineType == .chatterbox {
+                ChatterboxGenerationControls(
+                    temperature: settingsBinding(\.chatterboxTemperature),
+                    exaggeration: settingsBinding(\.chatterboxExaggeration),
+                    cfgWeight: settingsBinding(\.chatterboxCFGWeight),
+                    seed: settingsBinding(\.chatterboxSeed),
+                    speedFactor: settingsBinding(\.chatterboxSpeedFactor),
+                    language: settingsBinding(\.chatterboxLanguage),
+                    splitText: settingsBinding(\.chatterboxSplitText),
+                    chunkSize: settingsBinding(\.chatterboxChunkSize)
+                )
+            } else {
+                Picker("CFG", selection: $store.cfgScale) {
+                    ForEach(AppDefaults.availableCFGScales, id: \.self) { cfgScale in
+                        Text(cfgScale).tag(cfgScale)
+                    }
                 }
-            }
-            .pickerStyle(.menu)
+                .pickerStyle(.menu)
 
-            Picker("DDPM Steps", selection: $store.ddpmInferenceSteps) {
-                ForEach(AppDefaults.availableDDPMInferenceSteps, id: \.self) { steps in
-                    Text("\(steps)").tag(steps)
+                Picker("DDPM Steps", selection: $store.ddpmInferenceSteps) {
+                    ForEach(AppDefaults.availableDDPMInferenceSteps, id: \.self) { steps in
+                        Text("\(steps)").tag(steps)
+                    }
                 }
+                .pickerStyle(.menu)
             }
-            .pickerStyle(.menu)
         }
     }
 
@@ -469,6 +482,87 @@ private struct OutputsInspectorHeader: View {
         .padding(12)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
+}
+
+private struct ChatterboxGenerationControls: View {
+    @Binding var temperature: Double
+    @Binding var exaggeration: Double
+    @Binding var cfgWeight: Double
+    @Binding var seed: Int
+    @Binding var speedFactor: Double
+    @Binding var language: String
+    @Binding var splitText: Bool
+    @Binding var chunkSize: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Toggle("Split Text", isOn: $splitText)
+
+            Stepper(value: $chunkSize, in: 50...500, step: 10) {
+                HStack {
+                    Text("Chunk Size")
+                    Spacer()
+                    Text("\(chunkSize)")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!splitText)
+
+            ChatterboxDoubleField("Temperature", value: $temperature)
+            ChatterboxDoubleField("Exaggeration", value: $exaggeration)
+            ChatterboxDoubleField("CFG Weight", value: $cfgWeight)
+            ChatterboxDoubleField("Speed", value: $speedFactor)
+
+            Stepper(value: $seed, in: 0...999_999, step: 1) {
+                HStack {
+                    Text("Seed")
+                    Spacer()
+                    Text("\(seed)")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack {
+                Text("Language")
+                Spacer()
+                TextField("en", text: $language)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 82)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+        .font(.callout)
+    }
+}
+
+private struct ChatterboxDoubleField: View {
+    let label: String
+    @Binding var value: Double
+
+    init(_ label: String, value: Binding<Double>) {
+        self.label = label
+        _value = value
+    }
+
+    var body: some View {
+        HStack {
+            Text(label)
+            Spacer()
+            TextField("0.00", value: $value, formatter: Self.formatter)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 82)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private static let formatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
 }
 
 private struct NoSelectedOutputInspectorCard: View {
