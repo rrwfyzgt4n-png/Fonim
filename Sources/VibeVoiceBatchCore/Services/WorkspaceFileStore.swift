@@ -3,18 +3,20 @@ import Foundation
 public final class WorkspaceFileStore {
     public let projectRoot: URL
     private let fileManager: FileManager
+    private let storagePaths: WorkspaceStoragePaths
 
     public init(projectRoot: URL = AppDefaults.projectRoot, fileManager: FileManager = .default) {
         self.projectRoot = projectRoot
         self.fileManager = fileManager
+        self.storagePaths = WorkspaceStoragePaths(projectRoot: projectRoot, fileManager: fileManager)
     }
 
     public func ensureWorkspaceDirectories() throws {
-        try fileManager.createDirectory(at: projectRoot.projectsDirectory, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: projectRoot.scriptsDirectory, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: projectRoot.batchesDirectory, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: projectRoot.voicePresetsDirectory, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: projectRoot.generationPresetsDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: storagePaths.directory(.projects), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: storagePaths.directory(.scripts), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: storagePaths.directory(.batches), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: storagePaths.directory(.voicePresets), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: storagePaths.directory(.generationPresets), withIntermediateDirectories: true)
     }
 
     public func loadSnapshot() throws -> WorkspaceSnapshot {
@@ -29,42 +31,24 @@ public final class WorkspaceFileStore {
     }
 
     public func loadProjects() throws -> [NarrationProject] {
-        try loadItems(in: projectRoot.projectsDirectory, as: NarrationProject.self)
-            .sorted { lhs, rhs in
-                if lhs.updatedAt == rhs.updatedAt {
-                    return lhs.id > rhs.id
-                }
-                return lhs.updatedAt > rhs.updatedAt
-            }
+        WorkspaceSorting.newestFirst(try loadItems(in: storagePaths.directory(.projects), as: NarrationProject.self))
     }
 
     public func loadScripts() throws -> [NarrationScript] {
-        try loadItems(in: projectRoot.scriptsDirectory, as: NarrationScript.self)
-            .sorted { lhs, rhs in
-                if lhs.updatedAt == rhs.updatedAt {
-                    return lhs.id > rhs.id
-                }
-                return lhs.updatedAt > rhs.updatedAt
-            }
+        WorkspaceSorting.newestFirst(try loadItems(in: storagePaths.directory(.scripts), as: NarrationScript.self))
     }
 
     public func loadBatches() throws -> [NarrationBatch] {
-        try loadItems(in: projectRoot.batchesDirectory, as: NarrationBatch.self)
-            .sorted { lhs, rhs in
-                if lhs.updatedAt == rhs.updatedAt {
-                    return lhs.id > rhs.id
-                }
-                return lhs.updatedAt > rhs.updatedAt
-            }
+        WorkspaceSorting.newestFirst(try loadItems(in: storagePaths.directory(.batches), as: NarrationBatch.self))
     }
 
     public func loadVoicePresets() throws -> [NarrationVoicePreset] {
-        let custom = try loadItems(in: projectRoot.voicePresetsDirectory, as: NarrationVoicePreset.self)
+        let custom = try loadItems(in: storagePaths.directory(.voicePresets), as: NarrationVoicePreset.self)
         return mergedPresets(defaultVoicePresets(), custom: custom) { $0.displayName < $1.displayName }
     }
 
     public func loadGenerationPresets() throws -> [NarrationGenerationPreset] {
-        let custom = try loadItems(in: projectRoot.generationPresetsDirectory, as: NarrationGenerationPreset.self)
+        let custom = try loadItems(in: storagePaths.directory(.generationPresets), as: NarrationGenerationPreset.self)
         return mergedPresets(defaultGenerationPresets(), custom: custom) { lhs, rhs in
             if lhs.isBuiltIn != rhs.isBuiltIn {
                 return lhs.isBuiltIn && !rhs.isBuiltIn
@@ -80,7 +64,7 @@ public final class WorkspaceFileStore {
     ) throws -> NarrationProject {
         try ensureWorkspaceDirectories()
         let project = NarrationProject(
-            id: try makeUniqueWorkspaceID(prefix: "project", title: title, directory: projectRoot.projectsDirectory, date: now),
+            id: makeUniqueWorkspaceID(prefix: "project", title: title, in: .projects, date: now),
             title: title,
             createdAt: now,
             updatedAt: now,
@@ -104,7 +88,7 @@ public final class WorkspaceFileStore {
             _ = try loadProject(id: projectID)
         }
         let script = NarrationScript(
-            id: try makeUniqueWorkspaceID(prefix: "script", title: title, directory: projectRoot.scriptsDirectory, date: now),
+            id: makeUniqueWorkspaceID(prefix: "script", title: title, in: .scripts, date: now),
             projectID: projectID,
             title: title,
             text: text,
@@ -144,7 +128,7 @@ public final class WorkspaceFileStore {
             )
         }
         let batch = NarrationBatch(
-            id: try makeUniqueWorkspaceID(prefix: "batch", title: title, directory: projectRoot.batchesDirectory, date: now),
+            id: makeUniqueWorkspaceID(prefix: "batch", title: title, in: .batches, date: now),
             projectID: projectID,
             title: title,
             createdAt: now,
@@ -172,7 +156,7 @@ public final class WorkspaceFileStore {
     ) throws -> NarrationVoicePreset {
         try ensureWorkspaceDirectories()
         let preset = NarrationVoicePreset(
-            id: try makeUniqueWorkspaceID(prefix: "voice_preset", title: title, directory: projectRoot.voicePresetsDirectory, date: now),
+            id: makeUniqueWorkspaceID(prefix: "voice_preset", title: title, in: .voicePresets, date: now),
             displayName: title,
             backendID: backendID,
             modelID: modelID,
@@ -200,7 +184,7 @@ public final class WorkspaceFileStore {
     ) throws -> NarrationGenerationPreset {
         try ensureWorkspaceDirectories()
         let preset = NarrationGenerationPreset(
-            id: try makeUniqueWorkspaceID(prefix: "generation_preset", title: title, directory: projectRoot.generationPresetsDirectory, date: now),
+            id: makeUniqueWorkspaceID(prefix: "generation_preset", title: title, in: .generationPresets, date: now),
             displayName: title,
             backendID: backendID,
             modelID: modelID,
@@ -449,35 +433,33 @@ public final class WorkspaceFileStore {
         }
     }
 
-    private func makeUniqueWorkspaceID(prefix: String, title: String, directory: URL, date: Date) throws -> String {
-        let base = "\(prefix)_\(SessionFormatters.sessionIDDateFormatter.string(from: date))_\(slug(title, fallback: "untitled"))"
-        var candidate = base
-        var suffix = 2
-        while fileManager.fileExists(atPath: directory.appendingPathComponent("\(candidate).json").path) {
-            candidate = "\(base)_\(suffix)"
-            suffix += 1
-        }
-        return candidate
+    private func makeUniqueWorkspaceID(
+        prefix: String,
+        title: String,
+        in directory: WorkspaceStorageDirectory,
+        date: Date
+    ) -> String {
+        storagePaths.makeUniqueID(prefix: prefix, title: title, in: directory, date: date)
     }
 
     private func projectURL(_ id: String) -> URL {
-        projectRoot.projectsDirectory.appendingPathComponent("\(id).json", isDirectory: false)
+        storagePaths.jsonURL(id: id, in: .projects)
     }
 
     private func scriptURL(_ id: String) -> URL {
-        projectRoot.scriptsDirectory.appendingPathComponent("\(id).json", isDirectory: false)
+        storagePaths.jsonURL(id: id, in: .scripts)
     }
 
     private func batchURL(_ id: String) -> URL {
-        projectRoot.batchesDirectory.appendingPathComponent("\(id).json", isDirectory: false)
+        storagePaths.jsonURL(id: id, in: .batches)
     }
 
     private func voicePresetURL(_ id: String) -> URL {
-        projectRoot.voicePresetsDirectory.appendingPathComponent("\(id).json", isDirectory: false)
+        storagePaths.jsonURL(id: id, in: .voicePresets)
     }
 
     private func generationPresetURL(_ id: String) -> URL {
-        projectRoot.generationPresetsDirectory.appendingPathComponent("\(id).json", isDirectory: false)
+        storagePaths.jsonURL(id: id, in: .generationPresets)
     }
 
     private func defaultVoicePresets() -> [NarrationVoicePreset] {
@@ -561,10 +543,4 @@ public final class WorkspaceFileStore {
         try data.write(to: url, options: .atomic)
     }
 
-    private func slug(_ value: String, fallback: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let sanitized = String(value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
-            .trimmingCharacters(in: CharacterSet(charactersIn: "._-"))
-        return sanitized.isEmpty ? fallback : sanitized
-    }
 }

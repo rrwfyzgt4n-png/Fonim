@@ -25,6 +25,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkBackendManagerFacadePreservesInjectedRuntimeHooks()
         try checkBackendManagerOperations()
         try checkWorkspaceDataModel()
+        try checkWorkspaceStoreCleanupInvariants()
         try checkMultiSelectArchiveMovesAllSessions()
         try checkWorkspacePresets()
         try checkAppSpecificErrors()
@@ -1027,6 +1028,82 @@ struct VibeVoiceBatchCoreChecks {
             let batchCount = try workspaceStore.loadBatches().count
             precondition(batchCount == 1)
         }
+    }
+
+    private static func checkWorkspaceStoreCleanupInvariants() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchWorkspaceCleanupChecks-\(UUID().uuidString)", isDirectory: true)
+        let workspaceStore = WorkspaceFileStore(projectRoot: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let older = Date(timeIntervalSince1970: 1_718_171_695)
+        let newer = older.addingTimeInterval(60)
+
+        let alphaProject = try workspaceStore.createProject(title: "Alpha Project", now: older)
+        let betaProject = try workspaceStore.createProject(title: "Beta Project", now: older)
+        let newestProject = try workspaceStore.createProject(title: "Newest Project", now: newer)
+        precondition(FileManager.default.fileExists(atPath: root.projectsDirectory.appendingPathComponent("\(alphaProject.id).json").path))
+        let projectIDs = try workspaceStore.loadProjects().map(\.id)
+        precondition(projectIDs == [newestProject.id, betaProject.id, alphaProject.id])
+
+        let duplicateProject = try workspaceStore.createProject(title: "Alpha Project", now: older)
+        precondition(duplicateProject.id == "\(alphaProject.id)_2")
+        precondition(FileManager.default.fileExists(atPath: root.projectsDirectory.appendingPathComponent("\(duplicateProject.id).json").path))
+
+        let alphaScript = try workspaceStore.createScript(title: "Alpha Script", text: "One.", now: older)
+        let betaScript = try workspaceStore.createScript(title: "Beta Script", text: "Two.", now: older)
+        let newestScript = try workspaceStore.createScript(title: "Newest Script", text: "Three.", now: newer)
+        let scriptIDs = try workspaceStore.loadScripts().map(\.id)
+        precondition(scriptIDs.prefix(3) == [newestScript.id, betaScript.id, alphaScript.id])
+
+        let alphaBatch = try workspaceStore.createBatch(title: "Alpha Batch", scriptIDs: [alphaScript.id], now: older)
+        let betaBatch = try workspaceStore.createBatch(title: "Beta Batch", scriptIDs: [betaScript.id], now: older)
+        let newestBatch = try workspaceStore.createBatch(title: "Newest Batch", scriptIDs: [newestScript.id], now: newer)
+        let batchIDs = try workspaceStore.loadBatches().map(\.id)
+        precondition(batchIDs == [newestBatch.id, betaBatch.id, alphaBatch.id])
+
+        let voiceOne = try workspaceStore.createVoicePreset(title: "Reusable Voice", voiceID: "en-carter_man", now: older)
+        let voiceTwo = try workspaceStore.createVoicePreset(title: "Reusable Voice", voiceID: "en-carter_man", now: older)
+        precondition(voiceTwo.id == "\(voiceOne.id)_2")
+        precondition(FileManager.default.fileExists(atPath: root.voicePresetsDirectory.appendingPathComponent("\(voiceTwo.id).json").path))
+
+        let presetOne = try workspaceStore.createGenerationPreset(
+            title: "Reusable Generation",
+            voiceID: voiceOne.voiceID,
+            settings: GenerationSettings(cfgScale: "1.8", ddpmInferenceSteps: 8),
+            outputFormat: .wav,
+            now: older
+        )
+        let presetTwo = try workspaceStore.createGenerationPreset(
+            title: "Reusable Generation",
+            voiceID: voiceOne.voiceID,
+            settings: GenerationSettings(cfgScale: "1.8", ddpmInferenceSteps: 8),
+            outputFormat: .wav,
+            now: older
+        )
+        precondition(presetTwo.id == "\(presetOne.id)_2")
+        precondition(FileManager.default.fileExists(atPath: root.generationPresetsDirectory.appendingPathComponent("\(presetTwo.id).json").path))
+
+        let builtIns = try workspaceStore.loadSnapshot()
+        let builtInVoice = try unwrap(
+            builtIns.voicePresets.first(where: \.isBuiltIn),
+            "Expected built-in voice preset"
+        )
+        do {
+            try workspaceStore.deleteVoicePreset(id: builtInVoice.id)
+            throw CheckError("Expected protected voice preset deletion to fail")
+        } catch let error as WorkspaceError {
+            guard case .cannotDeleteBuiltInPreset(.voice, builtInVoice.id, _) = error else {
+                throw CheckError("Expected voice protection error")
+            }
+        }
+
+        let filedOnce = try workspaceStore.attachGenerationSessions(["session-a", "session-b", "session-a"], toProject: alphaProject.id, now: newer)
+        precondition(filedOnce.generationSessionIDs == ["session-a", "session-b"])
+        let beforeDuplicateFiling = try workspaceStore.loadProject(id: alphaProject.id)
+        let filedAgain = try workspaceStore.attachGenerationSessions(["session-b", "session-a"], toProject: alphaProject.id, now: newer.addingTimeInterval(60))
+        precondition(filedAgain.generationSessionIDs == beforeDuplicateFiling.generationSessionIDs)
+        precondition(filedAgain.updatedAt == beforeDuplicateFiling.updatedAt)
     }
 
     private static func checkWorkspacePresets() throws {
