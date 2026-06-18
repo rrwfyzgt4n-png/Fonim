@@ -4,12 +4,20 @@ import VibeVoiceBatchCore
 
 struct WelcomeSetupPane: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             Label("Local Backend Setup", systemImage: "checkmark.seal")
                 .font(.title2.weight(.semibold))
 
             Text("This assistant checks whether the selected local narration backend is ready before you generate audio.")
                 .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 10) {
+                AssistantWelcomePoint(systemImage: "server.rack", title: "Choose a backend", detail: "Use VibeVoice, Kokoro, or a configured local service.")
+                AssistantWelcomePoint(systemImage: "checklist", title: "Check readiness", detail: "Confirm runtime, model, voice, and service state.")
+                AssistantWelcomePoint(systemImage: "waveform", title: "Test voice", detail: "Generate a short archived sample before finishing.")
+            }
+            .padding(12)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 }
@@ -42,6 +50,55 @@ struct ChooseBackendSetupPane: View {
                 LabeledContent("Current status", value: statusText)
             }
             .formStyle(.grouped)
+
+            BackendModeSummary(mode: mode)
+        }
+    }
+}
+
+private struct AssistantWelcomePoint: View {
+    let systemImage: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.callout.weight(.medium))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+private struct BackendModeSummary: View {
+    let mode: BackendSetupMode
+
+    var body: some View {
+        Label(summary, systemImage: mode == .external ? "network" : "shippingbox")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var summary: String {
+        switch mode {
+        case .simple:
+            return "Simple mode prepares the recommended managed local backend."
+        case .advanced:
+            return "Advanced mode keeps backend choices visible for manual setup."
+        case .external:
+            return "External mode connects to a service you already run."
         }
     }
 }

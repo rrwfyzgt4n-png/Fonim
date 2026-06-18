@@ -91,13 +91,31 @@ struct BackendStatusView: View {
     }
 
     private var detailRow: some View {
-        HStack(spacing: 14) {
-            StatusMetric(label: "Elapsed", value: elapsedText)
-            StatusMetric(label: "Remaining", value: remainingText)
-            StatusMetric(label: "Estimated", value: estimatedTotalText)
-            StatusMetric(label: "Runtime", value: runtimeText)
-            StatusMetric(label: "Progress", value: progressText)
-            Spacer(minLength: 0)
+        let metrics = [
+            StatusMetricData(label: "Elapsed", value: elapsedText),
+            StatusMetricData(label: "Remaining", value: remainingText),
+            StatusMetricData(label: "Estimated", value: estimatedTotalText),
+            StatusMetricData(label: "Runtime", value: runtimeText),
+            StatusMetricData(label: "Progress", value: progressText)
+        ]
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                ForEach(metrics) { metric in
+                    StatusMetric(label: metric.label, value: metric.value)
+                }
+                Spacer(minLength: 0)
+            }
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 92), spacing: 12, alignment: .leading)],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(metrics) { metric in
+                    StatusMetric(label: metric.label, value: metric.value)
+                }
+            }
         }
         .font(.caption)
         .padding(.top, 1)
@@ -292,6 +310,13 @@ struct BackendStatusView: View {
     }
 }
 
+private struct StatusMetricData: Identifiable {
+    let label: String
+    let value: String
+
+    var id: String { label }
+}
+
 private struct StatusMetric: View {
     let label: String
     let value: String
@@ -302,9 +327,10 @@ private struct StatusMetric: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .fontWeight(.medium)
+                .monospacedDigit()
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .frame(minWidth: 76, alignment: .leading)
+        .frame(minWidth: 72, alignment: .leading)
     }
 }

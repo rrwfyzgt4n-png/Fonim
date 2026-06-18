@@ -9,25 +9,15 @@ struct InspectorPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Inspector")
-                .font(.headline)
+            inspectorHeader
                 .padding(.horizontal, 14)
                 .padding(.top, 14)
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
 
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if isOutputsSelection {
-                        outputsHousekeepingSection
-                    } else {
-                        generationSection
-                        backendSection
-                        exportSection
-                        metadataSection
-                    }
-                }
+                inspectorContent
                 .padding(14)
             }
         }
@@ -40,6 +30,112 @@ struct InspectorPanelView: View {
             return true
         }
         return false
+    }
+
+    private var inspectorHeader: some View {
+        HStack(spacing: 10) {
+            Image(systemName: inspectorIcon)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(inspectorTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(inspectorSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var inspectorContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            switch selection ?? .section(.history) {
+            case .section(.outputs):
+                outputsHousekeepingSection
+            case .section(.backends):
+                backendInspectorContent
+            case .section(.projects), .section(.scripts), .section(.batches):
+                metadataSection
+            case .section(.voices):
+                generationSection
+                backendSection
+                metadataSection
+            case .section(.presets):
+                generationSection
+                backendSection
+                exportSection
+                metadataSection
+            case .section(.history), .historySession:
+                generationSection
+                backendSection
+                exportSection
+                metadataSection
+            }
+        }
+    }
+
+    private var backendInspectorContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            InspectorGroup(title: "Backend Status") {
+                InspectorValue(label: "Backend", value: store.selectedBackendProfile.displayName)
+                InspectorValue(label: "Runtime", value: store.selectedBackendProfile.runtime.displayName)
+                InspectorValue(label: "State", value: store.backendStatus.state.displayName)
+                InspectorValue(label: "Message", value: store.backendStatus.userMessage)
+                InspectorValue(label: "Image", value: store.selectedBackendProfile.dockerImage ?? "Not required")
+            }
+
+            backendSection
+            exportSection
+        }
+    }
+
+    private var inspectorTitle: String {
+        switch selection ?? .section(.history) {
+        case .section(let section):
+            return section.title
+        case .historySession:
+            return "Session"
+        }
+    }
+
+    private var inspectorSubtitle: String {
+        switch selection ?? .section(.history) {
+        case .section(.projects):
+            return "\(workspaceStore.projects.count) projects"
+        case .section(.scripts):
+            return "\(workspaceStore.scripts.count) scripts"
+        case .section(.batches):
+            return "\(workspaceStore.batches.count) batches"
+        case .section(.voices):
+            return "Voice defaults and reusable profiles"
+        case .section(.presets):
+            return "Reusable generation settings"
+        case .section(.outputs):
+            return "\(store.selectedOutputSessions.count) selected of \(store.outputSessions.count)"
+        case .section(.history):
+            return store.hasUnsavedEditorText ? "Unsaved editor text" : "Editor defaults"
+        case .section(.backends):
+            return store.backendStatus.state.displayName
+        case .historySession(let sessionID):
+            return sessionID
+        }
+    }
+
+    private var inspectorIcon: String {
+        switch selection ?? .section(.history) {
+        case .section(let section):
+            return section.systemImage
+        case .historySession:
+            return "doc.text.magnifyingglass"
+        }
     }
 
     private var generationSection: some View {
@@ -431,14 +527,16 @@ private struct InspectorValue: View {
     let value: String
 
     var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
-            GridRow {
-                Text(label)
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .lineLimit(2)
-                    .textSelection(.enabled)
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 82, alignment: .leading)
+
+            Text(value)
+                .lineLimit(value.contains("\n") ? 5 : 2)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.callout)
     }

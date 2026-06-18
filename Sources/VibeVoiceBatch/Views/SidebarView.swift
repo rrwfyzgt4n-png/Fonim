@@ -182,6 +182,7 @@ private struct SidebarSectionRow: View {
                 .frame(width: 16)
 
             Text(section.title)
+                .fontWeight(isSelected ? .semibold : .regular)
                 .lineLimit(1)
 
             Spacer()
@@ -196,25 +197,7 @@ private struct SidebarSectionRow: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selectionBackground)
-        .overlay(alignment: .leading) {
-            if isSelected {
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(width: 3)
-                    .padding(.vertical, 5)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
         .frame(minHeight: 30)
-    }
-
-    @ViewBuilder
-    private var selectionBackground: some View {
-        if isSelected {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor.opacity(0.16))
-        }
     }
 }
 
@@ -230,6 +213,7 @@ private struct HistorySidebarRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(SessionFormatters.displayDateFormatter.string(from: record.metadata.createdAt))
+                    .fontWeight(isSelected ? .semibold : .regular)
                     .lineLimit(1)
 
                 Text(detailText)
@@ -239,27 +223,10 @@ private struct HistorySidebarRow: View {
             }
 
             Spacer(minLength: 8)
-
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color.accentColor)
-                    .imageScale(.small)
-                    .accessibilityHidden(true)
-            }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-        .background(selectionBackground)
-        .overlay(alignment: .leading) {
-            if isSelected {
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(width: 3)
-                    .padding(.vertical, 6)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
         .accessibilityLabel(accessibilityLabel)
     }
 
@@ -288,14 +255,6 @@ private struct HistorySidebarRow: View {
         case .cancelled: .orange
         case .running: .blue
         case .draft: .secondary
-        }
-    }
-
-    @ViewBuilder
-    private var selectionBackground: some View {
-        if isSelected {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor.opacity(0.16))
         }
     }
 }

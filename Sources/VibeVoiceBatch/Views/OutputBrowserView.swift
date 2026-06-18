@@ -71,28 +71,41 @@ struct OutputBrowserView: View {
     }
 
     private var summaryStrip: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 18) {
+                summaryMetrics
+                Divider()
+                    .frame(height: 28)
+                sortPicker
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                summaryMetrics
+                sortPicker
+            }
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var summaryMetrics: some View {
         HStack(spacing: 18) {
             SummaryMetric(title: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Outputs" : "Matched", value: "\(outputs.count)")
             SummaryMetric(title: "Selected", value: "\(selectedOutputs.count)")
             SummaryMetric(title: "Duration", value: SessionFormatters.duration(totalDuration(outputs)))
             SummaryMetric(title: "Disk", value: totalSize(outputs).formattedByteCount)
-
-            Divider()
-                .frame(height: 28)
-
-            Picker("Sort", selection: $sortMode) {
-                ForEach(OutputSortMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .frame(width: 170)
-
-            Spacer()
         }
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var sortPicker: some View {
+        Picker("Sort", selection: $sortMode) {
+            ForEach(OutputSortMode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.menu)
+        .frame(width: 170, alignment: .leading)
     }
 
     private var outputTable: some View {

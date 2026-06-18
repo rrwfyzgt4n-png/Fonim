@@ -33,6 +33,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkDockerShimDocumentation()
         try checkAssistantViewDecomposition()
         try checkAppStoreResponsibilitySplit()
+        try checkPostRefactorUXPolish()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
         try await checkBackendVoiceTestRunnerUsesAdapterQueue()
@@ -1472,6 +1473,36 @@ struct VibeVoiceBatchCoreChecks {
             )
             precondition(text.contains(requiredType))
         }
+    }
+
+    private static func checkPostRefactorUXPolish() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let views = root.appendingPathComponent("Sources/VibeVoiceBatch/Views", isDirectory: true)
+        let sidebar = try String(contentsOf: views.appendingPathComponent("SidebarView.swift"), encoding: .utf8)
+        let inspector = try String(contentsOf: views.appendingPathComponent("InspectorPanelView.swift"), encoding: .utf8)
+        let status = try String(contentsOf: views.appendingPathComponent("BackendStatusView.swift"), encoding: .utf8)
+        let outputs = try String(contentsOf: views.appendingPathComponent("OutputBrowserView.swift"), encoding: .utf8)
+        let editor = try String(contentsOf: views.appendingPathComponent("EditorView.swift"), encoding: .utf8)
+        let assistantWelcome = try String(contentsOf: views.appendingPathComponent("BackendSetupAssistantWelcomeChecks.swift"), encoding: .utf8)
+
+        precondition(sidebar.contains("Section(\"Generation\")"))
+        precondition(sidebar.contains("ForEach(store.sessions)"))
+        precondition(sidebar.contains("HistorySidebarRow"))
+        precondition(!sidebar.contains("selectionBackground"))
+
+        precondition(inspector.contains("private var inspectorHeader"))
+        precondition(inspector.contains("private var inspectorContent"))
+        precondition(inspector.contains("backendInspectorContent"))
+        precondition(inspector.contains("case .section(.outputs):"))
+
+        precondition(status.contains("ViewThatFits(in: .horizontal)"))
+        precondition(status.contains("LazyVGrid"))
+        precondition(outputs.contains("ViewThatFits(in: .horizontal)"))
+        precondition(outputs.contains("private var summaryMetrics"))
+
+        precondition(editor.contains(".labelStyle(.iconOnly)"))
+        precondition(assistantWelcome.contains("AssistantWelcomePoint"))
+        precondition(assistantWelcome.contains("BackendModeSummary"))
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {
