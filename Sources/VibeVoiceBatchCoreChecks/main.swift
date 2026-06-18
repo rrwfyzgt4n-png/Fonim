@@ -27,6 +27,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkWorkspaceDataModel()
         try checkMultiSelectArchiveMovesAllSessions()
         try checkWorkspacePresets()
+        try checkAppSpecificErrors()
         try checkAppSettingsNormalizeInvalidValues()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
@@ -1086,6 +1087,87 @@ struct VibeVoiceBatchCoreChecks {
         try workspaceStore.deleteGenerationPreset(id: generationCopy.id)
         precondition(!FileManager.default.fileExists(atPath: root.voicePresetsDirectory.appendingPathComponent("\(voiceCopy.id).json").path))
         precondition(!FileManager.default.fileExists(atPath: root.generationPresetsDirectory.appendingPathComponent("\(generationCopy.id).json").path))
+    }
+
+    private static func checkAppSpecificErrors() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeVoiceBatchErrorChecks-\(UUID().uuidString)", isDirectory: true)
+        let workspaceStore = WorkspaceFileStore(projectRoot: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let snapshot = try workspaceStore.loadSnapshot()
+        let builtInVoice = try unwrap(
+            snapshot.voicePresets.first { $0.isBuiltIn },
+            "Expected a built-in voice preset"
+        )
+        let builtInGeneration = try unwrap(
+            snapshot.generationPresets.first { $0.isBuiltIn },
+            "Expected a built-in generation preset"
+        )
+
+        do {
+            try workspaceStore.deleteVoicePreset(id: builtInVoice.id)
+            throw CheckError("Expected built-in voice deletion to fail")
+        } catch let error as WorkspaceError {
+            guard case .cannotDeleteBuiltInPreset(let kind, let id, let displayName) = error else {
+                throw CheckError("Expected protected voice preset error")
+            }
+            precondition(kind == .voice)
+            precondition(id == builtInVoice.id)
+            precondition(displayName == builtInVoice.displayName)
+            precondition(error.localizedDescription == "Built-in voice cannot be deleted")
+            precondition(error.recoverySuggestion == "Duplicate it first if you want a custom copy.")
+            precondition(error.technicalDetails?.contains(builtInVoice.id) == true)
+            let message = AppErrorPresenter.message(for: error, includeTechnicalDetails: true)
+            precondition(message.contains("Built-in voice cannot be deleted"))
+            precondition(message.contains("Duplicate it first"))
+            precondition(message.contains("Details:"))
+        }
+
+        do {
+            try workspaceStore.deleteGenerationPreset(id: builtInGeneration.id)
+            throw CheckError("Expected built-in generation preset deletion to fail")
+        } catch let error as WorkspaceError {
+            guard case .cannotDeleteBuiltInPreset(let kind, let id, let displayName) = error else {
+                throw CheckError("Expected protected generation preset error")
+            }
+            precondition(kind == .generation)
+            precondition(id == builtInGeneration.id)
+            precondition(displayName == builtInGeneration.displayName)
+            precondition(error.localizedDescription == "Built-in generation preset cannot be deleted")
+        }
+
+        do {
+            let batch = try workspaceStore.createBatch(title: "Empty Batch", scriptIDs: [])
+            _ = try workspaceStore.recordBatchItemGeneration(
+                batchID: batch.id,
+                itemID: "missing-item",
+                sessionID: "session",
+                status: .failed
+            )
+            throw CheckError("Expected missing batch item to fail")
+        } catch let error as WorkspaceError {
+            guard case .missingBatchItem(let batchID, let itemID) = error else {
+                throw CheckError("Expected missing batch item error")
+            }
+            precondition(!batchID.isEmpty)
+            precondition(itemID == "missing-item")
+            precondition(error.localizedDescription == "Batch item not found")
+        }
+
+        let backendError = BackendError.operationUnavailable(
+            GenerationErrorRecord(
+                title: "Backend action failed",
+                explanation: "The selected backend action could not be completed.",
+                recoverySuggestion: "Check backend status, then try again.",
+                technicalDetails: "backend=kokoro"
+            )
+        )
+        precondition(backendError.localizedDescription == "Backend action failed")
+        let backendMessage = AppErrorPresenter.message(for: backendError, includeTechnicalDetails: true)
+        precondition(backendMessage.contains("The selected backend action could not be completed."))
+        precondition(backendMessage.contains("Check backend status"))
+        precondition(backendMessage.contains("backend=kokoro"))
     }
 
     private static func checkAppSettingsNormalizeInvalidValues() throws {

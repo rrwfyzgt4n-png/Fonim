@@ -12,6 +12,16 @@ Every backend error should have:
 - optional technical details
 - related backend id or job id when available
 
+## App Error Model
+
+Core operations should throw typed errors when the app can explain the failure.
+
+- Workspace failures use `WorkspaceError`.
+- Backend adapter failures use `BackendError`.
+- UI stores should format recoverable errors through `AppErrorPresenter`.
+- The first visible message should be plain language; technical details belong after the recovery text or behind a details disclosure.
+- Do not use generic system errors for expected product states, such as protected built-in presets.
+
 ## Examples
 
 ### Docker Missing

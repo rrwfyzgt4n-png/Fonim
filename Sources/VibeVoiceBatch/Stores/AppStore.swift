@@ -977,21 +977,7 @@ final class AppStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     private func userFacingMessage(for error: Error) -> String {
-        if let backendError = error as? BackendError {
-            switch backendError {
-            case .backendUnavailable(let record),
-                    .operationUnavailable(let record),
-                    .generationFailed(let record):
-                return [
-                    record.title,
-                    record.explanation,
-                    record.recoverySuggestion
-                ]
-                .compactMap { $0 }
-                .joined(separator: "\n\n")
-            }
-        }
-        return "Could not start generation: \(error.localizedDescription)"
+        AppErrorPresenter.message(for: error, fallbackTitle: "Could not start generation")
     }
 
     private func refreshBackendStatusNow() async -> BackendStatusSnapshot {

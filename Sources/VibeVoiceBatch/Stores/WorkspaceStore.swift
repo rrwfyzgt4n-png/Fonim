@@ -28,7 +28,7 @@ final class WorkspaceStore: ObservableObject {
             voicePresets = snapshot.voicePresets
             generationPresets = snapshot.generationPresets
         } catch {
-            alertMessage = "Could not load workspace: \(error.localizedDescription)"
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not load workspace")
         }
         isRefreshing = false
     }
@@ -53,7 +53,7 @@ final class WorkspaceStore: ObservableObject {
             alertMessage = nil
             return updated
         } catch {
-            alertMessage = "Could not file outputs into project: \(error.localizedDescription)"
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not file outputs into project")
             return nil
         }
     }
@@ -69,7 +69,7 @@ final class WorkspaceStore: ObservableObject {
             alertMessage = nil
             return preset
         } catch {
-            alertMessage = "Could not save voice preset: \(error.localizedDescription)"
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not save voice preset")
             return nil
         }
     }
@@ -98,7 +98,7 @@ final class WorkspaceStore: ObservableObject {
             alertMessage = nil
             return preset
         } catch {
-            alertMessage = "Could not save generation preset: \(error.localizedDescription)"
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not save generation preset")
             return nil
         }
     }
@@ -111,14 +111,20 @@ final class WorkspaceStore: ObservableObject {
             alertMessage = nil
             return copy
         } catch {
-            alertMessage = "Could not duplicate voice: \(error.localizedDescription)"
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not duplicate voice")
             return nil
         }
     }
 
     func deleteVoicePreset(_ preset: NarrationVoicePreset) {
         guard !preset.isBuiltIn else {
-            alertMessage = "Built-in voices cannot be deleted. Duplicate it first if you want a custom copy."
+            alertMessage = AppErrorPresenter.message(
+                for: WorkspaceError.cannotDeleteBuiltInPreset(
+                    kind: .voice,
+                    id: preset.id,
+                    displayName: preset.displayName
+                )
+            )
             return
         }
 
@@ -127,7 +133,7 @@ final class WorkspaceStore: ObservableObject {
             refresh()
             alertMessage = nil
         } catch {
-            alertMessage = "Could not delete voice: \(error.localizedDescription)"
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not delete voice")
         }
     }
 
@@ -139,14 +145,20 @@ final class WorkspaceStore: ObservableObject {
             alertMessage = nil
             return copy
         } catch {
-            alertMessage = "Could not duplicate preset: \(error.localizedDescription)"
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not duplicate preset")
             return nil
         }
     }
 
     func deleteGenerationPreset(_ preset: NarrationGenerationPreset) {
         guard !preset.isBuiltIn else {
-            alertMessage = "Built-in presets cannot be deleted. Duplicate it first if you want a custom copy."
+            alertMessage = AppErrorPresenter.message(
+                for: WorkspaceError.cannotDeleteBuiltInPreset(
+                    kind: .generation,
+                    id: preset.id,
+                    displayName: preset.displayName
+                )
+            )
             return
         }
 
@@ -155,7 +167,7 @@ final class WorkspaceStore: ObservableObject {
             refresh()
             alertMessage = nil
         } catch {
-            alertMessage = "Could not delete preset: \(error.localizedDescription)"
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not delete preset")
         }
     }
 }

@@ -301,7 +301,11 @@ public final class WorkspaceFileStore {
     public func deleteVoicePreset(id: String) throws {
         let preset = try loadVoicePreset(id: id)
         guard !preset.isBuiltIn else {
-            throw CocoaError(.userCancelled)
+            throw WorkspaceError.cannotDeleteBuiltInPreset(
+                kind: .voice,
+                id: preset.id,
+                displayName: preset.displayName
+            )
         }
         try fileManager.removeItem(at: voicePresetURL(id))
     }
@@ -309,7 +313,11 @@ public final class WorkspaceFileStore {
     public func deleteGenerationPreset(id: String) throws {
         let preset = try loadGenerationPreset(id: id)
         guard !preset.isBuiltIn else {
-            throw CocoaError(.userCancelled)
+            throw WorkspaceError.cannotDeleteBuiltInPreset(
+                kind: .generation,
+                id: preset.id,
+                displayName: preset.displayName
+            )
         }
         try fileManager.removeItem(at: generationPresetURL(id))
     }
@@ -370,7 +378,7 @@ public final class WorkspaceFileStore {
     ) throws -> NarrationBatch {
         var batch = try loadBatch(id: batchID)
         guard let index = batch.items.firstIndex(where: { $0.id == itemID }) else {
-            throw CocoaError(.fileNoSuchFile)
+            throw WorkspaceError.missingBatchItem(batchID: batchID, itemID: itemID)
         }
 
         batch.items[index].generationSessionID = sessionID
