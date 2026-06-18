@@ -31,6 +31,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkAppSpecificErrors()
         try checkAppSettingsNormalizeInvalidValues()
         try checkDockerShimDocumentation()
+        try checkAssistantViewDecomposition()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
         try await checkBackendVoiceTestRunnerUsesAdapterQueue()
@@ -1406,6 +1407,36 @@ struct VibeVoiceBatchCoreChecks {
         precondition(backends.contains("Removal condition"))
         precondition(packaging.contains("Backend Image Compatibility Notes"))
         precondition(packaging.contains("do not hide this workaround"))
+    }
+
+    private static func checkAssistantViewDecomposition() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let views = root.appendingPathComponent("Sources/VibeVoiceBatch/Views", isDirectory: true)
+        let coordinator = views.appendingPathComponent("BackendSetupAssistantView.swift")
+        let coordinatorText = try String(contentsOf: coordinator, encoding: .utf8)
+        let coordinatorLineCount = coordinatorText.split(separator: "\n", omittingEmptySubsequences: false).count
+
+        precondition(coordinatorLineCount < 500)
+        precondition(coordinatorText.contains("struct BackendSetupAssistantView: View"))
+        precondition(!coordinatorText.contains("struct BackendInstallSetupPane"))
+        precondition(!coordinatorText.contains("struct ModelsVoicesSetupPane"))
+        precondition(!coordinatorText.contains("struct TestVoiceSetupPane"))
+
+        let expectedFiles = [
+            "BackendSetupAssistantChrome.swift": "struct AssistantStepRail: View",
+            "BackendSetupAssistantWelcomeChecks.swift": "struct WelcomeSetupPane: View",
+            "BackendSetupAssistantBackendStep.swift": "struct BackendInstallSetupPane: View",
+            "BackendSetupAssistantModelsStep.swift": "struct ModelsVoicesSetupPane: View",
+            "BackendSetupAssistantTestStep.swift": "struct TestVoiceSetupPane: View",
+        ]
+
+        for (fileName, requiredType) in expectedFiles {
+            let fileURL = views.appendingPathComponent(fileName)
+            let text = try String(contentsOf: fileURL, encoding: .utf8)
+            precondition(text.contains(requiredType))
+            precondition(text.contains("import SwiftUI"))
+            precondition(text.split(separator: "\n", omittingEmptySubsequences: false).count < 900)
+        }
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {
