@@ -1257,7 +1257,18 @@ struct VibeVoiceBatchCoreChecks {
             outputFolderPath: "",
             exportFormat: .mp3
         )
-        let normalized = settings.normalized
+        let invalidResult = settings.normalizationResult()
+        let normalized = invalidResult.settings
+        precondition(invalidResult.didRecover)
+        precondition(invalidResult.needsPersistence)
+        precondition(invalidResult.recoveryNotes.contains { $0.reason == .invalidBackend && $0.field == "defaultBackendID" })
+        precondition(invalidResult.recoveryNotes.contains { $0.reason == .invalidModel && $0.field == "defaultModelID" })
+        precondition(invalidResult.recoveryNotes.contains { $0.reason == .invalidVoice && $0.field == "defaultVoice" })
+        precondition(invalidResult.recoveryNotes.contains { $0.reason == .invalidCFGScale && $0.field == "defaultCFGScale" })
+        precondition(invalidResult.recoveryNotes.contains { $0.reason == .invalidDDPMInferenceSteps && $0.field == "defaultDDPMInferenceSteps" })
+        precondition(invalidResult.recoveryNotes.contains { $0.reason == .emptyOutputFolder && $0.field == "outputFolderPath" })
+        precondition(invalidResult.recoveryNotes.contains { $0.reason == .unsupportedExportFormat && $0.field == "exportFormat" })
+        precondition(invalidResult.recoverySummary?.contains("default history folder") == true)
         precondition(normalized.defaultBackendID == BackendProfiles.vibeVoiceTTS.id)
         precondition(normalized.defaultModelID == AppDefaults.modelPath)
         precondition(normalized.defaultVoice == AppDefaults.defaultVoice)
@@ -1266,16 +1277,19 @@ struct VibeVoiceBatchCoreChecks {
         precondition(normalized.outputFolderPath == AppDefaults.projectRoot.historyDirectory.path)
         precondition(normalized.exportFormat == .wav)
 
-        let kokoroSettings = AppSettings(
+        let kokoroResult = AppSettings(
             defaultBackendID: BackendProfiles.kokoroTTS.id,
             defaultModelID: "wrong-model",
             exportFormat: .mp3
-        ).normalized
+        ).normalizationResult()
+        let kokoroSettings = kokoroResult.settings
+        precondition(kokoroResult.recoveryNotes.contains { $0.reason == .invalidModel })
+        precondition(kokoroResult.recoveryNotes.contains { $0.reason == .unsupportedExportFormat })
         precondition(kokoroSettings.defaultBackendID == BackendProfiles.kokoroTTS.id)
         precondition(kokoroSettings.defaultModelID == "kokoro/default")
         precondition(kokoroSettings.exportFormat == .wav)
 
-        let configuredKokoro = AppSettings(
+        let configuredKokoroResult = AppSettings(
             defaultBackendID: BackendProfiles.kokoroTTS.id,
             defaultModelID: "kokoro/custom",
             backendConnections: [
@@ -1288,7 +1302,9 @@ struct VibeVoiceBatchCoreChecks {
                     defaultVoice: "af_heart"
                 )
             ]
-        ).normalized
+        ).normalizationResult()
+        let configuredKokoro = configuredKokoroResult.settings
+        precondition(!configuredKokoroResult.didRecover)
         let kokoroProfile = configuredKokoro.selectedBackendProfile
         precondition(kokoroProfile.runtime == .docker)
         precondition(kokoroProfile.installMethod == .manual)
@@ -1296,7 +1312,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(kokoroProfile.healthCheckURL?.absoluteString == "http://127.0.0.1:8880/health")
         precondition(configuredKokoro.defaultModelID == "kokoro/custom")
 
-        let catalogBackedKokoro = AppSettings(
+        let catalogBackedKokoroResult = AppSettings(
             defaultBackendID: BackendProfiles.kokoroTTS.id,
             defaultModelID: "missing",
             defaultVoice: "missing",
@@ -1323,9 +1339,56 @@ struct VibeVoiceBatchCoreChecks {
                     message: "Loaded"
                 )
             ]
-        ).normalized
+        ).normalizationResult()
+        let catalogBackedKokoro = catalogBackedKokoroResult.settings
+        precondition(catalogBackedKokoroResult.recoveryNotes.contains { $0.reason == .invalidModel })
+        precondition(catalogBackedKokoroResult.recoveryNotes.contains { $0.reason == .invalidVoice })
         precondition(catalogBackedKokoro.defaultModelID == "tts-1")
         precondition(catalogBackedKokoro.defaultVoice == "af_heart")
+
+        let validResult = AppSettings.defaults.normalizationResult()
+        precondition(!validResult.didRecover)
+        precondition(validResult.settings.schemaVersion == AppSettingsKeys.currentSchemaVersion)
+
+        let futureResult = AppSettings(schemaVersion: AppSettingsKeys.currentSchemaVersion + 100).normalizationResult()
+        precondition(futureResult.settings.schemaVersion == AppSettingsKeys.currentSchemaVersion)
+        precondition(futureResult.recoveryNotes.contains { $0.reason == .futureSchema && $0.field == "schemaVersion" })
+
+        let legacyData = Data(
+            """
+            {
+              "defaultBackendID": "missing",
+              "defaultModelID": "",
+              "defaultVoice": "missing",
+              "defaultCFGScale": "9.9",
+              "defaultDDPMInferenceSteps": 999,
+              "outputFolderPath": "",
+              "exportFormat": "mp3",
+              "showAdvancedGenerationControls": true,
+              "refreshBackendStatusOnLaunch": true,
+              "hasCompletedSetupAssistant": false,
+              "setupMode": "simple"
+            }
+            """.utf8
+        )
+        let legacyResult = AppSettings.loadResult(from: legacyData)
+        precondition(legacyResult.settings.schemaVersion == AppSettingsKeys.currentSchemaVersion)
+        precondition(legacyResult.settings.defaultBackendID == BackendProfiles.vibeVoiceTTS.id)
+        precondition(legacyResult.recoveryNotes.contains { $0.reason == .schemaMigrated && $0.field == "schemaVersion" })
+        precondition(legacyResult.recoveryNotes.contains { $0.reason == .missingBackendConnection })
+        precondition(legacyResult.recoveryNotes.contains { $0.reason == .invalidBackend })
+
+        let corruptResult = AppSettings.loadResult(from: Data("{".utf8))
+        precondition(corruptResult.settings == .defaults)
+        precondition(corruptResult.recoveryNotes == [
+            AppSettingsRecoveryNote(
+                reason: .decodeFailed,
+                field: "settings",
+                message: "Saved settings could not be read, so default settings were restored.",
+                technicalDetails: corruptResult.recoveryNotes.first?.technicalDetails
+            )
+        ])
+        precondition(corruptResult.recoveryNotes.first?.technicalDetails?.isEmpty == false)
     }
 
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {

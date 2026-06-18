@@ -8,16 +8,19 @@ final class SettingsStore: ObservableObject {
             persist()
         }
     }
+    @Published private(set) var settingsRecoveryNotes: [AppSettingsRecoveryNote]
+    @Published private(set) var settingsRecoverySummary: String?
 
     private let userDefaults: UserDefaults
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        if let data = userDefaults.data(forKey: AppSettingsKeys.storageKey),
-           let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
-            settings = decoded.normalized
-        } else {
-            settings = .defaults
+        let loadResult = AppSettings.loadResult(from: userDefaults.data(forKey: AppSettingsKeys.storageKey))
+        settings = loadResult.settings
+        settingsRecoveryNotes = loadResult.recoveryNotes
+        settingsRecoverySummary = loadResult.recoverySummary
+        if loadResult.needsPersistence {
+            persist()
         }
     }
 
@@ -63,10 +66,12 @@ final class SettingsStore: ObservableObject {
     func update(_ edit: (inout AppSettings) -> Void) {
         var copy = settings
         edit(&copy)
-        settings = copy.normalized
+        apply(copy.normalizationResult())
     }
 
     func resetDefaults() {
+        settingsRecoveryNotes = []
+        settingsRecoverySummary = nil
         settings = .defaults
     }
 
@@ -124,5 +129,11 @@ final class SettingsStore: ObservableObject {
     private func persist() {
         guard let data = try? JSONEncoder().encode(settings) else { return }
         userDefaults.set(data, forKey: AppSettingsKeys.storageKey)
+    }
+
+    private func apply(_ result: AppSettingsNormalizationResult) {
+        settingsRecoveryNotes = result.recoveryNotes
+        settingsRecoverySummary = result.recoverySummary
+        settings = result.settings
     }
 }

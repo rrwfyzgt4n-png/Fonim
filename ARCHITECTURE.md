@@ -49,7 +49,7 @@ Backend readiness is represented by `BackendStatusSnapshot`. `BackendManager` ow
 
 Additional backend expansion is represented by `BackendProfiles.kokoroTTS` and `UnavailableEngineAdapter`. Kokoro can be selected in native Settings, Backends, and Inspector surfaces, but it reports an unavailable state until managed install and generation support are implemented. This proves the profile and adapter route without faking backend capability.
 
-Durable app preferences are represented by `AppSettings` and persisted by `SettingsStore`. The native macOS Settings scene edits backend, model, voice, output, and advanced defaults while generation continues to enter through `JobQueue -> EngineAdapter`.
+Durable app preferences are represented by `AppSettings` and persisted by `SettingsStore`. The native macOS Settings scene edits backend, model, voice, output, and advanced defaults while generation continues to enter through `JobQueue -> EngineAdapter`. Settings load through `AppSettings.loadResult`, which applies schema migration and validation once, records recovery notes, and persists repaired values back to the existing settings key instead of silently repairing values on every read.
 
 Backend setup is represented by `BackendSetupReport` and `BackendSetupCheck`. `BackendManager` owns system, runtime, image, model-cache, and health checks; the SwiftUI setup assistant presents those checks and routes test generation through the existing safe generation path.
 

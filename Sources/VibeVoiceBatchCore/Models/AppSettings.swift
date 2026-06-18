@@ -2,9 +2,11 @@ import Foundation
 
 public enum AppSettingsKeys {
     public static let storageKey = "local.vibevoice.batch.settings.v1"
+    public static let currentSchemaVersion = 1
 }
 
 public struct AppSettings: Codable, Equatable, Sendable {
+    public var schemaVersion: Int
     public var defaultBackendID: String
     public var defaultModelID: String
     public var defaultVoice: String
@@ -20,6 +22,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var backendCatalogs: [String: BackendCatalogReport]
 
     public init(
+        schemaVersion: Int = AppSettingsKeys.currentSchemaVersion,
         defaultBackendID: String = BackendProfiles.vibeVoiceTTS.id,
         defaultModelID: String = AppDefaults.modelPath,
         defaultVoice: String = AppDefaults.defaultVoice,
@@ -34,6 +37,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         backendConnections: [String: BackendConnectionSettings] = BackendConnectionSettings.defaultConfigurations,
         backendCatalogs: [String: BackendCatalogReport] = [:]
     ) {
+        self.schemaVersion = schemaVersion
         self.defaultBackendID = defaultBackendID
         self.defaultModelID = defaultModelID
         self.defaultVoice = defaultVoice
@@ -52,52 +56,32 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public static let defaults = AppSettings()
 
     public var normalized: AppSettings {
-        var copy = self
-        for profile in BackendProfiles.all {
-            if copy.backendConnections[profile.id] == nil,
-               let defaults = BackendConnectionSettings.defaultSettings(for: profile.id) {
-                copy.backendConnections[profile.id] = defaults
-            }
+        normalizationResult().settings
+    }
+
+    public func normalizationResult() -> AppSettingsNormalizationResult {
+        AppSettingsNormalizationResult.normalizing(self)
+    }
+
+    public static func loadResult(from data: Data?, decoder: JSONDecoder = JSONDecoder()) -> AppSettingsNormalizationResult {
+        guard let data else {
+            return AppSettingsNormalizationResult(settings: .defaults)
         }
-        if !BackendProfiles.all.contains(where: { $0.id == copy.defaultBackendID }) {
-            copy.defaultBackendID = BackendProfiles.vibeVoiceTTS.id
+        do {
+            return try decoder.decode(AppSettings.self, from: data).normalizationResult()
+        } catch {
+            return AppSettingsNormalizationResult(
+                settings: .defaults,
+                recoveryNotes: [
+                    AppSettingsRecoveryNote(
+                        reason: .decodeFailed,
+                        field: "settings",
+                        message: "Saved settings could not be read, so default settings were restored.",
+                        technicalDetails: error.localizedDescription
+                    )
+                ]
+            )
         }
-        let selectedProfile = copy.backendProfile(id: copy.defaultBackendID)
-        let selectedCatalog = copy.backendCatalog(for: copy.defaultBackendID)
-        let catalogModels = selectedCatalog?.models ?? []
-        if !catalogModels.isEmpty {
-            if !catalogModels.contains(where: { $0.id == copy.defaultModelID }) {
-                copy.defaultModelID = catalogModels[0].id
-            }
-        } else if !selectedProfile.requiredModels.contains(where: { $0.id == copy.defaultModelID }) {
-            copy.defaultModelID = selectedProfile.requiredModels.first?.id ?? AppDefaults.modelPath
-        }
-        let selectedConnection = copy.backendConnection(for: copy.defaultBackendID)
-        if selectedProfile.engineType == .kokoro {
-            let catalogVoices = selectedCatalog?.voices ?? []
-            if !catalogVoices.isEmpty {
-                if !catalogVoices.contains(where: { $0.id == copy.defaultVoice }) {
-                    copy.defaultVoice = catalogVoices[0].id
-                }
-            } else if copy.defaultVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                copy.defaultVoice = selectedConnection.trimmedDefaultVoice ?? "af_heart"
-            }
-        } else if !AppDefaults.availableVoices.contains(copy.defaultVoice) {
-            copy.defaultVoice = AppDefaults.defaultVoice
-        }
-        if !AppDefaults.availableCFGScales.contains(copy.defaultCFGScale) {
-            copy.defaultCFGScale = AppDefaults.defaultCFGScale
-        }
-        if !AppDefaults.availableDDPMInferenceSteps.contains(copy.defaultDDPMInferenceSteps) {
-            copy.defaultDDPMInferenceSteps = AppDefaults.defaultDDPMInferenceSteps
-        }
-        if copy.outputFolderPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            copy.outputFolderPath = AppDefaults.projectRoot.historyDirectory.path
-        }
-        if !selectedProfile.outputFormatSupport.contains(copy.exportFormat) {
-            copy.exportFormat = selectedProfile.outputFormatSupport.first ?? .wav
-        }
-        return copy
     }
 
     public func backendProfile(id: String) -> BackendProfile {
@@ -119,6 +103,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case schemaVersion
         case defaultBackendID
         case defaultModelID
         case defaultVoice
@@ -137,6 +122,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = AppSettings()
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 0
         defaultBackendID = try container.decodeIfPresent(String.self, forKey: .defaultBackendID) ?? defaults.defaultBackendID
         defaultModelID = try container.decodeIfPresent(String.self, forKey: .defaultModelID) ?? defaults.defaultModelID
         defaultVoice = try container.decodeIfPresent(String.self, forKey: .defaultVoice) ?? defaults.defaultVoice
@@ -148,12 +134,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         refreshBackendStatusOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .refreshBackendStatusOnLaunch) ?? defaults.refreshBackendStatusOnLaunch
         hasCompletedSetupAssistant = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedSetupAssistant) ?? defaults.hasCompletedSetupAssistant
         setupMode = try container.decodeIfPresent(BackendSetupMode.self, forKey: .setupMode) ?? defaults.setupMode
-        backendConnections = try container.decodeIfPresent([String: BackendConnectionSettings].self, forKey: .backendConnections) ?? defaults.backendConnections
+        backendConnections = try container.decodeIfPresent([String: BackendConnectionSettings].self, forKey: .backendConnections) ?? [:]
         backendCatalogs = try container.decodeIfPresent([String: BackendCatalogReport].self, forKey: .backendCatalogs) ?? defaults.backendCatalogs
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
         try container.encode(defaultBackendID, forKey: .defaultBackendID)
         try container.encode(defaultModelID, forKey: .defaultModelID)
         try container.encode(defaultVoice, forKey: .defaultVoice)
