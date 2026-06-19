@@ -138,7 +138,7 @@ struct BackendSetupAssistantView: View {
                 modelOptions: setupModelOptions,
                 voiceOptions: setupVoiceOptions,
                 defaultModelID: settingsStore.settings.defaultModelID,
-                defaultVoiceID: settingsStore.settings.defaultVoice,
+                defaultVoiceID: settingsStore.settings.preferredVoiceID(for: selectedBackend),
                 selectedModelID: selectedModelBinding,
                 selectedVoiceID: selectedVoiceBinding,
                 loadCatalog: { setupStore.loadCatalog(profile: selectedBackend) },
@@ -234,10 +234,11 @@ struct BackendSetupAssistantView: View {
         if setupVoiceOptions.contains(where: { $0.id == setupStore.selectedVoiceID }) {
             return setupStore.selectedVoiceID
         }
-        if setupVoiceOptions.contains(where: { $0.id == settingsStore.settings.defaultVoice }) {
-            return settingsStore.settings.defaultVoice
+        let preferredVoice = settingsStore.settings.preferredVoiceID(for: selectedBackend)
+        if setupVoiceOptions.contains(where: { $0.id == preferredVoice }) {
+            return preferredVoice
         }
-        return setupVoiceOptions.first?.id ?? settingsStore.settings.defaultVoice
+        return setupVoiceOptions.first?.id ?? preferredVoice
     }
 
     private var setupModelOptions: [BackendCatalogModel] {
@@ -323,6 +324,7 @@ struct BackendSetupAssistantView: View {
             }
             settings.defaultModelID = modelID
             settings.defaultVoice = voiceID
+            settings.rememberVoice(voiceID, for: selectedBackend.id)
         }
         appStore.applyDefaultGenerationSettings()
         appStore.statusMessage = "Saved \(selectedBackend.displayName) model and voice defaults"

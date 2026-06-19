@@ -172,18 +172,17 @@ public struct AppSettingsNormalizationResult: Equatable, Sendable {
 
         let selectedConnection = copy.backendConnection(for: copy.defaultBackendID)
         if selectedProfile.engineType == .kokoro || selectedProfile.engineType == .chatterbox {
-            let catalogVoices = selectedCatalog?.voices ?? []
-            if !catalogVoices.isEmpty {
-                if !catalogVoices.contains(where: { $0.id == copy.defaultVoice }) {
-                    let oldValue = copy.defaultVoice
-                    copy.defaultVoice = catalogVoices[0].id
-                    record(
-                        .invalidVoice,
-                        field: "defaultVoice",
-                        message: "The saved voice was unavailable, so \(copy.defaultVoice) was selected.",
-                        technicalDetails: oldValue
-                    )
-                }
+            let availableVoices = copy.voiceOptions(for: selectedProfile)
+            if !availableVoices.isEmpty,
+               !availableVoices.contains(where: { $0.id == copy.defaultVoice }) {
+                let oldValue = copy.defaultVoice
+                copy.defaultVoice = copy.preferredVoiceID(for: selectedProfile)
+                record(
+                    .invalidVoice,
+                    field: "defaultVoice",
+                    message: "The saved voice was unavailable for \(selectedProfile.displayName), so \(copy.defaultVoice) was selected.",
+                    technicalDetails: oldValue
+                )
             } else if copy.defaultVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let oldValue = copy.defaultVoice
                 copy.defaultVoice = selectedConnection.trimmedDefaultVoice ?? (selectedProfile.engineType == .chatterbox ? "Emily.wav" : "af_heart")
@@ -297,6 +296,15 @@ public struct AppSettingsNormalizationResult: Equatable, Sendable {
                 .invalidChatterboxSetting,
                 field: "chatterboxLanguage",
                 message: "The saved Chatterbox language was empty, so English was selected."
+            )
+        } else if copy.chatterboxLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "en" {
+            let oldValue = copy.chatterboxLanguage
+            copy.chatterboxLanguage = "en"
+            record(
+                .invalidChatterboxSetting,
+                field: "chatterboxLanguage",
+                message: "Chatterbox voices are English-only in this backend profile, so English was selected.",
+                technicalDetails: oldValue
             )
         }
 

@@ -263,9 +263,9 @@ private struct VoicesSettingsPane: View {
 
     var body: some View {
         Form {
-            Picker("Default voice", selection: binding(\.defaultVoice)) {
+            Picker("Default voice", selection: defaultVoiceBinding) {
                 ForEach(settingsStore.voiceOptions(for: appStore.selectedBackendProfile)) { voice in
-                    VoiceInlineLabel(voiceID: voice.id, displayName: voice.displayName)
+                    Text(VoiceDisplayFormatter.displayText(for: voice.id, displayName: voice.displayName))
                         .tag(voice.id)
                 }
             }
@@ -285,6 +285,13 @@ private struct VoicesSettingsPane: View {
         Binding(
             get: { settingsStore.settings[keyPath: keyPath] },
             set: { value in settingsStore.update { $0[keyPath: keyPath] = value } }
+        )
+    }
+
+    private var defaultVoiceBinding: Binding<String> {
+        Binding(
+            get: { settingsStore.settings.preferredVoiceID(for: appStore.selectedBackendProfile) },
+            set: { appStore.selectVoice($0) }
         )
     }
 }

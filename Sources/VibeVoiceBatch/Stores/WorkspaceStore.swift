@@ -59,11 +59,23 @@ final class WorkspaceStore: ObservableObject {
     }
 
     @discardableResult
-    func saveCurrentVoicePreset(voiceID: String) -> NarrationVoicePreset? {
+    func saveCurrentVoicePreset(
+        voiceID: String,
+        title: String? = nil,
+        backendID: String = BackendProfiles.vibeVoiceTTS.id,
+        modelID: String = AppDefaults.modelPath,
+        locale: String? = nil,
+        traits: [String] = []
+    ) -> NarrationVoicePreset? {
         do {
+            let displayName = title ?? "Voice \(voiceID)"
             let preset = try fileStore.createVoicePreset(
-                title: "Voice \(voiceID)",
-                voiceID: voiceID
+                title: displayName,
+                voiceID: voiceID,
+                backendID: backendID,
+                modelID: modelID,
+                locale: locale,
+                traits: traits
             )
             refresh()
             alertMessage = nil

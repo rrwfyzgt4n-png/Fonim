@@ -67,7 +67,7 @@ final class AppStore: ObservableObject {
         backendStatusCoordinator = AppBackendStatusCoordinator(adapters: adapters)
         generationQueueCoordinator = AppGenerationQueueCoordinator(adapters: adapters)
 
-        selectedVoice = settingsStore.settings.defaultVoice
+        selectedVoice = settingsStore.settings.preferredVoiceID(for: settingsStore.selectedBackendProfile)
         cfgScale = settingsStore.settings.defaultCFGScale
         ddpmInferenceSteps = settingsStore.settings.defaultDDPMInferenceSteps
         backendStatus = BackendStatusSnapshot.unknown(profile: selectedBackendProfile)
@@ -113,6 +113,10 @@ final class AppStore: ObservableObject {
 
     var availableVoiceOptions: [BackendCatalogVoice] {
         settingsStore.voiceOptions(for: selectedBackendProfile)
+    }
+
+    func voiceOptions(for profile: BackendProfile) -> [BackendCatalogVoice] {
+        settingsStore.voiceOptions(for: profile)
     }
 
     var availableModelOptions: [BackendCatalogModel] {
@@ -369,7 +373,10 @@ final class AppStore: ObservableObject {
             $0.defaultBackendID = preset.backendID
             $0.defaultModelID = preset.modelID
             $0.defaultVoice = preset.voiceID
+            $0.rememberVoice(preset.voiceID, for: preset.backendID)
         }
+        backendStatus = BackendStatusSnapshot.unknown(profile: selectedBackendProfile)
+        refreshBackendStatus()
         statusMessage = "Applied voice preset: \(preset.displayName)"
     }
 
@@ -384,11 +391,14 @@ final class AppStore: ObservableObject {
             $0.defaultModelID = preset.modelID
             if let voiceID = preset.voiceID {
                 $0.defaultVoice = voiceID
+                $0.rememberVoice(voiceID, for: preset.backendID)
             }
             $0.defaultCFGScale = preset.settings.cfgScale
             $0.defaultDDPMInferenceSteps = preset.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
             $0.exportFormat = preset.outputFormat
         }
+        backendStatus = BackendStatusSnapshot.unknown(profile: selectedBackendProfile)
+        refreshBackendStatus()
         statusMessage = "Applied generation preset: \(preset.displayName)"
     }
 
@@ -397,28 +407,55 @@ final class AppStore: ObservableObject {
     }
 
     func applyDefaultGenerationSettings() {
-        selectedVoice = settingsStore.settings.defaultVoice
+        selectedVoice = settingsStore.settings.preferredVoiceID(for: selectedBackendProfile)
         cfgScale = settingsStore.settings.defaultCFGScale
         ddpmInferenceSteps = settingsStore.settings.defaultDDPMInferenceSteps
         statusMessage = "Applied default generation settings"
     }
 
-    func selectBackend(_ backendID: String) {
+    func selectVoice(_ voiceID: String) {
+        selectedVoice = voiceID
         settingsStore.update {
+            $0.defaultVoice = voiceID
+            $0.rememberVoice(voiceID, for: selectedBackendProfile.id)
+        }
+        statusMessage = "Selected voice: \(voiceID)"
+    }
+
+    func selectBackend(_ backendID: String) {
+        let previousBackendID = settingsStore.settings.defaultBackendID
+        let previousVoice = selectedVoice
+        settingsStore.update {
+            $0.rememberVoice(previousVoice, for: previousBackendID)
             $0.defaultBackendID = backendID
             let profile = $0.backendProfile(id: backendID)
             let catalog = $0.backendCatalog(for: backendID)
             $0.defaultModelID = catalog?.models.first?.id ?? profile.requiredModels.first?.id ?? $0.defaultModelID
-            if profile.engineType == .kokoro || profile.engineType == .chatterbox {
-                $0.defaultVoice = catalog?.voices.first?.id ?? $0.backendConnection(for: backendID).trimmedDefaultVoice ?? $0.defaultVoice
-            }
+            let voice = $0.preferredVoiceID(for: profile)
+            $0.defaultVoice = voice
+            $0.rememberVoice(voice, for: backendID)
             if !profile.outputFormatSupport.contains($0.exportFormat) {
                 $0.exportFormat = profile.outputFormatSupport.first ?? .wav
             }
         }
-        selectedVoice = settingsStore.settings.defaultVoice
+        selectedVoice = settingsStore.settings.preferredVoiceID(for: selectedBackendProfile)
         backendStatus = BackendStatusSnapshot.unknown(profile: selectedBackendProfile)
         refreshBackendStatus()
+    }
+
+    func loadVoiceSample(voiceID: String, backendID: String) {
+        if backendID != selectedBackendProfile.id {
+            selectBackend(backendID)
+        }
+        selectVoice(voiceID)
+        updateEditorText(VoiceSampleText.sample(for: selectedBackendProfile, voiceID: voiceID))
+        requestedSelection = .section(.history)
+        statusMessage = "Loaded sample text for \(voiceID)"
+    }
+
+    func generateVoiceSample(voiceID: String, backendID: String) {
+        loadVoiceSample(voiceID: voiceID, backendID: backendID)
+        generate()
     }
 
     private func enqueueGeneration(

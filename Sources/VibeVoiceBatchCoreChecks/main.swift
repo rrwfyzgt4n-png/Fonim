@@ -1395,6 +1395,7 @@ struct VibeVoiceBatchCoreChecks {
         let configuredKokoroResult = AppSettings(
             defaultBackendID: BackendProfiles.kokoroTTS.id,
             defaultModelID: "kokoro/custom",
+            defaultVoice: "af_heart",
             backendConnections: BackendConnectionSettings.defaultConfigurations.merging([
                 BackendProfiles.kokoroTTS.id: BackendConnectionSettings(
                     connectionKind: .installedDockerImage,
@@ -1485,6 +1486,16 @@ struct VibeVoiceBatchCoreChecks {
         precondition(chatterboxSettings.chatterboxSpeedFactor == 0.25)
         precondition(chatterboxSettings.chatterboxLanguage == "en")
         precondition(chatterboxSettings.chatterboxChunkSize == 500)
+
+        let chatterboxFallbackResult = AppSettings(
+            defaultBackendID: BackendProfiles.chatterboxTTS.id,
+            defaultModelID: "chatterbox",
+            defaultVoice: AppDefaults.defaultVoice
+        ).normalizationResult()
+        let chatterboxFallback = chatterboxFallbackResult.settings
+        precondition(chatterboxFallback.voiceOptions(for: chatterboxFallback.selectedBackendProfile).count == 28)
+        precondition(chatterboxFallback.defaultVoice == "Emily.wav")
+        precondition(chatterboxFallbackResult.recoveryNotes.contains { $0.reason == .invalidVoice })
 
         let validResult = AppSettings.defaults.normalizationResult()
         precondition(!validResult.didRecover)

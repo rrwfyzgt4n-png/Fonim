@@ -51,19 +51,7 @@ final class SettingsStore: ObservableObject {
     }
 
     func voiceOptions(for profile: BackendProfile) -> [BackendCatalogVoice] {
-        if let catalog = settings.backendCatalog(for: profile.id),
-           !catalog.voices.isEmpty {
-            return catalog.voices
-        }
-        if profile.engineType == .chatterbox {
-            return ChatterboxVoiceCatalog.catalogVoices
-        }
-        if profile.engineType == .kokoro {
-            let connection = settings.backendConnection(for: profile.id)
-            let voice = connection.trimmedDefaultVoice ?? settings.defaultVoice
-            return [BackendCatalogVoice(id: voice, displayName: voice)]
-        }
-        return AppDefaults.availableVoices.map { BackendCatalogVoice(id: $0, displayName: $0) }
+        settings.voiceOptions(for: profile)
     }
 
     func update(_ edit: (inout AppSettings) -> Void) {

@@ -126,6 +126,55 @@ public struct AppSettings: Codable, Equatable, Sendable {
         backendCatalogs[profileID]
     }
 
+    public func voiceOptions(for profile: BackendProfile) -> [BackendCatalogVoice] {
+        if let catalog = backendCatalog(for: profile.id),
+           !catalog.voices.isEmpty {
+            return catalog.voices
+        }
+
+        switch profile.engineType {
+        case .vibeVoiceTTS:
+            return AppDefaults.availableVoices.map { BackendCatalogVoice(id: $0, displayName: $0) }
+        case .chatterbox:
+            return ChatterboxVoiceCatalog.catalogVoices
+        case .kokoro:
+            let connection = backendConnection(for: profile.id)
+            let voice = connection.trimmedDefaultVoice ?? "af_heart"
+            return [BackendCatalogVoice(id: voice, displayName: voice)]
+        case .comfyUITTS, .f5TTS, .cosyVoice, .custom:
+            let connection = backendConnection(for: profile.id)
+            let voice = connection.trimmedDefaultVoice ?? defaultVoice
+            return voice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?
+                [] :
+                [BackendCatalogVoice(id: voice, displayName: voice)]
+        }
+    }
+
+    public func preferredVoiceID(for profile: BackendProfile, currentVoice: String? = nil) -> String {
+        let voices = voiceOptions(for: profile)
+        if let currentVoice,
+           voices.contains(where: { $0.id == currentVoice }) {
+            return currentVoice
+        }
+        let connectionVoice = backendConnection(for: profile.id).trimmedDefaultVoice
+        if let connectionVoice,
+           voices.contains(where: { $0.id == connectionVoice }) {
+            return connectionVoice
+        }
+        if voices.contains(where: { $0.id == defaultVoice }) {
+            return defaultVoice
+        }
+        return voices.first?.id ?? currentVoice ?? defaultVoice
+    }
+
+    public mutating func rememberVoice(_ voiceID: String, for backendID: String) {
+        let trimmed = voiceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        var connection = backendConnection(for: backendID)
+        connection.defaultVoice = trimmed
+        backendConnections[backendID] = connection
+    }
+
     public func generationExtraParameters(for profile: BackendProfile) -> [String: String] {
         var parameters = profile.generationExtraParameters
         guard profile.engineType == .chatterbox else {
@@ -136,7 +185,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         parameters["cfg_weight"] = String(chatterboxCFGWeight)
         parameters["seed"] = String(chatterboxSeed)
         parameters["speed_factor"] = String(chatterboxSpeedFactor)
-        parameters["language"] = chatterboxLanguage
+        parameters["language"] = "en"
         parameters["split_text"] = chatterboxSplitText ? "true" : "false"
         parameters["chunk_size"] = String(chatterboxChunkSize)
         parameters["output_format"] = "wav"

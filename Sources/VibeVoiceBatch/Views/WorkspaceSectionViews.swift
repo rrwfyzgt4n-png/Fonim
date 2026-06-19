@@ -253,10 +253,14 @@ private struct ProjectOutputRow: View {
                     Text(record.id)
                         .font(.headline)
                         .lineLimit(1)
-                    Text("\(record.metadata.voice)  \(SessionFormatters.duration(record.metadata.audioDurationSeconds))  \(SessionFormatters.rtf(record.metadata.rtf))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        VoiceInlineLabel(voiceID: record.metadata.voice, compact: true)
+                        Text(SessionFormatters.duration(record.metadata.audioDurationSeconds))
+                        Text(SessionFormatters.rtf(record.metadata.rtf))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 }
 
                 Spacer()
@@ -523,135 +527,447 @@ private struct QueueItemCard: View {
 
 struct VoicesView: View {
     @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
-    @State private var selectedPresetID: String?
+    @State private var selectedBackendID: String?
+    @State private var selectedItemID: String?
+
+    private var selectedBackend: BackendProfile {
+        settingsStore.backendProfile(id: selectedBackendID ?? appStore.selectedBackendProfile.id)
+    }
+
+    private var modelID: String {
+        settingsStore.modelOptions(for: selectedBackend).first?.id ?? selectedBackend.requiredModels.first?.id ?? AppDefaults.modelPath
+    }
+
+    private var voiceItems: [VoiceLibraryItem] {
+        let catalog = settingsStore.voiceOptions(for: selectedBackend).map { voice in
+            VoiceLibraryItem.catalog(voice, backend: selectedBackend, modelID: modelID)
+        }
+        let saved = workspaceStore.voicePresets
+            .filter { !$0.isBuiltIn && $0.backendID == selectedBackend.id }
+            .map(VoiceLibraryItem.preset)
+        return catalog + saved
+    }
+
+    private var selectedItem: VoiceLibraryItem? {
+        guard let selectedItemID else { return voiceItems.first }
+        return voiceItems.first { $0.id == selectedItemID } ?? voiceItems.first
+    }
 
     var body: some View {
         HSplitView {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(
-                    title: "Voices",
-                    subtitle: "Reusable voice profiles across backends."
-                )
-                .padding([.horizontal, .top])
-
-                if workspaceStore.voicePresets.isEmpty {
-                    EmptyWorkspaceView(
-                        systemImage: "waveform",
-                        title: "No Voices",
-                        message: "No voice presets are available."
-                    )
-                } else {
-                    List(selection: $selectedPresetID) {
-                        ForEach(workspaceStore.voicePresets) { preset in
-                            VoicePresetRow(
-                                preset: preset,
-                                isSelected: selectedPresetID == preset.id
-                            )
-                                .tag(Optional(preset.id))
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    selectedPresetID = preset.id
-                                }
-                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                    Button {
-                                        duplicateVoicePreset(preset)
-                                    } label: {
-                                        Label("Duplicate", systemImage: "doc.on.doc")
-                                    }
-                                    .tint(.blue)
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: !preset.isBuiltIn) {
-                                    Button(role: .destructive) {
-                                        deleteVoicePreset(preset)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                    .disabled(preset.isBuiltIn)
-                                }
-                                .contextMenu {
-                                    Button {
-                                        duplicateVoicePreset(preset)
-                                    } label: {
-                                        Label("Duplicate", systemImage: "doc.on.doc")
-                                    }
-
-                                    Button(role: .destructive) {
-                                        deleteVoicePreset(preset)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                    .disabled(preset.isBuiltIn)
-                                }
-                        }
-                    }
-                    .listStyle(.sidebar)
-                }
-
-                HStack {
-                    Text("\(workspaceStore.voicePresets.count) voices")
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Button {
-                        if let preset = workspaceStore.saveCurrentVoicePreset(voiceID: appStore.selectedVoice) {
-                            selectedPresetID = preset.id
-                            appStore.statusMessage = "Saved voice preset: \(preset.displayName)"
-                        }
-                    } label: {
-                        Label("Save Current Voice", systemImage: "plus")
-                    }
-                }
-                .padding([.horizontal, .bottom])
-            }
-            .frame(minWidth: 260, idealWidth: 320)
-
-            VoicePresetDetailPane(preset: selectedPreset)
-                .frame(minWidth: 360)
+            sidebarPane
+            VoiceLibraryDetailPane(
+                item: selectedItem,
+                selectedBackend: selectedBackend,
+                saveProfile: saveVoiceProfile
+            )
+            .frame(minWidth: 440)
         }
-        .onAppear(perform: ensureVoiceSelection)
+        .onAppear {
+            ensureVoiceSelection()
+        }
         .onChange(of: workspaceStore.voicePresets) { _ in
             ensureVoiceSelection()
+        }
+        .onChange(of: selectedBackendID) { _ in
+            ensureVoiceSelection(reset: true)
         }
         .navigationTitle("Voices")
     }
 
-    private var selectedPreset: NarrationVoicePreset? {
-        guard let selectedPresetID else { return workspaceStore.voicePresets.first }
-        return workspaceStore.voicePresets.first { $0.id == selectedPresetID }
+    private var sidebarPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(
+                title: "Voices",
+                subtitle: "Backend-scoped voice catalogs, samples, and saved profiles."
+            )
+            .padding([.horizontal, .top])
+
+            backendPicker
+            voiceList
+            footer
+        }
+        .frame(minWidth: 300, idealWidth: 360)
     }
 
-    private func ensureVoiceSelection() {
-        guard !workspaceStore.voicePresets.isEmpty else {
-            selectedPresetID = nil
+    private var backendPicker: some View {
+        Picker("Backend", selection: backendSelectionBinding) {
+            ForEach(BackendProfiles.all) { profile in
+                Text(profile.displayName).tag(profile.id)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private var voiceList: some View {
+        if voiceItems.isEmpty {
+            EmptyWorkspaceView(
+                systemImage: "waveform",
+                title: "No Voices",
+                message: "No voices are available for this backend yet."
+            )
+        } else {
+            List(selection: $selectedItemID) {
+                Section("Available") {
+                    ForEach(voiceItems.filter { !$0.isSavedProfile }) { item in
+                        VoiceLibraryRow(item: item, isSelected: selectedItemID == item.id)
+                            .tag(Optional(item.id))
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectedItemID = item.id }
+                    }
+                }
+
+                savedProfilesSection
+            }
+            .listStyle(.sidebar)
+        }
+    }
+
+    @ViewBuilder
+    private var savedProfilesSection: some View {
+        let savedProfiles = voiceItems.filter(\.isSavedProfile)
+        if !savedProfiles.isEmpty {
+            Section("Saved Profiles") {
+                ForEach(savedProfiles) { item in
+                    VoiceLibraryRow(item: item, isSelected: selectedItemID == item.id)
+                        .tag(Optional(item.id))
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedItemID = item.id }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            if let preset = item.preset {
+                                Button {
+                                    duplicateVoicePreset(preset)
+                                } label: {
+                                    Label("Duplicate", systemImage: "doc.on.doc")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            if let preset = item.preset {
+                                Button(role: .destructive) {
+                                    deleteVoicePreset(preset)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("\(voiceItems.filter { !$0.isSavedProfile }.count) voices")
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button {
+                guard let selectedItem else { return }
+                saveVoiceProfile(selectedItem)
+            } label: {
+                Label("Save Profile", systemImage: "plus")
+            }
+            .disabled(selectedItem == nil)
+        }
+        .padding([.horizontal, .bottom])
+    }
+
+    private var backendSelectionBinding: Binding<String> {
+        Binding(
+            get: { selectedBackendID ?? appStore.selectedBackendProfile.id },
+            set: {
+                selectedBackendID = $0
+                selectedItemID = nil
+            }
+        )
+    }
+
+    private func ensureVoiceSelection(reset: Bool = false) {
+        if selectedBackendID == nil {
+            selectedBackendID = appStore.selectedBackendProfile.id
+        }
+        guard !voiceItems.isEmpty else {
+            selectedItemID = nil
             return
         }
-        if let selectedPresetID,
-           workspaceStore.voicePresets.contains(where: { $0.id == selectedPresetID }) {
+        if !reset,
+           let selectedItemID,
+           voiceItems.contains(where: { $0.id == selectedItemID }) {
             return
         }
-        selectedPresetID = workspaceStore.voicePresets.first?.id
+        selectedItemID = voiceItems.first?.id
+    }
+
+    private func saveVoiceProfile(_ item: VoiceLibraryItem) {
+        let descriptor = VoiceDisplayFormatter.descriptor(for: item.voiceID, displayName: item.displayName)
+        if let preset = workspaceStore.saveCurrentVoicePreset(
+            voiceID: item.voiceID,
+            title: descriptor.compactText,
+            backendID: item.backendID,
+            modelID: item.modelID,
+            locale: descriptor.languageCode,
+            traits: item.traits
+        ) {
+            selectedItemID = "preset:\(preset.id)"
+            appStore.statusMessage = "Saved voice profile: \(preset.displayName)"
+        }
     }
 
     private func duplicateVoicePreset(_ preset: NarrationVoicePreset) {
         if let copy = workspaceStore.duplicateVoicePreset(preset) {
-            selectedPresetID = copy.id
+            selectedItemID = "preset:\(copy.id)"
             appStore.statusMessage = "Duplicated voice: \(copy.displayName)"
         }
     }
 
     private func deleteVoicePreset(_ preset: NarrationVoicePreset) {
-        guard !preset.isBuiltIn else {
-            workspaceStore.deleteVoicePreset(preset)
-            return
-        }
-        let deletedID = preset.id
+        let deletedID = "preset:\(preset.id)"
         workspaceStore.deleteVoicePreset(preset)
-        if selectedPresetID == deletedID {
-            selectedPresetID = workspaceStore.voicePresets.first?.id
+        if selectedItemID == deletedID {
+            selectedItemID = voiceItems.first?.id
         }
         appStore.statusMessage = "Deleted voice: \(preset.displayName)"
+    }
+}
+
+private struct VoiceLibraryItem: Identifiable, Equatable {
+    enum Source: Equatable {
+        case catalog
+        case savedProfile(NarrationVoicePreset)
+    }
+
+    let id: String
+    let backendID: String
+    let backendName: String
+    let modelID: String
+    let voiceID: String
+    let displayName: String
+    let source: Source
+
+    static func catalog(_ voice: BackendCatalogVoice, backend: BackendProfile, modelID: String) -> VoiceLibraryItem {
+        VoiceLibraryItem(
+            id: "catalog:\(backend.id):\(voice.id)",
+            backendID: backend.id,
+            backendName: backend.displayName,
+            modelID: modelID,
+            voiceID: voice.id,
+            displayName: voice.displayName,
+            source: .catalog
+        )
+    }
+
+    static func preset(_ preset: NarrationVoicePreset) -> VoiceLibraryItem {
+        VoiceLibraryItem(
+            id: "preset:\(preset.id)",
+            backendID: preset.backendID,
+            backendName: backendName(preset.backendID),
+            modelID: preset.modelID,
+            voiceID: preset.voiceID,
+            displayName: preset.displayName,
+            source: .savedProfile(preset)
+        )
+    }
+
+    var isSavedProfile: Bool {
+        if case .savedProfile = source { return true }
+        return false
+    }
+
+    var preset: NarrationVoicePreset? {
+        if case .savedProfile(let preset) = source { return preset }
+        return nil
+    }
+
+    var traits: [String] {
+        preset?.traits ?? []
+    }
+
+    var languageCode: String {
+        preset?.locale ?? VoiceDisplayFormatter.descriptor(for: voiceID, displayName: displayName).languageCode
+    }
+
+    static func backendName(_ backendID: String) -> String {
+        BackendProfiles.all.first { $0.id == backendID }?.displayName ?? backendID
+    }
+}
+
+private struct VoiceLibraryRow: View {
+    let item: VoiceLibraryItem
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: item.isSavedProfile ? "person.wave.2" : "waveform")
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                VoiceInlineLabel(voiceID: item.voiceID, displayName: item.displayName, compact: true)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                Text(item.isSavedProfile ? "Saved profile" : item.backendName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.accentColor)
+                    .imageScale(.small)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+private struct VoiceLibraryDetailPane: View {
+    @EnvironmentObject private var appStore: AppStore
+    let item: VoiceLibraryItem?
+    let selectedBackend: BackendProfile
+    let saveProfile: (VoiceLibraryItem) -> Void
+
+    var body: some View {
+        ScrollView {
+            if let item {
+                VStack(alignment: .leading, spacing: 16) {
+                    WorkspaceCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(alignment: .firstTextBaseline) {
+                                VoiceInlineLabel(voiceID: item.voiceID, displayName: item.displayName)
+                                    .font(.title3.weight(.semibold))
+                                if item.isSavedProfile {
+                                    Text("Saved")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.blue)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(.blue.opacity(0.14), in: Capsule())
+                                }
+                                Spacer()
+                            }
+
+                            DetailGrid {
+                                DetailGridRow("Backend", item.backendName)
+                                DetailGridRow("Model", item.modelID)
+                                DetailGridRow("Voice ID", item.voiceID)
+                                DetailGridRow("Language", VoiceDisplayFormatter.languageName(for: item.languageCode))
+                                DetailGridRow("Source", item.isSavedProfile ? "Saved profile" : "Backend catalog")
+                            }
+
+                            HStack {
+                                Button {
+                                    appStore.selectBackend(item.backendID)
+                                    appStore.selectVoice(item.voiceID)
+                                } label: {
+                                    Label("Use Voice", systemImage: "checkmark.circle")
+                                }
+                                .buttonStyle(.borderedProminent)
+
+                                Button {
+                                    appStore.loadVoiceSample(voiceID: item.voiceID, backendID: item.backendID)
+                                } label: {
+                                    Label("Load Sample Text", systemImage: "text.quote")
+                                }
+
+                                Button {
+                                    appStore.generateVoiceSample(voiceID: item.voiceID, backendID: item.backendID)
+                                } label: {
+                                    Label("Generate Sample", systemImage: "waveform")
+                                }
+                                .disabled(appStore.isGenerating || appStore.isPreparingGeneration)
+
+                                Button {
+                                    saveProfile(item)
+                                } label: {
+                                    Label("Save Profile", systemImage: "plus")
+                                }
+                            }
+                        }
+                    }
+
+                    sampleSection(item)
+                    cloneSection
+                    savedNotesSection(item)
+                }
+                .padding()
+            } else {
+                EmptyWorkspaceView(
+                    systemImage: "waveform",
+                    title: "No Voice Selected",
+                    message: "Choose a backend voice to inspect it or generate a local sample."
+                )
+                .padding()
+            }
+        }
+    }
+
+    private func sampleSection(_ item: VoiceLibraryItem) -> some View {
+        WorkspaceCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Sample")
+                    .font(.headline)
+                Text(VoiceSampleText.sample(for: selectedBackend, voiceID: item.voiceID))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var cloneSection: some View {
+        if selectedBackend.engineType == .chatterbox {
+            WorkspaceCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label("Voice Cloning", systemImage: "waveform.badge.plus")
+                            .font(.headline)
+                        Spacer()
+                        Text("Chatterbox Only")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.purple)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.purple.opacity(0.14), in: Capsule())
+                    }
+                    Text("Reference voice cloning needs an explicit import flow so consent, source WAV location, and Chatterbox visibility are clear before generation.")
+                        .foregroundStyle(.secondary)
+                    Button {
+                        appStore.statusMessage = "Voice cloning import will be added as a Chatterbox-only flow."
+                    } label: {
+                        Label("Plan Clone Profile", systemImage: "person.crop.circle.badge.plus")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func savedNotesSection(_ item: VoiceLibraryItem) -> some View {
+        if let preset = item.preset, !preset.notes.isEmpty || !preset.traits.isEmpty {
+            WorkspaceCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Profile Notes")
+                        .font(.headline)
+                    if !preset.traits.isEmpty {
+                        Text(preset.traits.joined(separator: "  "))
+                            .foregroundStyle(.secondary)
+                    }
+                    if !preset.notes.isEmpty {
+                        Text(preset.notes)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -795,138 +1111,6 @@ struct PresetsView: View {
     }
 }
 
-private struct VoicePresetRow: View {
-    let preset: NarrationVoicePreset
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "waveform")
-                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-                .frame(width: 16)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(preset.displayName)
-                        .lineLimit(1)
-                    if preset.isBuiltIn {
-                        Text("Built-in")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Text(preset.voiceID)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color.accentColor)
-                    .imageScale(.small)
-            }
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selectionBackground)
-        .overlay(alignment: .leading) {
-            if isSelected {
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(width: 3)
-                    .padding(.vertical, 5)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    @ViewBuilder
-    private var selectionBackground: some View {
-        if isSelected {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor.opacity(0.16))
-        }
-    }
-}
-
-private struct VoicePresetDetailPane: View {
-    @EnvironmentObject private var appStore: AppStore
-    let preset: NarrationVoicePreset?
-
-    var body: some View {
-        ScrollView {
-            if let preset {
-                VStack(alignment: .leading, spacing: 16) {
-                    WorkspaceCard {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(preset.displayName)
-                                    .font(.title3.weight(.semibold))
-                                if preset.isBuiltIn {
-                                    Text("Built-in")
-                                        .font(.caption2.weight(.semibold))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 3)
-                                        .foregroundStyle(.secondary)
-                                        .background(.secondary.opacity(0.14), in: Capsule())
-                                }
-                                Spacer()
-                                Button {
-                                    appStore.applyVoicePreset(preset)
-                                } label: {
-                                    Label("Apply", systemImage: "checkmark.circle")
-                                }
-                            }
-
-                            DetailGrid {
-                                DetailGridRow("Backend", backendName(preset.backendID))
-                                DetailGridRow("Model", preset.modelID)
-                                DetailGridRow("Voice", preset.voiceID)
-                                DetailGridRow("Locale", preset.locale ?? "n/a")
-                                DetailGridRow("Updated", SessionFormatters.displayDateFormatter.string(from: preset.updatedAt))
-                            }
-                        }
-                    }
-
-                    if !preset.traits.isEmpty {
-                        WorkspaceCard {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Traits")
-                                    .font(.headline)
-                                Text(preset.traits.joined(separator: "  "))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    if !preset.notes.isEmpty {
-                        WorkspaceCard {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Notes")
-                                    .font(.headline)
-                                Text(preset.notes)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                .padding()
-            } else {
-                EmptyWorkspaceView(
-                    systemImage: "waveform",
-                    title: "No Voice Selected",
-                    message: "Choose a voice preset from the list."
-                )
-                .padding()
-            }
-        }
-    }
-}
-
 private struct GenerationPresetRow: View {
     let preset: NarrationGenerationPreset
     let isSelected: Bool
@@ -1017,7 +1201,7 @@ private struct GenerationPresetDetailPane: View {
                             DetailGrid {
                                 DetailGridRow("Backend", backendName(preset.backendID))
                                 DetailGridRow("Model", preset.modelID)
-                                DetailGridRow("Voice", preset.voiceID ?? "Current")
+                                DetailGridRow("Voice", preset.voiceID.map { VoiceDisplayFormatter.displayText(for: $0) } ?? "Current")
                                 DetailGridRow("CFG", preset.settings.cfgScale)
                                 DetailGridRow("DDPM steps", preset.settings.ddpmInferenceSteps.map(String.init) ?? "n/a")
                                 DetailGridRow("Format", preset.outputFormat.rawValue.uppercased())

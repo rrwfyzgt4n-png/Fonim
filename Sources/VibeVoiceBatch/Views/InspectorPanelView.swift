@@ -140,9 +140,9 @@ struct InspectorPanelView: View {
 
     private var generationSection: some View {
         InspectorGroup(title: "Generation") {
-            Picker("Voice", selection: $store.selectedVoice) {
+            Picker("Voice", selection: selectedVoiceBinding) {
                 ForEach(store.availableVoiceOptions) { voice in
-                    VoiceInlineLabel(voiceID: voice.id, displayName: voice.displayName)
+                    Text(VoiceDisplayFormatter.displayText(for: voice.id, displayName: voice.displayName))
                         .tag(voice.id)
                 }
             }
@@ -237,7 +237,7 @@ struct InspectorPanelView: View {
         case .section(.presets):
             InspectorGroup(title: "Preset Metadata") {
                 InspectorValue(label: "Count", value: "\(workspaceStore.generationPresets.count)")
-                InspectorValue(label: "Default voice", value: settingsStore.settings.defaultVoice)
+                InspectorVoiceValue(label: "Default voice", voiceID: settingsStore.settings.preferredVoiceID(for: store.selectedBackendProfile))
                 InspectorValue(label: "Default CFG", value: settingsStore.settings.defaultCFGScale)
                 InspectorValue(label: "Default steps", value: "\(settingsStore.settings.defaultDDPMInferenceSteps)")
             }
@@ -435,6 +435,13 @@ struct InspectorPanelView: View {
             set: { store.selectBackend($0) }
         )
     }
+
+    private var selectedVoiceBinding: Binding<String> {
+        Binding(
+            get: { store.selectedVoice },
+            set: { store.selectVoice($0) }
+        )
+    }
 }
 
 private struct InspectorGroup<Content: View>: View {
@@ -523,18 +530,18 @@ private struct ChatterboxGenerationControls: View {
                 }
             }
 
-            Picker("Language", selection: $language) {
-                ForEach(VoiceDisplayFormatter.supportedLanguages, id: \.code) { language in
-                    HStack {
-                        LanguageBadge(code: language.code, compact: true)
-                        Text(language.name)
-                    }
-                    .tag(language.code)
-                }
+            HStack {
+                Text("Language")
+                Spacer()
+                LanguageBadge(code: "en", compact: true)
+                Text("English")
+                    .foregroundStyle(.secondary)
             }
-            .pickerStyle(.menu)
         }
         .font(.callout)
+        .onAppear {
+            language = "en"
+        }
     }
 }
 
