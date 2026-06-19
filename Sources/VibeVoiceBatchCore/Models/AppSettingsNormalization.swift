@@ -290,22 +290,27 @@ public struct AppSettingsNormalizationResult: Equatable, Sendable {
                 technicalDetails: String(oldValue)
             )
         }
-        if copy.chatterboxLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let chatterboxLanguageOptions = ChatterboxModelCatalog.languageCodes(for: copy.defaultModelID)
+        let fallbackChatterboxLanguage = chatterboxLanguageOptions.contains("en") ? "en" : (chatterboxLanguageOptions.first ?? "en")
+        let normalizedChatterboxLanguage = copy.chatterboxLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedChatterboxLanguage.isEmpty {
             copy.chatterboxLanguage = "en"
             record(
                 .invalidChatterboxSetting,
                 field: "chatterboxLanguage",
                 message: "The saved Chatterbox language was empty, so English was selected."
             )
-        } else if copy.chatterboxLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "en" {
+        } else if !chatterboxLanguageOptions.contains(normalizedChatterboxLanguage) {
             let oldValue = copy.chatterboxLanguage
-            copy.chatterboxLanguage = "en"
+            copy.chatterboxLanguage = fallbackChatterboxLanguage
             record(
                 .invalidChatterboxSetting,
                 field: "chatterboxLanguage",
-                message: "Chatterbox voices are English-only in this backend profile, so English was selected.",
+                message: "\(ChatterboxModelCatalog.displayName(for: copy.defaultModelID)) does not support \(oldValue), so \(copy.chatterboxLanguage.uppercased()) was selected.",
                 technicalDetails: oldValue
             )
+        } else {
+            copy.chatterboxLanguage = normalizedChatterboxLanguage
         }
 
         return AppSettingsNormalizationResult(settings: copy, recoveryNotes: notes)

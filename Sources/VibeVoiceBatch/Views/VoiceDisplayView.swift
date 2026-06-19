@@ -22,14 +22,28 @@ struct VoiceDisplayDescriptor: Equatable {
 
 enum VoiceDisplayFormatter {
     static let supportedLanguages: [(code: String, name: String)] = [
-        ("en", "English"),
-        ("fr", "French"),
+        ("ar", "Arabic"),
+        ("da", "Danish"),
         ("de", "German"),
+        ("el", "Greek"),
+        ("en", "English"),
         ("es", "Spanish"),
+        ("fi", "Finnish"),
+        ("fr", "French"),
+        ("he", "Hebrew"),
+        ("hi", "Hindi"),
         ("it", "Italian"),
-        ("pt", "Portuguese"),
         ("ja", "Japanese"),
         ("ko", "Korean"),
+        ("ms", "Malay"),
+        ("nl", "Dutch"),
+        ("no", "Norwegian"),
+        ("pl", "Polish"),
+        ("pt", "Portuguese"),
+        ("ru", "Russian"),
+        ("sv", "Swedish"),
+        ("sw", "Swahili"),
+        ("tr", "Turkish"),
         ("zh", "Chinese")
     ]
 
@@ -182,16 +196,44 @@ private enum LanguagePalette {
             return (Color(red: 1.00, green: 0.82, blue: 0.22), .black)
         case "de":
             return (Color(red: 0.48, green: 0.30, blue: 0.16), .white)
+        case "ar":
+            return (Color(red: 0.10, green: 0.45, blue: 0.33), .white)
+        case "da":
+            return (Color(red: 0.70, green: 0.12, blue: 0.18), .white)
+        case "el":
+            return (Color(red: 0.20, green: 0.50, blue: 0.80), .white)
         case "es":
             return (Color(red: 0.95, green: 0.42, blue: 0.18), .white)
+        case "fi":
+            return (Color(red: 0.12, green: 0.32, blue: 0.70), .white)
+        case "he":
+            return (Color(red: 0.12, green: 0.46, blue: 0.78), .white)
+        case "hi":
+            return (Color(red: 0.88, green: 0.46, blue: 0.10), .white)
         case "it":
             return (Color(red: 0.13, green: 0.56, blue: 0.32), .white)
-        case "pt":
-            return (Color(red: 0.03, green: 0.53, blue: 0.58), .white)
         case "ja":
             return (Color(red: 0.82, green: 0.18, blue: 0.24), .white)
         case "ko":
             return (Color(red: 0.45, green: 0.28, blue: 0.82), .white)
+        case "ms":
+            return (Color(red: 0.10, green: 0.55, blue: 0.58), .white)
+        case "nl":
+            return (Color(red: 0.92, green: 0.36, blue: 0.12), .white)
+        case "no":
+            return (Color(red: 0.18, green: 0.24, blue: 0.60), .white)
+        case "pl":
+            return (Color(red: 0.75, green: 0.18, blue: 0.32), .white)
+        case "pt":
+            return (Color(red: 0.03, green: 0.53, blue: 0.58), .white)
+        case "ru":
+            return (Color(red: 0.36, green: 0.37, blue: 0.74), .white)
+        case "sv":
+            return (Color(red: 0.18, green: 0.46, blue: 0.78), .white)
+        case "sw":
+            return (Color(red: 0.16, green: 0.52, blue: 0.24), .white)
+        case "tr":
+            return (Color(red: 0.78, green: 0.12, blue: 0.18), .white)
         case "zh":
             return (Color(red: 0.78, green: 0.18, blue: 0.48), .white)
         default:

@@ -3,6 +3,8 @@ import Foundation
 public struct ChatterboxTTSRequest: Equatable, Sendable {
     public var endpoint: URL
     public var voiceID: String
+    public var modelID: String
+    public var modelRepositoryID: String
     public var inputText: String
     public var outputFormat: String
     public var splitText: Bool
@@ -17,6 +19,8 @@ public struct ChatterboxTTSRequest: Equatable, Sendable {
     public init(
         endpoint: URL,
         voiceID: String,
+        modelID: String = ChatterboxModelCatalog.turboID,
+        modelRepositoryID: String = ChatterboxModelCatalog.turboID,
         inputText: String,
         outputFormat: String = "wav",
         splitText: Bool = true,
@@ -30,6 +34,8 @@ public struct ChatterboxTTSRequest: Equatable, Sendable {
     ) {
         self.endpoint = endpoint
         self.voiceID = voiceID
+        self.modelID = modelID
+        self.modelRepositoryID = modelRepositoryID
         self.inputText = inputText
         self.outputFormat = outputFormat
         self.splitText = splitText
@@ -340,12 +346,145 @@ public final class ChatterboxDockerLogFollower: ChatterboxLogFollowing {
     }
 }
 
+public protocol ChatterboxModelSwitching: AnyObject {
+    func ensureModel(
+        _ modelID: String,
+        endpoint: URL,
+        onLog: @escaping (String) -> Void
+    ) async throws
+}
+
+public enum ChatterboxModelSwitchError: LocalizedError {
+    case unknownModel(String)
+    case saveFailed(statusCode: Int, body: String)
+    case restartFailed(statusCode: Int, body: String)
+    case timedOut(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unknownModel(let modelID):
+            return "Chatterbox model \(modelID) is not recognized by the app."
+        case .saveFailed(let statusCode, let body):
+            return "Chatterbox could not save the model setting (HTTP \(statusCode)): \(body)"
+        case .restartFailed(let statusCode, let body):
+            return "Chatterbox could not restart after the model change (HTTP \(statusCode)): \(body)"
+        case .timedOut(let modelID):
+            return "Chatterbox did not report \(modelID) as ready before the model switch timed out."
+        }
+    }
+}
+
+public final class ChatterboxModelSwitcher: ChatterboxModelSwitching, @unchecked Sendable {
+    private let session: URLSession
+    private let timeoutSeconds: TimeInterval
+
+    public init(session: URLSession = .shared, timeoutSeconds: TimeInterval = 120) {
+        self.session = session
+        self.timeoutSeconds = timeoutSeconds
+    }
+
+    public func ensureModel(
+        _ modelID: String,
+        endpoint: URL,
+        onLog: @escaping (String) -> Void
+    ) async throws {
+        guard let definition = ChatterboxModelCatalog.definition(for: modelID) else {
+            throw ChatterboxModelSwitchError.unknownModel(modelID)
+        }
+
+        let targetModelID = definition.id
+        let repoID = definition.configuration["model.repo_id"] ?? targetModelID
+        guard let modelInfoURL = serviceURL(for: endpoint, path: "/api/model-info"),
+              let saveSettingsURL = serviceURL(for: endpoint, path: "/save_settings"),
+              let restartURL = serviceURL(for: endpoint, path: "/restart_server") else {
+            return
+        }
+
+        if let current = try? await currentModelID(from: modelInfoURL), current == targetModelID {
+            onLog("Chatterbox model already active: \(definition.displayName)\n")
+            return
+        }
+
+        onLog("Switching Chatterbox model to \(definition.displayName).\n")
+        let saveResponse = try await postJSON(
+            ["model": ["repo_id": repoID]],
+            to: saveSettingsURL
+        )
+        guard (200..<300).contains(saveResponse.statusCode) else {
+            throw ChatterboxModelSwitchError.saveFailed(
+                statusCode: saveResponse.statusCode,
+                body: saveResponse.body
+            )
+        }
+
+        let restartResponse = try await postJSON([:], to: restartURL)
+        guard (200..<300).contains(restartResponse.statusCode) else {
+            throw ChatterboxModelSwitchError.restartFailed(
+                statusCode: restartResponse.statusCode,
+                body: restartResponse.body
+            )
+        }
+        onLog("Chatterbox is reloading \(definition.displayName).\n")
+
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            try Task.checkCancellation()
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            if let current = try? await currentModelID(from: modelInfoURL), current == targetModelID {
+                onLog("Chatterbox model ready: \(definition.displayName).\n")
+                return
+            }
+        }
+
+        throw ChatterboxModelSwitchError.timedOut(definition.displayName)
+    }
+
+    private func currentModelID(from url: URL) async throws -> String? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode),
+              let dictionary = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let loaded = dictionary["loaded"] as? Bool
+        guard loaded != false else { return nil }
+        return ChatterboxModelCatalog.normalizedModelID(
+            from: dictionary["type"] as? String ?? dictionary["class_name"] as? String
+        )
+    }
+
+    private func postJSON(_ payload: [String: Any], to url: URL) async throws -> (statusCode: Int, body: String) {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, response) = try await session.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let body = String(decoding: data.prefix(4_000), as: UTF8.self)
+        return (statusCode, body)
+    }
+
+    private func serviceURL(for endpoint: URL, path: String) -> URL? {
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.path = path
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+}
+
 public final class ChatterboxHTTPAdapter: EngineAdapter {
     public let profile: BackendProfile
     private let backendManager: BackendManager
     private let fileStore: SessionFileStore
     private let client: ChatterboxSpeechGenerating
     private let logFollower: ChatterboxLogFollowing
+    private let modelSwitcher: ChatterboxModelSwitching
     private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.chatterbox-adapter")
     private var activeJobID: String?
     private var cancelledJobIDs: Set<String> = []
@@ -358,13 +497,15 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
         backendManager: BackendManager? = nil,
         fileStore: SessionFileStore? = nil,
         client: ChatterboxSpeechGenerating? = nil,
-        logFollower: ChatterboxLogFollowing? = nil
+        logFollower: ChatterboxLogFollowing? = nil,
+        modelSwitcher: ChatterboxModelSwitching? = nil
     ) {
         self.profile = profile
         self.backendManager = backendManager ?? BackendManager(projectRoot: projectRoot)
         self.fileStore = fileStore ?? SessionFileStore(projectRoot: projectRoot)
         self.client = client ?? ChatterboxSpeechClient()
         self.logFollower = logFollower ?? ChatterboxDockerLogFollower()
+        self.modelSwitcher = modelSwitcher ?? ChatterboxModelSwitcher()
     }
 
     public func healthCheck() async -> BackendHealthReport {
@@ -466,6 +607,32 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
                 outputURL: nil,
                 extraLog: "",
                 errorMessage: "Chatterbox needs a service URL and /tts endpoint before it can generate audio."
+            )
+            events(.status(record.status.displayName))
+            return record
+        }
+
+        do {
+            emitProgress(
+                jobID: job.id,
+                fraction: 0.04,
+                message: "checking Chatterbox model",
+                startedAt: startedAt,
+                events: events
+            )
+            try await modelSwitcher.ensureModel(job.modelID, endpoint: endpoint) { text in
+                _ = appendLog(text)
+            }
+        } catch {
+            appendLog("FAILED: Could not prepare Chatterbox model: \(error.localizedDescription)\n")
+            let record = finalize(
+                session: session,
+                job: job,
+                status: .failed,
+                startedAt: startedAt,
+                outputURL: nil,
+                extraLog: "",
+                errorMessage: error.localizedDescription
             )
             events(.status(record.status.displayName))
             return record
@@ -605,6 +772,9 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
         return ChatterboxTTSRequest(
             endpoint: endpoint,
             voiceID: job.voiceID,
+            modelID: job.modelID,
+            modelRepositoryID: extra["model_repo_id"] ?? ChatterboxModelCatalog.definition(for: job.modelID)?
+                .configuration["model.repo_id"] ?? job.modelID,
             inputText: job.inputText,
             outputFormat: extra["output_format"] ?? "wav",
             splitText: extra.boolean("split_text") ?? true,
@@ -641,6 +811,8 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
 
     private func requestLog(_ request: ChatterboxTTSRequest) -> String {
         """
+        Model: \(ChatterboxModelCatalog.displayName(for: request.modelID))
+        Server selector: \(request.modelRepositoryID)
         Voice mode: \(request.voiceMode)
         Voice file: \(request.voiceFilename)
         Output format: \(request.outputFormat)

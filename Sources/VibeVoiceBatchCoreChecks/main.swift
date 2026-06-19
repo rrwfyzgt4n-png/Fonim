@@ -325,7 +325,11 @@ struct VibeVoiceBatchCoreChecks {
         precondition(BackendProfiles.kokoroTTS.progressParser == "KokoroHTTPAdapter.progress")
         precondition(BackendProfiles.all.contains(BackendProfiles.chatterboxTTS))
         precondition(BackendProfiles.chatterboxTTS.engineType == .chatterbox)
-        precondition(BackendProfiles.chatterboxTTS.requiredModels.first?.id == "chatterbox")
+        precondition(BackendProfiles.chatterboxTTS.requiredModels.map(\.id) == [
+            ChatterboxModelCatalog.turboID,
+            ChatterboxModelCatalog.originalID,
+            ChatterboxModelCatalog.multilingualID
+        ])
         precondition(BackendProfiles.chatterboxTTS.healthCheckURL?.absoluteString == "http://127.0.0.1:8004/api/model-info")
         precondition(BackendConnectionSettings.defaultConfigurations[BackendProfiles.chatterboxTTS.id]?.generatePath == "/tts")
         let connectedKokoro = BackendProfiles.kokoroTTS.applying(
@@ -685,7 +689,7 @@ struct VibeVoiceBatchCoreChecks {
                     return BackendHTTPResult(
                         statusCode: 200,
                         body: """
-                        {"voices":[{"id":"af_heart","name":"af_heart"},{"id":"am_adam","name":"am_adam"}]}
+                        {"voices":{"af_heart":{"name":"Heart","language":"en"},"am_adam":{"display_name":"Adam","language":"en"}}}
                         """
                     )
                 default:
@@ -697,6 +701,7 @@ struct VibeVoiceBatchCoreChecks {
         let catalog = manager.catalogReport(for: profile)
         precondition(catalog.models.map(\.id) == ["tts-1", "tts-1-hd"])
         precondition(catalog.voices.map(\.id) == ["af_heart", "am_adam"])
+        precondition(catalog.voices.map(\.displayName) == ["Heart", "Adam"])
         precondition(catalog.message.contains("Loaded 2 models and 2 voices"))
     }
 
@@ -718,7 +723,7 @@ struct VibeVoiceBatchCoreChecks {
                     return BackendHTTPResult(
                         statusCode: 200,
                         body: """
-                        {"loaded":true,"type":"original","class_name":"ChatterboxTTS","device":"cpu","sample_rate":24000}
+                        {"loaded":true,"type":"original","class_name":"ChatterboxTTS","device":"cpu","sample_rate":24000,"turbo_available_in_package":true,"multilingual_available_in_package":true}
                         """
                     )
                 case "/get_predefined_voices":
@@ -742,7 +747,10 @@ struct VibeVoiceBatchCoreChecks {
         )
 
         let catalog = manager.catalogReport(for: profile)
-        precondition(catalog.models.map(\.id) == ["chatterbox"])
+        precondition(catalog.models.map(\.id) == ["chatterbox-turbo", "chatterbox", "chatterbox-multilingual"])
+        precondition(catalog.models.first(where: { $0.id == "chatterbox" })?.isLoaded == true)
+        precondition(catalog.models.first(where: { $0.id == "chatterbox-multilingual" })?.languageCodes.count == 23)
+        precondition(catalog.models.first(where: { $0.id == "chatterbox-turbo" })?.configuration["model.repo_id"] == "chatterbox-turbo")
         precondition(catalog.voices.map(\.id).contains("Emily.wav"))
         precondition(catalog.voices.map(\.id).contains("Michael.wav"))
         precondition(!catalog.voices.map(\.id).contains("reference:Gianna.wav"))
@@ -1457,7 +1465,7 @@ struct VibeVoiceBatchCoreChecks {
             backendCatalogs: [
                 BackendProfiles.chatterboxTTS.id: BackendCatalogReport(
                     profileID: BackendProfiles.chatterboxTTS.id,
-                    models: [BackendCatalogModel(id: "chatterbox")],
+                    models: ChatterboxModelCatalog.catalogModels(loadedModelID: ChatterboxModelCatalog.turboID),
                     voices: [
                         BackendCatalogVoice(id: "Emily.wav", displayName: "Emily"),
                         BackendCatalogVoice(id: "reference:Gianna.wav", displayName: "Gianna (Reference)")
@@ -1477,7 +1485,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(chatterboxResult.recoveryNotes.contains { $0.reason == .invalidModel })
         precondition(chatterboxResult.recoveryNotes.contains { $0.reason == .invalidVoice })
         precondition(chatterboxResult.recoveryNotes.contains { $0.reason == .invalidChatterboxSetting })
-        precondition(chatterboxSettings.defaultModelID == "chatterbox")
+        precondition(chatterboxSettings.defaultModelID == ChatterboxModelCatalog.turboID)
         precondition(chatterboxSettings.defaultVoice == "Emily.wav")
         precondition(chatterboxSettings.chatterboxTemperature == 2.0)
         precondition(chatterboxSettings.chatterboxExaggeration == 0.0)
@@ -1496,6 +1504,18 @@ struct VibeVoiceBatchCoreChecks {
         precondition(chatterboxFallback.voiceOptions(for: chatterboxFallback.selectedBackendProfile).count == 28)
         precondition(chatterboxFallback.defaultVoice == "Emily.wav")
         precondition(chatterboxFallbackResult.recoveryNotes.contains { $0.reason == .invalidVoice })
+
+        let multilingualResult = AppSettings(
+            defaultBackendID: BackendProfiles.chatterboxTTS.id,
+            defaultModelID: ChatterboxModelCatalog.multilingualID,
+            defaultVoice: "Emily.wav",
+            chatterboxLanguage: "fr"
+        ).normalizationResult()
+        let multilingualSettings = multilingualResult.settings
+        precondition(multilingualSettings.defaultModelID == ChatterboxModelCatalog.multilingualID)
+        precondition(multilingualSettings.chatterboxLanguage == "fr")
+        precondition(multilingualSettings.generationExtraParameters(for: multilingualSettings.selectedBackendProfile)["language"] == "fr")
+        precondition(multilingualSettings.generationExtraParameters(for: multilingualSettings.selectedBackendProfile)["model_repo_id"] == ChatterboxModelCatalog.multilingualID)
 
         let validResult = AppSettings.defaults.normalizationResult()
         precondition(!validResult.didRecover)
@@ -1902,7 +1922,8 @@ struct VibeVoiceBatchCoreChecks {
             projectRoot: root,
             fileStore: fileStore,
             client: client,
-            logFollower: logFollower
+            logFollower: logFollower,
+            modelSwitcher: FakeChatterboxModelSwitcher()
         )
         let job = GenerationJob(
             id: "chatterbox-adapter-job",
@@ -2297,6 +2318,26 @@ private final class FakeChatterboxSpeechClient: ChatterboxSpeechGenerating, @unc
         stateQueue.sync {
             cancelFlag = true
         }
+    }
+}
+
+private final class FakeChatterboxModelSwitcher: ChatterboxModelSwitching, @unchecked Sendable {
+    private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.checks.chatterbox-model-switcher")
+    private var recordedModelIDs: [String] = []
+
+    var modelIDs: [String] {
+        stateQueue.sync { recordedModelIDs }
+    }
+
+    func ensureModel(
+        _ modelID: String,
+        endpoint: URL,
+        onLog: @escaping (String) -> Void
+    ) async throws {
+        stateQueue.sync {
+            recordedModelIDs.append(modelID)
+        }
+        onLog("Chatterbox model ready for test: \(modelID).\n")
     }
 }
 

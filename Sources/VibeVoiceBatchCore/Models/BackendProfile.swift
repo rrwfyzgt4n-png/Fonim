@@ -101,7 +101,7 @@ public struct BackendConnectionSettings: Codable, Equatable, Sendable {
         healthPath: "/api/model-info",
         generatePath: "/tts",
         cancelPath: "",
-        modelID: "chatterbox",
+        modelID: ChatterboxModelCatalog.turboID,
         defaultVoice: "Emily.wav",
         notes: "Local Chatterbox TTS service on port 8004."
     )
@@ -363,15 +363,7 @@ public enum BackendProfiles {
         installMethod: .externalServer,
         runtime: .externalService,
         dockerImage: nil,
-        requiredModels: [
-            RequiredModel(
-                id: "chatterbox",
-                displayName: "Chatterbox TTS",
-                source: "chatterbox",
-                approximateDiskSpaceGB: nil,
-                licenseNotes: "Chatterbox model and voice license terms must be reviewed before redistribution."
-            )
-        ],
+        requiredModels: ChatterboxModelCatalog.requiredModels,
         requiredDiskSpaceGB: nil,
         requiredMemoryGB: nil,
         supportedArchitectures: [.appleSilicon, .intel],
@@ -447,7 +439,7 @@ public extension BackendProfile {
             dockerImage = nil
         }
 
-        let defaultModelID = engineType == .chatterbox ? "chatterbox" : "kokoro/default"
+        let defaultModelID = engineType == .chatterbox ? ChatterboxModelCatalog.turboID : "kokoro/default"
         let modelID = connection.trimmedModelID ?? requiredModels.first?.id ?? defaultModelID
         let model = RequiredModel(
             id: modelID,
@@ -456,6 +448,7 @@ public extension BackendProfile {
             approximateDiskSpaceGB: requiredModels.first?.approximateDiskSpaceGB,
             licenseNotes: requiredModels.first?.licenseNotes
         )
+        let appliedModels = engineType == .chatterbox ? ChatterboxModelCatalog.requiredModels : [model]
 
         return BackendProfile(
             id: id,
@@ -465,7 +458,7 @@ public extension BackendProfile {
             runtime: runtime,
             dockerImage: dockerImage,
             containerName: connection.trimmedContainerName,
-            requiredModels: [model],
+            requiredModels: appliedModels,
             requiredDiskSpaceGB: requiredDiskSpaceGB,
             requiredMemoryGB: requiredMemoryGB,
             supportedArchitectures: supportedArchitectures,
@@ -487,8 +480,8 @@ public extension BackendProfile {
         if engineType == .kokoro, modelID == "kokoro/default" {
             return "Kokoro Default Voice Model"
         }
-        if engineType == .chatterbox, modelID == "chatterbox" {
-            return "Chatterbox TTS"
+        if engineType == .chatterbox {
+            return ChatterboxModelCatalog.displayName(for: modelID)
         }
         return modelID
     }

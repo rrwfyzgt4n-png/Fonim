@@ -132,6 +132,10 @@ public extension BackendProfile {
         parameters["backend_display_name"] = displayName
         parameters["response_format"] = "wav"
         if engineType == .chatterbox {
+            let modelID = requiredModels.first?.id ?? ChatterboxModelCatalog.turboID
+            parameters["model"] = modelID
+            parameters["model_repo_id"] = ChatterboxModelCatalog.definition(for: modelID)?
+                .configuration["model.repo_id"] ?? modelID
             parameters["output_format"] = "wav"
             parameters["split_text"] = "true"
             parameters["chunk_size"] = "120"

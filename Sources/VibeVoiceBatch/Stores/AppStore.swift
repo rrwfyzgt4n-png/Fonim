@@ -430,7 +430,10 @@ final class AppStore: ObservableObject {
             $0.defaultBackendID = backendID
             let profile = $0.backendProfile(id: backendID)
             let catalog = $0.backendCatalog(for: backendID)
-            $0.defaultModelID = catalog?.models.first?.id ?? profile.requiredModels.first?.id ?? $0.defaultModelID
+            $0.defaultModelID = catalog?.models.first(where: { $0.isLoaded == true })?.id ??
+                catalog?.models.first?.id ??
+                profile.requiredModels.first?.id ??
+                $0.defaultModelID
             let voice = $0.preferredVoiceID(for: profile)
             $0.defaultVoice = voice
             $0.rememberVoice(voice, for: backendID)

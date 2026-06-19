@@ -142,7 +142,7 @@ struct InspectorPanelView: View {
         InspectorGroup(title: "Generation") {
             Picker("Voice", selection: selectedVoiceBinding) {
                 ForEach(store.availableVoiceOptions) { voice in
-                    Text(VoiceDisplayFormatter.displayText(for: voice.id, displayName: voice.displayName))
+                    VoiceInlineLabel(voiceID: voice.id, displayName: voice.displayName, compact: true)
                         .tag(voice.id)
                 }
             }
@@ -156,6 +156,7 @@ struct InspectorPanelView: View {
                     seed: settingsBinding(\.chatterboxSeed),
                     speedFactor: settingsBinding(\.chatterboxSpeedFactor),
                     language: settingsBinding(\.chatterboxLanguage),
+                    languageChoices: chatterboxLanguageChoices,
                     splitText: settingsBinding(\.chatterboxSplitText),
                     chunkSize: settingsBinding(\.chatterboxChunkSize)
                 )
@@ -207,6 +208,14 @@ struct InspectorPanelView: View {
             .pickerStyle(.menu)
 
             InspectorValue(label: "Folder", value: settingsStore.settings.outputFolderPath)
+        }
+    }
+
+    private var chatterboxLanguageChoices: [(code: String, name: String)] {
+        let selectedModelID = settingsStore.settings.defaultModelID
+        let codes = ChatterboxModelCatalog.languageCodes(for: selectedModelID)
+        return codes.map { code in
+            VoiceDisplayFormatter.supportedLanguages.first { $0.code == code } ?? (code: code, name: VoiceDisplayFormatter.languageName(for: code))
         }
     }
 
@@ -499,6 +508,7 @@ private struct ChatterboxGenerationControls: View {
     @Binding var seed: Int
     @Binding var speedFactor: Double
     @Binding var language: String
+    let languageChoices: [(code: String, name: String)]
     @Binding var splitText: Bool
     @Binding var chunkSize: Int
 
@@ -530,17 +540,50 @@ private struct ChatterboxGenerationControls: View {
                 }
             }
 
-            HStack {
-                Text("Language")
-                Spacer()
-                LanguageBadge(code: "en", compact: true)
-                Text("English")
-                    .foregroundStyle(.secondary)
+            if languageChoices.count <= 1 {
+                HStack {
+                    Text("Language")
+                    Spacer()
+                    LanguageBadge(code: languageChoices.first?.code ?? "en", compact: true)
+                    Text(languageChoices.first?.name ?? "English")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Picker("Language", selection: normalizedLanguage) {
+                    ForEach(languageChoices, id: \.code) { choice in
+                        HStack {
+                            LanguageBadge(code: choice.code, compact: true)
+                            Text(choice.name)
+                        }
+                        .tag(choice.code)
+                    }
+                }
+                .pickerStyle(.menu)
             }
         }
         .font(.callout)
         .onAppear {
-            language = "en"
+            normalizeLanguage()
+        }
+        .onChange(of: languageChoices.map(\.code).joined(separator: ",")) { _ in
+            normalizeLanguage()
+        }
+    }
+
+    private var normalizedLanguage: Binding<String> {
+        Binding(
+            get: {
+                let normalized = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return languageChoices.contains(where: { $0.code == normalized }) ? normalized : (languageChoices.first?.code ?? "en")
+            },
+            set: { language = $0 }
+        )
+    }
+
+    private func normalizeLanguage() {
+        let normalized = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !languageChoices.contains(where: { $0.code == normalized }) {
+            language = languageChoices.first?.code ?? "en"
         }
     }
 }

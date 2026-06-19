@@ -5,6 +5,7 @@ import VibeVoiceBatchCore
 struct SessionDetailView: View {
     @EnvironmentObject private var store: AppStore
     let record: SessionRecord
+    @State private var selectedPane: SessionDetailPane = .input
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,24 +14,29 @@ struct SessionDetailView: View {
 
             Divider()
 
-            TabView {
-                textPane
-                    .tabItem {
-                        Label("Input", systemImage: "text.alignleft")
-                    }
+            Picker("Session Detail", selection: $selectedPane) {
+                ForEach(SessionDetailPane.allCases) { pane in
+                    Label(pane.title, systemImage: pane.systemImage)
+                        .tag(pane)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding([.horizontal, .top])
 
-                logPane
-                    .tabItem {
-                        Label("Log", systemImage: "terminal")
-                    }
-
-                metadataPane
-                    .tabItem {
-                        Label("Metadata", systemImage: "curlybraces")
-                    }
+            Group {
+                switch selectedPane {
+                case .input:
+                    textPane
+                case .log:
+                    logPane
+                case .metadata:
+                    metadataPane
+                }
             }
             .padding(.horizontal)
             .padding(.bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(record.id)
     }
@@ -79,26 +85,14 @@ struct SessionDetailView: View {
     }
 
     private var logPane: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let logText = store.logText(for: record)
+        return VStack(alignment: .leading, spacing: 8) {
             CopyPaneHeader(title: "Log") {
-                copyToPasteboard(store.logText(for: record))
+                copyToPasteboard(logText)
             }
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    Text(store.logText(for: record).isEmpty ? "No log yet." : store.logText(for: record))
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .id("log-bottom")
-                }
-                .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(.white)
-                .onChange(of: store.logText(for: record)) { _ in
-                    proxy.scrollTo("log-bottom", anchor: .bottom)
-                }
-            }
+            LargeLogTextView(text: logText.isEmpty ? "No log yet." : logText)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
 
@@ -123,6 +117,36 @@ struct SessionDetailView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         store.statusMessage = "Copied \(record.id)"
+    }
+}
+
+private enum SessionDetailPane: String, CaseIterable, Identifiable {
+    case input
+    case log
+    case metadata
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .input:
+            return "Input"
+        case .log:
+            return "Log"
+        case .metadata:
+            return "Metadata"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .input:
+            return "text.alignleft"
+        case .log:
+            return "terminal"
+        case .metadata:
+            return "curlybraces"
+        }
     }
 }
 

@@ -265,7 +265,7 @@ private struct VoicesSettingsPane: View {
         Form {
             Picker("Default voice", selection: defaultVoiceBinding) {
                 ForEach(settingsStore.voiceOptions(for: appStore.selectedBackendProfile)) { voice in
-                    Text(VoiceDisplayFormatter.displayText(for: voice.id, displayName: voice.displayName))
+                    VoiceInlineLabel(voiceID: voice.id, displayName: voice.displayName, compact: true)
                         .tag(voice.id)
                 }
             }

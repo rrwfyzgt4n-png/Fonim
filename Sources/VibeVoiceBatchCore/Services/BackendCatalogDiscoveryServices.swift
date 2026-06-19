@@ -17,24 +17,17 @@ internal struct BackendCatalogParser {
         guard let data = body.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data),
               let dictionary = json as? [String: Any] else {
-            return []
+            return ChatterboxModelCatalog.catalogModels()
         }
-        let isLoaded = dictionary["loaded"] as? Bool
         let modelType = dictionary["type"] as? String
         let className = dictionary["class_name"] as? String
-        let trimmedModelType = modelType?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let identifier = (trimmedModelType?.isEmpty == false ? trimmedModelType : nil) ?? "chatterbox"
-        let displayName = [className, modelType]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return [
-            BackendCatalogModel(
-                id: identifier == "original" ? "chatterbox" : identifier,
-                displayName: displayName.isEmpty ? "Chatterbox TTS" : displayName + (isLoaded == false ? " (not loaded)" : ""),
-                owner: "chatterbox"
-            )
-        ]
+        let loaded = dictionary["loaded"] as? Bool
+        let loadedModelID = loaded == false ? nil : ChatterboxModelCatalog.normalizedModelID(from: modelType ?? className)
+        return ChatterboxModelCatalog.catalogModels(
+            loadedModelID: loadedModelID,
+            turboAvailable: dictionary["turbo_available_in_package"] as? Bool,
+            multilingualAvailable: dictionary["multilingual_available_in_package"] as? Bool
+        )
     }
 
     func parseChatterboxPredefinedVoices(from body: String) -> [BackendCatalogVoice] {
@@ -85,24 +78,65 @@ internal struct BackendCatalogParser {
             return strings.map { CatalogEntry(id: $0, name: $0, owner: nil) }
         }
 
+        if let dictionary = value as? [String: Any] {
+            if let nested = firstKnownCatalogCollection(in: dictionary) {
+                let parsed = parseCatalogCollection(nested)
+                if !parsed.isEmpty {
+                    return parsed
+                }
+            }
+
+            return dictionary.compactMap { key, item in
+                if let string = item as? String {
+                    return CatalogEntry(id: string, name: string, owner: nil)
+                }
+                if let nested = item as? [String: Any] {
+                    return catalogEntry(from: nested, fallbackID: key)
+                }
+                return CatalogEntry(id: key, name: key, owner: nil)
+            }
+            .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+        }
+
         guard let array = value as? [Any] else { return [] }
         return array.compactMap { item in
             if let string = item as? String {
                 return CatalogEntry(id: string, name: string, owner: nil)
             }
             guard let dictionary = item as? [String: Any] else { return nil }
-            let id = dictionary["id"] as? String ??
-                dictionary["name"] as? String ??
-                dictionary["model"] as? String
-            guard let id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return nil
-            }
-            return CatalogEntry(
-                id: id,
-                name: dictionary["name"] as? String ?? dictionary["displayName"] as? String,
-                owner: dictionary["owned_by"] as? String ?? dictionary["owner"] as? String
-            )
+            return catalogEntry(from: dictionary, fallbackID: nil)
         }
+    }
+
+    private func firstKnownCatalogCollection(in dictionary: [String: Any]) -> Any? {
+        for key in ["voices", "models", "data", "items", "results"] {
+            if let value = dictionary[key] {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func catalogEntry(from dictionary: [String: Any], fallbackID: String?) -> CatalogEntry? {
+        let id = dictionary["id"] as? String ??
+            dictionary["voice"] as? String ??
+            dictionary["voice_id"] as? String ??
+            dictionary["voiceId"] as? String ??
+            dictionary["filename"] as? String ??
+            dictionary["model"] as? String ??
+            fallbackID ??
+            dictionary["name"] as? String
+        guard let id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return CatalogEntry(
+            id: id,
+            name: dictionary["display_name"] as? String ??
+                dictionary["displayName"] as? String ??
+                dictionary["label"] as? String ??
+                dictionary["name"] as? String,
+            owner: dictionary["owned_by"] as? String ?? dictionary["owner"] as? String
+        )
     }
 
     private func parseChatterboxVoiceCollection(_ value: Any, prefix: String, suffix: String) -> [BackendCatalogVoice] {

@@ -185,7 +185,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
         parameters["cfg_weight"] = String(chatterboxCFGWeight)
         parameters["seed"] = String(chatterboxSeed)
         parameters["speed_factor"] = String(chatterboxSpeedFactor)
-        parameters["language"] = "en"
+        parameters["model"] = defaultModelID
+        parameters["model_repo_id"] = ChatterboxModelCatalog.definition(for: defaultModelID)?
+            .configuration["model.repo_id"] ?? defaultModelID
+        let supportedLanguages = ChatterboxModelCatalog.languageCodes(for: defaultModelID)
+        let normalizedLanguage = chatterboxLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        parameters["language"] = supportedLanguages.contains(normalizedLanguage) ? normalizedLanguage : (supportedLanguages.first ?? "en")
         parameters["split_text"] = chatterboxSplitText ? "true" : "false"
         parameters["chunk_size"] = String(chatterboxChunkSize)
         parameters["output_format"] = "wav"

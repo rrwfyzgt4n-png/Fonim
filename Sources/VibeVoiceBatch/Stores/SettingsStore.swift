@@ -98,7 +98,7 @@ final class SettingsStore: ObservableObject {
             settings.backendCatalogs[profileID] = catalog
             var connection = settings.backendConnection(for: profileID)
             if !catalog.models.isEmpty {
-                connection.modelID = catalog.models[0].id
+                connection.modelID = preferredModel(in: catalog.models, settings: settings, connection: connection)
             }
             if !catalog.voices.isEmpty {
                 connection.defaultVoice = preferredVoice(in: catalog.voices, settings: settings, connection: connection)
@@ -107,7 +107,7 @@ final class SettingsStore: ObservableObject {
             if settings.defaultBackendID == profileID {
                 if !catalog.models.isEmpty,
                    !catalog.models.contains(where: { $0.id == settings.defaultModelID }) {
-                    settings.defaultModelID = catalog.models[0].id
+                    settings.defaultModelID = preferredModel(in: catalog.models, settings: settings, connection: connection)
                 }
                 if !catalog.voices.isEmpty,
                    !catalog.voices.contains(where: { $0.id == settings.defaultVoice }) {
@@ -130,6 +130,24 @@ final class SettingsStore: ObservableObject {
             return match
         }
         return voices[0].id
+    }
+
+    private func preferredModel(
+        in models: [BackendCatalogModel],
+        settings: AppSettings,
+        connection: BackendConnectionSettings
+    ) -> String {
+        if let saved = models.first(where: { $0.id == settings.defaultModelID })?.id {
+            return saved
+        }
+        if let connected = connection.trimmedModelID,
+           let match = models.first(where: { $0.id == connected })?.id {
+            return match
+        }
+        if let loaded = models.first(where: { $0.isLoaded == true })?.id {
+            return loaded
+        }
+        return models[0].id
     }
 
     private func persist() {
