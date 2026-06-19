@@ -433,6 +433,50 @@ struct VibeVoiceBatchCoreChecks {
         precondition(running.state == .runningJob)
         precondition(!running.canStartGeneration)
         precondition(running.alertMessage.contains("Generating audio."))
+
+        let unconfiguredKokoro = BackendManager(
+            projectRoot: FileManager.default.temporaryDirectory
+        ).statusSnapshot(for: BackendProfiles.kokoroTTS)
+        precondition(unconfiguredKokoro.state == .unknown)
+        precondition(unconfiguredKokoro.userMessage.contains("runtime connection details"))
+        precondition(!unconfiguredKokoro.userMessage.contains("not been implemented"))
+
+        let futureProfile = BackendProfile(
+            id: "future-tts",
+            displayName: "Future TTS",
+            engineType: .custom,
+            installMethod: .localPythonEnvironment,
+            runtime: .localPython,
+            requiredModels: [
+                RequiredModel(
+                    id: "future/model",
+                    displayName: "Future Model",
+                    source: "future/model",
+                    approximateDiskSpaceGB: nil,
+                    licenseNotes: nil
+                )
+            ],
+            supportedArchitectures: [.universal],
+            healthCheckURL: URL(string: "http://127.0.0.1:7777/health"),
+            generateEndpoint: URL(string: "http://127.0.0.1:7777/generate"),
+            progressParser: "FutureProgressParser",
+            logParser: "FutureLogParser",
+            outputFormatSupport: [.wav],
+            licenseNotes: "Test profile.",
+            role: "Future engine",
+            strengths: [],
+            risks: []
+        )
+        let futureManager = BackendManager(
+            projectRoot: FileManager.default.temporaryDirectory,
+            httpRunner: { url in
+                precondition(url.absoluteString == "http://127.0.0.1:7777/health")
+                return BackendHTTPResult(statusCode: 200, body: "{\"status\":\"ready\"}")
+            }
+        )
+        let futureStatus = futureManager.statusSnapshot(for: futureProfile)
+        precondition(futureStatus.state == .ready)
+        precondition(futureStatus.canStartGeneration)
     }
 
     private static func checkBackendSetupReport() throws {
@@ -513,6 +557,13 @@ struct VibeVoiceBatchCoreChecks {
         let kokoroServiceStatus = kokoroServiceManager.statusSnapshot(for: kokoroServiceProfile)
         precondition(kokoroServiceStatus.state == .ready)
         precondition(kokoroServiceStatus.userMessage.contains("health check"))
+
+        let baseKokoroReport = BackendManager(projectRoot: root).setupReport(for: BackendProfiles.kokoroTTS)
+        precondition(baseKokoroReport.checks.contains { check in
+            check.id == "runtime-\(BackendProfiles.kokoroTTS.id)" &&
+                check.message.contains("runtime connection details") &&
+                !check.message.contains("not been implemented")
+        })
     }
 
     private static func checkAssistantStageLockingAndCheckPresentation() throws {

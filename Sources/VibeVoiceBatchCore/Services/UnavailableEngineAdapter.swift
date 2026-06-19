@@ -11,8 +11,8 @@ public final class UnavailableEngineAdapter: EngineAdapter {
         recoverySuggestion: String? = nil
     ) {
         self.profile = profile
-        self.explanation = explanation ?? "\(profile.displayName) is registered, but its runtime adapter has not been implemented yet."
-        self.recoverySuggestion = recoverySuggestion ?? "Choose an installed backend before generating."
+        self.explanation = explanation ?? "\(profile.displayName) is registered, but no generation connector is active for this runtime yet."
+        self.recoverySuggestion = recoverySuggestion ?? "Choose a backend with an active connector, or configure this backend through the setup assistant before generating."
     }
 
     public func healthCheck() async -> BackendHealthReport {

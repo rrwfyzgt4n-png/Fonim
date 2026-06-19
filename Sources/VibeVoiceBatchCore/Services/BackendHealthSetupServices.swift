@@ -50,14 +50,7 @@ internal struct BackendHealthChecker {
         case .externalService:
             return externalServiceHealthReport(profile: profile)
         case .localPython, .comfyUI, .native:
-            return BackendHealthReport(
-                profileID: profile.id,
-                state: .unknown,
-                userMessage: "Backend checks for \(profile.displayName) have not been implemented yet.",
-                recoverySuggestion: profile.engineType == .kokoro ?
-                    "For Kokoro, choose Installed Docker Image or External Service in the setup assistant first." :
-                    "Choose a configured backend before generating."
-            )
+            return configuredRuntimeHealthReport(profile: profile)
         }
     }
 
@@ -208,6 +201,25 @@ internal struct BackendHealthChecker {
         }
         return httpHealthReport(profile: profile, url: healthCheckURL)
     }
+
+    private func configuredRuntimeHealthReport(profile: BackendProfile) -> BackendHealthReport {
+        if let healthCheckURL = profile.healthCheckURL {
+            return httpHealthReport(profile: profile, url: healthCheckURL)
+        }
+
+        return BackendHealthReport(
+            profileID: profile.id,
+            state: .unknown,
+            userMessage: "\(profile.displayName) needs runtime connection details before the app can verify it.",
+            recoverySuggestion: "Open the setup assistant and choose how this backend runs, or enter a local service address with a health check path.",
+            technicalDetails: [
+                "Runtime: \(profile.runtime.rawValue)",
+                "Install method: \(profile.installMethod.rawValue)",
+                "Models: \(profile.requiredModels.map(\.id).joined(separator: ", "))",
+                "Health check URL: not configured"
+            ].joined(separator: "\n")
+        )
+    }
 }
 
 internal struct BackendSetupReporter {
@@ -248,17 +260,10 @@ internal struct BackendSetupReporter {
         case .externalService:
             checks.append(serviceEndpointCheck(profile: profile))
         case .localPython, .comfyUI, .native:
-            checks.append(
-                BackendSetupCheck(
-                    id: "runtime-\(profile.id)",
-                    title: "Runtime",
-                    state: .warning,
-                    message: "Setup checks for \(profile.displayName) are limited for this runtime.",
-                    recoverySuggestion: profile.engineType == .kokoro ?
-                        "If your Kokoro install exposes a local server, choose External Service. If it uses a Docker image, choose Installed Docker Image." :
-                        "Use a supported backend while additional installers are added."
-                )
-            )
+            checks.append(runtimeConnectionCheck(profile: profile))
+            if profile.healthCheckURL != nil {
+                checks.append(serviceEndpointCheck(profile: profile))
+            }
         }
 
         let health = healthChecker.healthReport(for: profile)
@@ -396,7 +401,7 @@ internal struct BackendSetupReporter {
     }
 
     private func serviceEndpointCheck(profile: BackendProfile) -> BackendSetupCheck {
-        guard profile.runtime == .externalService || profile.engineType == .kokoro else {
+        guard profile.runtime == .externalService || profile.engineType == .kokoro || profile.healthCheckURL != nil else {
             return BackendSetupCheck(
                 id: "service-\(profile.id)",
                 title: "Service endpoint",
@@ -423,6 +428,25 @@ internal struct BackendSetupReporter {
             message: health.userMessage,
             recoverySuggestion: health.recoverySuggestion,
             technicalDetails: health.technicalDetails
+        )
+    }
+
+    private func runtimeConnectionCheck(profile: BackendProfile) -> BackendSetupCheck {
+        let hasHealthCheck = profile.healthCheckURL != nil
+        return BackendSetupCheck(
+            id: "runtime-\(profile.id)",
+            title: "Runtime connection",
+            state: hasHealthCheck ? .passed : .warning,
+            message: hasHealthCheck ?
+                "\(profile.displayName) has a checkable runtime connection." :
+                "\(profile.displayName) needs runtime connection details before setup checks can verify it.",
+            recoverySuggestion: hasHealthCheck ? nil :
+                "Choose a runtime in the setup assistant, or enter the local service address and health path for this backend.",
+            technicalDetails: [
+                "Runtime: \(profile.runtime.rawValue)",
+                "Install method: \(profile.installMethod.rawValue)",
+                "Models: \(profile.requiredModels.map(\.id).joined(separator: ", "))"
+            ].joined(separator: "\n")
         )
     }
 }
