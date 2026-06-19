@@ -269,6 +269,21 @@ struct VibeVoiceBatchCoreChecks {
         precondition(chatterboxMel.totalSteps == 2)
         precondition(chatterboxMel.fraction > chatterboxProgress.fraction)
 
+        let kokoroText = """
+        2026-06-19T08:00:01Z POST /v1/audio/speech
+        2026-06-19T08:00:02Z Processing chunk 2/5
+        2026-06-19T08:00:04Z 40%|####      | 400/1000 [00:08<00:12, 50.00it/s]
+        """
+        guard let kokoroProgress = GenerationOutputParser.latestKokoroProgress(in: kokoroText) else {
+            throw CheckError("Expected Kokoro progress")
+        }
+        precondition(kokoroProgress.chunkIndex == 2)
+        precondition(kokoroProgress.chunkCount == 5)
+        precondition(kokoroProgress.currentStep == 400)
+        precondition(kokoroProgress.totalSteps == 1000)
+        precondition(kokoroProgress.reportedElapsedSeconds == 8)
+        precondition(kokoroProgress.displayMessage.contains("chunk 2/5"))
+
         let summaryText = """
         Input file: /app/input.txt
         Output file: /app/outputs/input_generated.wav
@@ -321,7 +336,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(profile.outputFormatSupport == [.wav])
         precondition(BackendProfiles.all.contains(BackendProfiles.kokoroTTS))
         precondition(BackendProfiles.kokoroTTS.engineType == .kokoro)
-        precondition(BackendProfiles.kokoroTTS.requiredModels.first?.id == "kokoro/default")
+        precondition(BackendProfiles.kokoroTTS.requiredModels.first?.id == "tts-1")
         precondition(BackendProfiles.kokoroTTS.progressParser == "KokoroHTTPAdapter.progress")
         precondition(BackendProfiles.all.contains(BackendProfiles.chatterboxTTS))
         precondition(BackendProfiles.chatterboxTTS.engineType == .chatterbox)
@@ -512,7 +527,7 @@ struct VibeVoiceBatchCoreChecks {
             BackendConnectionSettings(
                 connectionKind: .installedDockerImage,
                 dockerImage: "kokoro-local",
-                modelID: "kokoro/default"
+                modelID: "tts-1"
             )
         )
         let kokoroManager = BackendManager(
@@ -1448,7 +1463,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(kokoroResult.recoveryNotes.contains { $0.reason == .invalidModel })
         precondition(kokoroResult.recoveryNotes.contains { $0.reason == .unsupportedExportFormat })
         precondition(kokoroSettings.defaultBackendID == BackendProfiles.kokoroTTS.id)
-        precondition(kokoroSettings.defaultModelID == "kokoro/default")
+        precondition(kokoroSettings.defaultModelID == "tts-1")
         precondition(kokoroSettings.exportFormat == .wav)
 
         let configuredKokoroResult = AppSettings(
@@ -1857,7 +1872,20 @@ struct VibeVoiceBatchCoreChecks {
                 contentType: "audio/wav"
             )
         )
-        let adapter = KokoroHTTPAdapter(profile: profile, projectRoot: root, fileStore: fileStore, client: client)
+        let logFollower = FakeKokoroLogFollower(chunks: [
+            """
+            POST /v1/audio/speech
+            Processing chunk 1/2
+            50%|#####     | 500/1000 [00:05<00:05, 100.00it/s]
+            """
+        ])
+        let adapter = KokoroHTTPAdapter(
+            profile: profile,
+            projectRoot: root,
+            fileStore: fileStore,
+            client: client,
+            logFollower: logFollower
+        )
         let job = GenerationJob(
             id: "kokoro-adapter-job",
             createdAt: Date(timeIntervalSince1970: 1_718_171_895),
@@ -1870,7 +1898,8 @@ struct VibeVoiceBatchCoreChecks {
                 ddpmInferenceSteps: nil,
                 extraParameters: [
                     "generate_endpoint": endpoint.absoluteString,
-                    "docker_image": image
+                    "docker_image": image,
+                    "speed": "1.15"
                 ]
             )
         )
@@ -1896,6 +1925,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(request.voiceID == "af_heart")
         precondition(request.inputText == "Hello Kokoro adapter.")
         precondition(request.responseFormat == "wav")
+        precondition(request.speed == 1.15)
 
         let sessions = try fileStore.loadSessions()
         precondition(sessions.count == 1)
@@ -1908,6 +1938,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(session.metadata.audioDurationSeconds == 1.5)
         precondition(session.metadata.outputFile?.hasSuffix("/output.wav") == true)
         precondition(session.logText.contains("Runtime: Kokoro HTTP service"))
+        precondition(session.logText.contains("Processing chunk 1/2"))
         precondition(session.logText.contains("Saved output:"))
         precondition(session.outputURL?.lastPathComponent == "output.wav")
 
@@ -1919,7 +1950,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(events.contains { event in
             switch event {
             case .progress(let snapshot):
-                return snapshot.message == "sending request to Kokoro"
+                return snapshot.message.contains("chunk 1/2")
             case .sessionStarted, .status, .log, .output:
                 return false
             }
@@ -2332,6 +2363,26 @@ private final class FakeKokoroSpeechClient: KokoroSpeechGenerating, @unchecked S
         stateQueue.sync {
             cancelFlag = true
         }
+    }
+}
+
+private final class FakeKokoroLogFollower: KokoroLogFollowing {
+    private let chunks: [String]
+
+    init(chunks: [String]) {
+        self.chunks = chunks
+    }
+
+    func followLogs(
+        since: Date,
+        profile: BackendProfile,
+        endpoint: URL?,
+        onChunk: @escaping (String) -> Void
+    ) -> KokoroLogFollowHandle? {
+        for chunk in chunks {
+            onChunk(chunk)
+        }
+        return KokoroLogFollowHandle {}
     }
 }
 

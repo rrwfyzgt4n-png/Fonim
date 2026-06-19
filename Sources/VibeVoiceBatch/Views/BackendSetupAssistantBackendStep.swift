@@ -620,7 +620,14 @@ struct BackendConnectionForm: View {
     }
 
     private var defaultModelID: String {
-        profile.engineType == .chatterbox ? "chatterbox" : "kokoro/default"
+        switch profile.engineType {
+        case .chatterbox:
+            return ChatterboxModelCatalog.turboID
+        case .kokoro:
+            return "tts-1"
+        default:
+            return profile.requiredModels.first?.id ?? AppDefaults.modelPath
+        }
     }
 
     private var connectionKinds: [BackendConnectionKind] {

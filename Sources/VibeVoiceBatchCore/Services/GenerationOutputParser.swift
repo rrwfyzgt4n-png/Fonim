@@ -129,6 +129,61 @@ public struct ChatterboxGenerationProgress: Equatable {
     }
 }
 
+public struct KokoroGenerationProgress: Equatable {
+    public var chunkIndex: Int?
+    public var chunkCount: Int?
+    public var currentStep: Int?
+    public var totalSteps: Int?
+    public var reportedElapsedSeconds: TimeInterval?
+    public var phase: String
+    public var phaseFraction: Double?
+
+    public var fraction: Double {
+        if let currentStep,
+           let totalSteps,
+           totalSteps > 0 {
+            let stepFraction = min(1, max(0, Double(currentStep) / Double(totalSteps)))
+            guard let chunkIndex, let chunkCount, chunkCount > 0 else {
+                return stepFraction
+            }
+            return min(1, max(0, (Double(max(0, chunkIndex - 1)) + stepFraction) / Double(chunkCount)))
+        }
+
+        if let chunkIndex,
+           let chunkCount,
+           chunkCount > 0 {
+            return min(1, max(0, Double(max(0, chunkIndex - 1)) / Double(chunkCount)))
+        }
+
+        return min(1, max(0, phaseFraction ?? 0))
+    }
+
+    public var displayMessage: String {
+        var parts: [String] = [phase]
+        if let chunkIndex, let chunkCount {
+            parts.append("chunk \(chunkIndex)/\(chunkCount)")
+        }
+        if let currentStep, let totalSteps {
+            parts.append("step \(currentStep)/\(totalSteps)")
+        }
+        return parts.joined(separator: " - ")
+    }
+
+    public var progressKey: String {
+        let chunkIndexText = chunkIndex.map { String($0) } ?? "_"
+        let chunkCountText = chunkCount.map { String($0) } ?? "_"
+        let currentStepText = currentStep.map { String($0) } ?? "_"
+        let totalStepsText = totalSteps.map { String($0) } ?? "_"
+        let phaseText = phase.replacingOccurrences(of: " ", with: "_")
+        return "\(phaseText):\(chunkIndexText):\(chunkCountText):\(currentStepText):\(totalStepsText)"
+    }
+
+    public func estimatedRemainingSeconds(elapsedSeconds: TimeInterval) -> TimeInterval? {
+        guard fraction > 0.01, fraction < 1 else { return nil }
+        return max(0, elapsedSeconds * (1 - fraction) / fraction)
+    }
+}
+
 public enum GenerationOutputParser {
     public static func latestProgress(in logText: String) -> LiveGenerationProgress? {
         let suffix = normalizedSuffix(logText)
@@ -256,6 +311,57 @@ public enum GenerationOutputParser {
         )
     }
 
+    public static func latestKokoroProgress(in logText: String) -> KokoroGenerationProgress? {
+        let suffix = normalizedSuffix(logText)
+        guard suffix.localizedCaseInsensitiveContains("kokoro") ||
+            suffix.localizedCaseInsensitiveContains("/v1/audio/speech") ||
+            suffix.localizedCaseInsensitiveContains("synthes") ||
+            suffix.localizedCaseInsensitiveContains("phonem") ||
+            suffix.localizedCaseInsensitiveContains("chunk") else {
+            return nil
+        }
+
+        let chunkMatch = lastMatch(
+            pattern: #"(?i)(?:chunk|segment|sentence)\s+(\d+)\s*(?:/|of)\s*(\d+)"#,
+            in: suffix
+        )
+        let chunkIndex = chunkMatch.flatMap { int(at: 1, in: suffix, match: $0) }
+        let chunkCountFromChunk = chunkMatch.flatMap { int(at: 2, in: suffix, match: $0) }
+        let chunkCount = chunkCountFromChunk ??
+            lastInt(pattern: #"(?i)(?:split|chunking)[^\r\n]*?(?:into|generated)\s+(\d+)\s+(?:chunk|segment|sentence)"#, in: suffix)
+
+        let progressSearchText: String
+        if let chunkMatch,
+           let range = Range(chunkMatch.range, in: suffix) {
+            progressSearchText = String(suffix[range.lowerBound...])
+        } else {
+            progressSearchText = suffix
+        }
+
+        let tqdmPattern = #"(\d+(?:\.\d+)?)%\|[^\r\n]*?\|\s*(\d+)\s*/\s*(\d+)\s*\[\s*([0-9:.]+)(?:<\s*([0-9:.?]+))?"#
+        let progressMatch = lastMatch(pattern: tqdmPattern, in: progressSearchText)
+        let currentStep = progressMatch.flatMap { int(at: 2, in: progressSearchText, match: $0) }
+        let totalSteps = progressMatch.flatMap { int(at: 3, in: progressSearchText, match: $0) }
+        let elapsed = progressMatch
+            .flatMap { string(at: 4, in: progressSearchText, match: $0) }
+            .flatMap(parseClock)
+
+        let phase = kokoroPhase(in: suffix)
+        guard chunkIndex != nil || chunkCount != nil || currentStep != nil || phase != nil else {
+            return nil
+        }
+
+        return KokoroGenerationProgress(
+            chunkIndex: chunkIndex,
+            chunkCount: chunkCount,
+            currentStep: currentStep,
+            totalSteps: totalSteps,
+            reportedElapsedSeconds: elapsed,
+            phase: phase?.name ?? (currentStep == nil ? "Kokoro generation" : "Synthesis"),
+            phaseFraction: phase?.fraction
+        )
+    }
+
     private static func normalizedSuffix(_ text: String) -> String {
         String(removingANSIEscapeSequences(from: text).suffix(64_000))
     }
@@ -341,5 +447,22 @@ public enum GenerationOutputParser {
             return TimeInterval(parts[0] * 60 + parts[1])
         }
         return TimeInterval(parts[0])
+    }
+
+    private static func kokoroPhase(in text: String) -> (name: String, fraction: Double)? {
+        let lower = text.lowercased()
+        let phases: [(needle: String, name: String, fraction: Double)] = [
+            ("/v1/audio/speech", "Request received", 0.12),
+            ("normaliz", "Preparing text", 0.20),
+            ("phonem", "Phonemes", 0.30),
+            ("token", "Tokens", 0.40),
+            ("synthes", "Synthesis", 0.58),
+            ("generating", "Generating audio", 0.58),
+            ("vocoder", "Vocoder", 0.76),
+            ("encode", "Encoding audio", 0.86),
+            ("complete", "Audio complete", 0.92),
+            ("saved", "Audio complete", 0.92)
+        ]
+        return phases.last { lower.contains($0.needle) }.map { ($0.name, $0.fraction) }
     }
 }

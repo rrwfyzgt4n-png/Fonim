@@ -131,7 +131,10 @@ public extension BackendProfile {
         }
         parameters["backend_display_name"] = displayName
         parameters["response_format"] = "wav"
-        if engineType == .chatterbox {
+        if engineType == .kokoro {
+            parameters["model"] = requiredModels.first?.id ?? "tts-1"
+            parameters["speed"] = "1.0"
+        } else if engineType == .chatterbox {
             let modelID = requiredModels.first?.id ?? ChatterboxModelCatalog.turboID
             parameters["model"] = modelID
             parameters["model_repo_id"] = ChatterboxModelCatalog.definition(for: modelID)?

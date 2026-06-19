@@ -83,15 +83,15 @@ public struct BackendConnectionSettings: Codable, Equatable, Sendable {
     }
 
     public static let kokoroDefaults = BackendConnectionSettings(
-        connectionKind: .installedDockerImage,
+        connectionKind: .externalService,
         dockerImage: "",
-        serviceBaseURL: "",
+        serviceBaseURL: "http://127.0.0.1:8880",
         healthPath: "/health",
         generatePath: "/v1/audio/speech",
         cancelPath: "",
-        modelID: "kokoro/default",
+        modelID: "tts-1",
         defaultVoice: "af_heart",
-        notes: ""
+        notes: "Local Kokoro service on port 8880. Discovery can switch this to a managed Docker image when available."
     )
 
     public static let chatterboxDefaults = BackendConnectionSettings(
@@ -325,8 +325,8 @@ public enum BackendProfiles {
         dockerImage: nil,
         requiredModels: [
             RequiredModel(
-                id: "kokoro/default",
-                displayName: "Kokoro Default Voice Model",
+                id: "tts-1",
+                displayName: "Kokoro TTS",
                 source: "kokoro",
                 approximateDiskSpaceGB: nil,
                 licenseNotes: "Model and voice license terms must be reviewed before managed install or redistribution."
@@ -439,7 +439,7 @@ public extension BackendProfile {
             dockerImage = nil
         }
 
-        let defaultModelID = engineType == .chatterbox ? ChatterboxModelCatalog.turboID : "kokoro/default"
+        let defaultModelID = engineType == .chatterbox ? ChatterboxModelCatalog.turboID : "tts-1"
         let modelID = connection.trimmedModelID ?? requiredModels.first?.id ?? defaultModelID
         let model = RequiredModel(
             id: modelID,
@@ -477,8 +477,8 @@ public extension BackendProfile {
     }
 
     private func modelDisplayName(for modelID: String) -> String {
-        if engineType == .kokoro, modelID == "kokoro/default" {
-            return "Kokoro Default Voice Model"
+        if engineType == .kokoro, modelID == "tts-1" || modelID == "kokoro/default" {
+            return "Kokoro TTS"
         }
         if engineType == .chatterbox {
             return ChatterboxModelCatalog.displayName(for: modelID)

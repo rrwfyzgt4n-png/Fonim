@@ -60,13 +60,19 @@ enum VoiceDisplayFormatter {
 
         var parts = rawParts
         var languageCode = "en"
-        if let first = parts.first?.lowercased(), isLanguageCode(first) {
+        var explicitGender: String?
+        if let first = parts.first?.lowercased(), let kokoro = kokoroVoicePrefix(first) {
+            languageCode = kokoro.languageCode
+            explicitGender = kokoro.gender
+            parts.removeFirst()
+        } else if let first = parts.first?.lowercased(), isLanguageCode(first) {
             languageCode = first
             parts.removeFirst()
         }
 
-        var explicitGender: String?
-        if let last = parts.last?.lowercased(), ["man", "male", "woman", "female"].contains(last) {
+        if explicitGender == nil,
+           let last = parts.last?.lowercased(),
+           ["man", "male", "woman", "female"].contains(last) {
             explicitGender = last
             parts.removeLast()
         }
@@ -125,6 +131,46 @@ enum VoiceDisplayFormatter {
 
     private static func isLanguageCode(_ value: String) -> Bool {
         value.count == 2 && value.allSatisfy(\.isLetter)
+    }
+
+    private static func kokoroVoicePrefix(_ value: String) -> (languageCode: String, gender: String?)? {
+        guard value.count == 2,
+              let family = value.first,
+              let genderCode = value.last else {
+            return nil
+        }
+        let languageCode: String
+        switch family {
+        case "a", "b":
+            languageCode = "en"
+        case "e":
+            languageCode = "es"
+        case "f":
+            languageCode = "fr"
+        case "h":
+            languageCode = "hi"
+        case "i":
+            languageCode = "it"
+        case "j":
+            languageCode = "ja"
+        case "p":
+            languageCode = "pt"
+        case "z":
+            languageCode = "zh"
+        default:
+            return nil
+        }
+
+        let gender: String?
+        switch genderCode {
+        case "f":
+            gender = "female"
+        case "m":
+            gender = "male"
+        default:
+            gender = nil
+        }
+        return (languageCode, gender)
     }
 
     private static func genderEmoji(explicitGender: String?, displayName: String) -> String? {
