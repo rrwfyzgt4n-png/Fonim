@@ -129,6 +129,26 @@ enum VoiceDisplayFormatter {
         return includeLanguage ? "\(descriptor.countryFlag) \(descriptor.languageCode.uppercased()) \(voice)" : voice
     }
 
+    static func displayText(for voice: BackendCatalogVoice, includeLanguage: Bool = true) -> String {
+        let descriptor = descriptor(
+            for: voice.id,
+            displayName: voice.displayName,
+            languageCode: voice.languageCode,
+            locale: voice.locale,
+            countryFlag: voice.countryFlag,
+            traits: voice.traits
+        )
+        let voiceText = descriptor.compactText
+        return includeLanguage ? "\(descriptor.countryFlag) \(descriptor.languageCode.uppercased()) \(voiceText)" : voiceText
+    }
+
+    static func languageMenuText(code: String, name: String? = nil) -> String {
+        let normalizedCode = displayCode(for: code)
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let languageName = trimmedName.isEmpty ? languageName(for: code) : trimmedName
+        return "\(countryFlag(for: code)) \(normalizedCode) \(languageName)"
+    }
+
     static func countryFlag(for code: String) -> String {
         switch normalizedLanguageCode(code) {
         case "ar": return "🇸🇦"

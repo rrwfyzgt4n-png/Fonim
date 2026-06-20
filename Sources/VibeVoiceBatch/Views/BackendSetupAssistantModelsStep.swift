@@ -241,10 +241,10 @@ struct ChoiceSelectionPanel: View {
                 Picker(title, selection: $selectedID) {
                     ForEach(choices) { choice in
                         if let voice = choice.voice {
-                            VoiceInlineLabel(voice: voice, compact: true)
+                            Text(VoiceDisplayFormatter.displayText(for: voice))
                                 .tag(choice.id)
                         } else if let voiceID = choice.voiceID {
-                            VoiceInlineLabel(voiceID: voiceID, displayName: choice.displayName, compact: true)
+                            Text(VoiceDisplayFormatter.displayText(for: voiceID, displayName: choice.displayName))
                                 .tag(choice.id)
                         } else {
                             Text(menuTitle(for: choice))

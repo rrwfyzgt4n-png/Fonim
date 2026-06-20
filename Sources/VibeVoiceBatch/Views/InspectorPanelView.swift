@@ -65,9 +65,7 @@ struct InspectorPanelView: View {
             case .section(.projects), .section(.scripts), .section(.batches):
                 metadataSection
             case .section(.voices):
-                generationSection
-                backendSection
-                metadataSection
+                voiceLibraryInspectorContent
             case .section(.presets):
                 generationSection
                 backendSection
@@ -94,6 +92,29 @@ struct InspectorPanelView: View {
 
             backendSection
             exportSection
+        }
+    }
+
+    private var voiceLibraryInspectorContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            InspectorGroup(title: "Voice Library") {
+                InspectorValue(label: "Saved profiles", value: "\(workspaceStore.voicePresets.count)")
+                InspectorValue(label: "VibeVoice voices", value: "\(settingsStore.voiceOptions(for: BackendProfiles.vibeVoiceTTS).count)")
+                InspectorValue(label: "Kokoro voices", value: "\(settingsStore.voiceOptions(for: BackendProfiles.kokoroTTS).count)")
+                InspectorValue(label: "Chatterbox voices", value: "\(settingsStore.voiceOptions(for: BackendProfiles.chatterboxTTS).count)")
+            }
+
+            InspectorGroup(title: "Catalog Boundaries") {
+                InspectorValue(label: "Scope", value: "Backend-specific")
+                InspectorValue(label: "Kokoro fallback", value: "\(KokoroVoiceCatalog.fallbackVoices.count) voices")
+                InspectorValue(label: "Chatterbox fallback", value: "\(ChatterboxVoiceCatalog.catalogVoices.count) voices")
+                InspectorValue(label: "VibeVoice fallback", value: "\(AppDefaults.availableVoiceCatalogVoices.count) voices")
+            }
+
+            InspectorGroup(title: "Current Generation Default") {
+                InspectorValue(label: "Backend", value: store.selectedBackendProfile.displayName)
+                InspectorVoiceValue(label: "Voice", voiceID: settingsStore.settings.preferredVoiceID(for: store.selectedBackendProfile))
+            }
         }
     }
 
@@ -142,7 +163,7 @@ struct InspectorPanelView: View {
         InspectorGroup(title: "Generation") {
             Picker("Voice", selection: selectedVoiceBinding) {
                 ForEach(store.availableVoiceOptions) { voice in
-                    VoiceInlineLabel(voice: voice, compact: true)
+                    Text(VoiceDisplayFormatter.displayText(for: voice))
                         .tag(voice.id)
                 }
             }
@@ -551,11 +572,8 @@ private struct ChatterboxGenerationControls: View {
             } else {
                 Picker("Language", selection: normalizedLanguage) {
                     ForEach(languageChoices, id: \.code) { choice in
-                        HStack {
-                            LanguageBadge(code: choice.code, compact: true)
-                            Text(choice.name)
-                        }
-                        .tag(choice.code)
+                        Text(VoiceDisplayFormatter.languageMenuText(code: choice.code, name: choice.name))
+                            .tag(choice.code)
                     }
                 }
                 .pickerStyle(.menu)

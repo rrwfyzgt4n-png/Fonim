@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VibeVoiceBatchCore
 
@@ -934,31 +935,23 @@ private struct VoiceLibraryDetailPane: View {
 
                             HStack {
                                 Button {
-                                    appStore.selectBackend(item.backendID)
-                                    appStore.selectVoice(item.voiceID)
+                                    copyVoiceID(item.voiceID)
                                 } label: {
-                                    Label("Use Voice", systemImage: "checkmark.circle")
-                                }
-                                .buttonStyle(.borderedProminent)
-
-                                Button {
-                                    appStore.loadVoiceSample(voiceID: item.voiceID, backendID: item.backendID)
-                                } label: {
-                                    Label("Load Sample Text", systemImage: "text.quote")
+                                    Label("Copy Voice ID", systemImage: "doc.on.clipboard")
                                 }
 
                                 Button {
-                                    appStore.generateVoiceSample(voiceID: item.voiceID, backendID: item.backendID)
+                                    copyVoiceSummary(item)
                                 } label: {
-                                    Label("Generate Sample", systemImage: "waveform")
+                                    Label("Copy Summary", systemImage: "list.clipboard")
                                 }
-                                .disabled(appStore.isGenerating || appStore.isPreparingGeneration)
 
                                 Button {
                                     saveProfile(item)
                                 } label: {
                                     Label("Save Profile", systemImage: "plus")
                                 }
+                                .buttonStyle(.borderedProminent)
                             }
                         }
                     }
@@ -972,11 +965,31 @@ private struct VoiceLibraryDetailPane: View {
                 EmptyWorkspaceView(
                     systemImage: "waveform",
                     title: "No Voice Selected",
-                    message: "Choose a backend voice to inspect it or generate a local sample."
+                    message: "Choose a backend voice to inspect its catalog record."
                 )
                 .padding()
             }
         }
+    }
+
+    private func copyVoiceID(_ voiceID: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(voiceID, forType: .string)
+        appStore.statusMessage = "Copied voice ID: \(voiceID)"
+    }
+
+    private func copyVoiceSummary(_ item: VoiceLibraryItem) {
+        let summary = [
+            "Voice: \(VoiceDisplayFormatter.displayText(for: item.voiceID, displayName: item.displayName))",
+            "Backend: \(item.backendName)",
+            "Model: \(item.modelID)",
+            "Voice ID: \(item.voiceID)",
+            "Language: \(VoiceDisplayFormatter.languageName(for: item.languageCode))",
+            "Source: \(item.sourceDescription)"
+        ].joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary, forType: .string)
+        appStore.statusMessage = "Copied voice summary"
     }
 
     private func sampleSection(_ item: VoiceLibraryItem) -> some View {
