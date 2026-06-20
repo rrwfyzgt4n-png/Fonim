@@ -571,8 +571,32 @@ struct VibeVoiceBatchCoreChecks {
             }
         )
         let kokoroServiceStatus = kokoroServiceManager.statusSnapshot(for: kokoroServiceProfile)
-        precondition(kokoroServiceStatus.state == .ready)
-        precondition(kokoroServiceStatus.userMessage.contains("health check"))
+        precondition(kokoroServiceStatus.state == .stopped)
+        precondition(kokoroServiceStatus.userMessage.contains("service is not running"))
+
+        let kokoroReadyManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { _, arguments in
+                if arguments.contains("inspect") {
+                    return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro image")
+                }
+                if arguments.contains("ps") {
+                    return BackendProcessResult(
+                        exitCode: 0,
+                        combinedOutput: "vibevoice_batch_kokoro_tts\tkokoro-local\t0.0.0.0:8880->8880/tcp\tUp 1 minute\n"
+                    )
+                }
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            },
+            httpRunner: { url in
+                precondition(url.absoluteString == "http://127.0.0.1:8880/health")
+                return BackendHTTPResult(statusCode: 200, body: "{\"status\":\"ready\"}")
+            }
+        )
+        let kokoroReadyStatus = kokoroReadyManager.statusSnapshot(for: kokoroServiceProfile)
+        precondition(kokoroReadyStatus.state == .ready)
+        precondition(kokoroReadyStatus.userMessage.contains("health check"))
 
         let baseKokoroReport = BackendManager(projectRoot: root).setupReport(for: BackendProfiles.kokoroTTS)
         precondition(baseKokoroReport.checks.contains { check in
@@ -761,6 +785,24 @@ struct VibeVoiceBatchCoreChecks {
         precondition(heart.traits.contains("female"))
         let siwis = try unwrap(kokoroVoices.first { $0.id == "ff_siwis" }, "Expected Kokoro French voice")
         precondition(siwis.languageCode == "fr")
+        let contaminatedKokoroSettings = AppSettings(
+            defaultBackendID: BackendProfiles.kokoroTTS.id,
+            defaultVoice: "Abigail.wav",
+            backendConnections: [
+                BackendProfiles.kokoroTTS.id: BackendConnectionSettings(
+                    connectionKind: .installedDockerImage,
+                    dockerImage: "ghcr.io/remsky/kokoro-fastapi-cpu:latest",
+                    serviceBaseURL: "http://127.0.0.1:8880",
+                    modelID: "tts-1",
+                    defaultVoice: "Abigail.wav"
+                )
+            ]
+        )
+        let contaminatedKokoroVoices = contaminatedKokoroSettings.voiceOptions(for: contaminatedKokoroSettings.selectedBackendProfile)
+        precondition(contaminatedKokoroVoices.count == KokoroVoiceCatalog.fallbackVoices.count)
+        precondition(!contaminatedKokoroVoices.contains { $0.id == "Abigail.wav" })
+        let repairedKokoroSettings = contaminatedKokoroSettings.normalizationResult().settings
+        precondition(repairedKokoroSettings.defaultVoice == "af_heart")
         let partialKokoroSettings = AppSettings(
             backendCatalogs: [
                 BackendProfiles.kokoroTTS.id: BackendCatalogReport(
@@ -2239,6 +2281,12 @@ struct VibeVoiceBatchCoreChecks {
             processRunner: { _, arguments in
                 if arguments.contains("inspect") {
                     return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro image")
+                }
+                if arguments.contains("ps") {
+                    return BackendProcessResult(
+                        exitCode: 0,
+                        combinedOutput: "vibevoice_batch_kokoro_tts\t\(image)\t0.0.0.0:8880->8880/tcp\tUp 1 minute\n"
+                    )
                 }
                 return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
             },

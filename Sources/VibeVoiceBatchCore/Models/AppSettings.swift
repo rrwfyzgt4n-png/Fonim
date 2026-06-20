@@ -138,11 +138,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case .chatterbox:
             return ChatterboxVoiceCatalog.catalogVoices
         case .kokoro:
-            let connection = backendConnection(for: profile.id)
-            if let voice = connection.trimmedDefaultVoice,
-               !KokoroVoiceCatalog.catalogVoices.contains(where: { $0.id == voice }) {
-                return [enrichedVoice(BackendCatalogVoice(id: voice, displayName: voice), for: profile)]
-            }
             return KokoroVoiceCatalog.catalogVoices
         case .comfyUITTS, .f5TTS, .cosyVoice, .custom:
             let connection = backendConnection(for: profile.id)

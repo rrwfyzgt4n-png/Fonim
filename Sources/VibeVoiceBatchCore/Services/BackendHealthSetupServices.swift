@@ -173,11 +173,38 @@ internal struct BackendHealthChecker {
             )
         }
 
+        let dockerDetails = [docker.details, inspect.combinedOutput].compactMap { $0 }.joined(separator: "\n\n")
         if let healthCheckURL = profile.healthCheckURL {
+            let runningContainers = kokoroRunningContainers(
+                dockerExecutable: dockerExecutable,
+                profile: profile,
+                image: image
+            )
+            if runningContainers.isEmpty {
+                return BackendHealthReport(
+                    profileID: profile.id,
+                    state: .stopped,
+                    userMessage: "\(image) is installed, but the Kokoro service is not running.",
+                    recoverySuggestion: "Use Prepare Backend to start the local Kokoro service, then refresh status.",
+                    technicalDetails: [
+                        dockerDetails,
+                        "Configured health URL: \(healthCheckURL.absoluteString)",
+                        "No running Kokoro container was found for the configured image or container name."
+                    ]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n\n")
+                )
+            }
             return httpHealthReport(
                 profile: profile,
                 url: healthCheckURL,
-                fallbackDetails: [docker.details, inspect.combinedOutput].compactMap { $0 }.joined(separator: "\n\n")
+                fallbackDetails: [
+                    dockerDetails,
+                    "Running Kokoro container(s):",
+                    runningContainers.joined(separator: "\n")
+                ]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
             )
         }
 
@@ -186,8 +213,60 @@ internal struct BackendHealthChecker {
             state: .stopped,
             userMessage: "\(image) is available locally, but no Kokoro service address is configured.",
             recoverySuggestion: "Use Find Kokoro in the setup assistant, or enter the service URL before generating.",
-            technicalDetails: [docker.details, inspect.combinedOutput].compactMap { $0 }.joined(separator: "\n\n")
+            technicalDetails: dockerDetails
         )
+    }
+
+    private func kokoroRunningContainers(
+        dockerExecutable: String,
+        profile: BackendProfile,
+        image: String
+    ) -> [String] {
+        var rows: [String] = []
+
+        let imageResult = processExecutor.run(
+            executable: dockerExecutable,
+            arguments: [
+                "ps",
+                "--filter",
+                "ancestor=\(image)",
+                "--format",
+                "{{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}"
+            ]
+        )
+        rows.append(contentsOf: dockerOutputRows(imageResult.combinedOutput))
+
+        let candidateNames = [
+            profile.containerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+            defaultKokoroContainerName(for: profile)
+        ]
+        for name in candidateNames.compactMap({ $0 }).filter({ !$0.isEmpty }) {
+            let nameResult = processExecutor.run(
+                executable: dockerExecutable,
+                arguments: [
+                    "ps",
+                    "--filter",
+                    "name=\(name)",
+                    "--format",
+                    "{{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}"
+                ]
+            )
+            rows.append(contentsOf: dockerOutputRows(nameResult.combinedOutput))
+        }
+
+        return Array(Set(rows)).sorted()
+    }
+
+    private func dockerOutputRows(_ output: String) -> [String] {
+        output
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.contains("\t") }
+    }
+
+    private func defaultKokoroContainerName(for profile: BackendProfile) -> String {
+        let suffix = backendStableIdentifier(profile.id).replacingOccurrences(of: "-", with: "_")
+        return "vibevoice_batch_\(suffix)"
     }
 
     private func externalServiceHealthReport(profile: BackendProfile) -> BackendHealthReport {
