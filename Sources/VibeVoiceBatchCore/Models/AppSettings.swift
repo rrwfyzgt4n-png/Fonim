@@ -129,19 +129,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public func voiceOptions(for profile: BackendProfile) -> [BackendCatalogVoice] {
         if let catalog = backendCatalog(for: profile.id),
            !catalog.voices.isEmpty {
-            return catalog.voices
+            return mergedVoiceOptions(catalog.voices, for: profile)
         }
 
         switch profile.engineType {
         case .vibeVoiceTTS:
-            return AppDefaults.availableVoices.map { BackendCatalogVoice(id: $0, displayName: $0) }
+            return AppDefaults.availableVoiceCatalogVoices
         case .chatterbox:
             return ChatterboxVoiceCatalog.catalogVoices
         case .kokoro:
             let connection = backendConnection(for: profile.id)
             if let voice = connection.trimmedDefaultVoice,
                !KokoroVoiceCatalog.catalogVoices.contains(where: { $0.id == voice }) {
-                return [BackendCatalogVoice(id: voice, displayName: voice)]
+                return [enrichedVoice(BackendCatalogVoice(id: voice, displayName: voice), for: profile)]
             }
             return KokoroVoiceCatalog.catalogVoices
         case .comfyUITTS, .f5TTS, .cosyVoice, .custom:
@@ -149,7 +149,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
             let voice = connection.trimmedDefaultVoice ?? defaultVoice
             return voice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?
                 [] :
-                [BackendCatalogVoice(id: voice, displayName: voice)]
+                [enrichedVoice(BackendCatalogVoice(id: voice, displayName: voice), for: profile)]
         }
     }
 
@@ -176,6 +176,90 @@ public struct AppSettings: Codable, Equatable, Sendable {
         var connection = backendConnection(for: backendID)
         connection.defaultVoice = trimmed
         backendConnections[backendID] = connection
+    }
+
+    private func mergedVoiceOptions(_ catalogVoices: [BackendCatalogVoice], for profile: BackendProfile) -> [BackendCatalogVoice] {
+        let fallback: [BackendCatalogVoice]
+        switch profile.engineType {
+        case .vibeVoiceTTS:
+            fallback = AppDefaults.availableVoiceCatalogVoices
+        case .kokoro:
+            fallback = KokoroVoiceCatalog.catalogVoices
+        case .chatterbox:
+            fallback = ChatterboxVoiceCatalog.catalogVoices
+        case .comfyUITTS, .f5TTS, .cosyVoice, .custom:
+            fallback = []
+        }
+
+        var voicesByID: [String: BackendCatalogVoice] = [:]
+        var orderedIDs: [String] = []
+
+        func add(_ voice: BackendCatalogVoice) {
+            if voicesByID[voice.id] == nil {
+                orderedIDs.append(voice.id)
+            }
+            voicesByID[voice.id] = voice
+        }
+
+        fallback.forEach(add)
+        catalogVoices.map { enrichedVoice($0, for: profile) }.forEach(add)
+
+        return orderedIDs.compactMap { voicesByID[$0] }
+    }
+
+    private func enrichedVoice(_ voice: BackendCatalogVoice, for profile: BackendProfile) -> BackendCatalogVoice {
+        switch profile.engineType {
+        case .vibeVoiceTTS:
+            if let fallback = AppDefaults.availableVoiceCatalogVoices.first(where: { $0.id == voice.id }) {
+                return fallback.mergingMissingMetadata(from: voice)
+            }
+        case .kokoro:
+            let descriptor = KokoroVoiceCatalog.descriptor(for: voice.id, displayName: voice.displayName)
+            return BackendCatalogVoice(
+                id: voice.id,
+                displayName: voice.displayName,
+                backendID: voice.backendID ?? profile.id,
+                modelIDs: voice.modelIDs.isEmpty ? profile.requiredModels.map(\.id) : voice.modelIDs,
+                locale: voice.locale ?? descriptor.locale,
+                languageCode: voice.languageCode ?? KokoroVoiceCatalog.languageCode(forLocale: voice.locale ?? descriptor.locale),
+                countryFlag: voice.countryFlag,
+                traits: voice.traits.isEmpty ? descriptor.traits : voice.traits,
+                sourceType: voice.sourceType ?? .predefined,
+                rawRuntimeID: voice.rawRuntimeID ?? voice.id
+            )
+        case .chatterbox:
+            if let fallback = ChatterboxVoiceCatalog.catalogVoices.first(where: { $0.id == voice.id }) {
+                return fallback.mergingMissingMetadata(from: voice)
+            }
+            let cleanName = ((voice.displayName as NSString).lastPathComponent as NSString).deletingPathExtension
+            return BackendCatalogVoice(
+                id: voice.id,
+                displayName: cleanName,
+                backendID: voice.backendID ?? profile.id,
+                modelIDs: voice.modelIDs.isEmpty ? ChatterboxModelCatalog.definitions.map(\.id) : voice.modelIDs,
+                locale: voice.locale ?? "en",
+                languageCode: voice.languageCode ?? "en",
+                countryFlag: voice.countryFlag,
+                traits: voice.traits.isEmpty ? ChatterboxVoiceCatalog.traits(forDisplayName: cleanName) : voice.traits,
+                sourceType: voice.sourceType ?? .predefined,
+                rawRuntimeID: voice.rawRuntimeID ?? voice.id
+            )
+        case .comfyUITTS, .f5TTS, .cosyVoice, .custom:
+            break
+        }
+
+        return BackendCatalogVoice(
+            id: voice.id,
+            displayName: voice.displayName,
+            backendID: voice.backendID ?? profile.id,
+            modelIDs: voice.modelIDs.isEmpty ? profile.requiredModels.map(\.id) : voice.modelIDs,
+            locale: voice.locale,
+            languageCode: voice.languageCode,
+            countryFlag: voice.countryFlag,
+            traits: voice.traits,
+            sourceType: voice.sourceType ?? .catalog,
+            rawRuntimeID: voice.rawRuntimeID ?? voice.id
+        )
     }
 
     public func generationExtraParameters(for profile: BackendProfile) -> [String: String] {

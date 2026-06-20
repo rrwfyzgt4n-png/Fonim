@@ -341,7 +341,13 @@ public final class KokoroHTTPAdapter: EngineAdapter {
         let catalog = await backendManager.catalogReportAsync(for: profile)
         if !catalog.voices.isEmpty {
             return catalog.voices.map { voice in
-                KokoroVoiceCatalog.descriptor(for: voice.id, displayName: voice.displayName)
+                let fallback = KokoroVoiceCatalog.descriptor(for: voice.id, displayName: voice.displayName)
+                return VoiceDescriptor(
+                    id: voice.id,
+                    displayName: voice.displayName,
+                    locale: voice.locale ?? fallback.locale,
+                    traits: voice.traits.isEmpty ? fallback.traits : voice.traits
+                )
             }
         }
         return KokoroVoiceCatalog.voiceDescriptors

@@ -68,7 +68,17 @@ public enum KokoroVoiceCatalog {
 
     public static var catalogVoices: [BackendCatalogVoice] {
         fallbackVoices.map { voice in
-            BackendCatalogVoice(id: voice.id, displayName: voice.displayName)
+            BackendCatalogVoice(
+                id: voice.id,
+                displayName: voice.displayName,
+                backendID: "kokoro-tts",
+                modelIDs: ["tts-1"],
+                locale: voice.locale,
+                languageCode: languageCode(forLocale: voice.locale),
+                traits: voice.traits,
+                sourceType: .predefined,
+                rawRuntimeID: voice.id
+            )
         }
     }
 
@@ -110,6 +120,14 @@ public enum KokoroVoiceCatalog {
         default:
             return nil
         }
+    }
+
+    public static func languageCode(forLocale locale: String?) -> String? {
+        guard let locale,
+              let language = locale.split(separator: "-").first else {
+            return nil
+        }
+        return String(language).lowercased()
     }
 
     public static func traits(for voiceID: String) -> [String] {

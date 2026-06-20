@@ -62,11 +62,88 @@ public struct BackendCatalogModel: Codable, Equatable, Identifiable, Sendable {
 public struct BackendCatalogVoice: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var displayName: String
+    public var backendID: String?
+    public var modelIDs: [String]
+    public var locale: String?
+    public var languageCode: String?
+    public var countryFlag: String?
+    public var traits: [String]
+    public var sourceType: BackendCatalogVoiceSource?
+    public var rawRuntimeID: String?
 
-    public init(id: String, displayName: String? = nil) {
+    public init(
+        id: String,
+        displayName: String? = nil,
+        backendID: String? = nil,
+        modelIDs: [String] = [],
+        locale: String? = nil,
+        languageCode: String? = nil,
+        countryFlag: String? = nil,
+        traits: [String] = [],
+        sourceType: BackendCatalogVoiceSource? = nil,
+        rawRuntimeID: String? = nil
+    ) {
         self.id = id
         self.displayName = displayName ?? id
+        self.backendID = backendID
+        self.modelIDs = modelIDs
+        self.locale = locale
+        self.languageCode = languageCode
+        self.countryFlag = countryFlag
+        self.traits = traits
+        self.sourceType = sourceType
+        self.rawRuntimeID = rawRuntimeID
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case backendID
+        case modelIDs
+        case locale
+        case languageCode
+        case countryFlag
+        case traits
+        case sourceType
+        case rawRuntimeID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? id
+        backendID = try container.decodeIfPresent(String.self, forKey: .backendID)
+        modelIDs = try container.decodeIfPresent([String].self, forKey: .modelIDs) ?? []
+        locale = try container.decodeIfPresent(String.self, forKey: .locale)
+        languageCode = try container.decodeIfPresent(String.self, forKey: .languageCode)
+        countryFlag = try container.decodeIfPresent(String.self, forKey: .countryFlag)
+        traits = try container.decodeIfPresent([String].self, forKey: .traits) ?? []
+        sourceType = try container.decodeIfPresent(BackendCatalogVoiceSource.self, forKey: .sourceType)
+        rawRuntimeID = try container.decodeIfPresent(String.self, forKey: .rawRuntimeID)
+    }
+
+    public func mergingMissingMetadata(from preferred: BackendCatalogVoice) -> BackendCatalogVoice {
+        BackendCatalogVoice(
+            id: preferred.id,
+            displayName: preferred.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? displayName : preferred.displayName,
+            backendID: preferred.backendID ?? backendID,
+            modelIDs: preferred.modelIDs.isEmpty ? modelIDs : preferred.modelIDs,
+            locale: preferred.locale ?? locale,
+            languageCode: preferred.languageCode ?? languageCode,
+            countryFlag: preferred.countryFlag ?? countryFlag,
+            traits: preferred.traits.isEmpty ? traits : preferred.traits,
+            sourceType: preferred.sourceType ?? sourceType,
+            rawRuntimeID: preferred.rawRuntimeID ?? rawRuntimeID
+        )
+    }
+}
+
+public enum BackendCatalogVoiceSource: String, Codable, Equatable, Sendable {
+    case catalog
+    case predefined
+    case reference
+    case custom
+    case savedProfile
 }
 
 public struct BackendCatalogReport: Codable, Equatable, Sendable {

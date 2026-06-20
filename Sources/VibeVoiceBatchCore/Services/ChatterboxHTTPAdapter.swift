@@ -513,7 +513,18 @@ public final class ChatterboxHTTPAdapter: EngineAdapter {
     }
 
     public func listVoices() async throws -> [VoiceDescriptor] {
-        ChatterboxVoiceCatalog.voiceDescriptors
+        let catalog = await backendManager.catalogReportAsync(for: profile)
+        if !catalog.voices.isEmpty {
+            return catalog.voices.map { voice in
+                VoiceDescriptor(
+                    id: voice.id,
+                    displayName: voice.displayName,
+                    locale: voice.locale ?? "en",
+                    traits: voice.traits
+                )
+            }
+        }
+        return ChatterboxVoiceCatalog.voiceDescriptors
     }
 
     public func listModels() async throws -> [ModelDescriptor] {

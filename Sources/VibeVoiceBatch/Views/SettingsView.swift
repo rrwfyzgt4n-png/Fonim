@@ -265,7 +265,7 @@ private struct VoicesSettingsPane: View {
         Form {
             Picker("Default voice", selection: defaultVoiceBinding) {
                 ForEach(settingsStore.voiceOptions(for: appStore.selectedBackendProfile)) { voice in
-                    VoiceInlineLabel(voiceID: voice.id, displayName: voice.displayName, compact: true)
+                    VoiceInlineLabel(voice: voice, compact: true)
                         .tag(voice.id)
                 }
             }
@@ -275,10 +275,17 @@ private struct VoicesSettingsPane: View {
             HStack {
                 Text("Current default")
                 Spacer()
-                VoiceInlineLabel(voiceID: settingsStore.settings.defaultVoice)
+                VoiceInlineLabel(voice: currentDefaultVoice)
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var currentDefaultVoice: BackendCatalogVoice {
+        settingsStore
+            .voiceOptions(for: appStore.selectedBackendProfile)
+            .first { $0.id == settingsStore.settings.defaultVoice } ??
+            BackendCatalogVoice(id: settingsStore.settings.defaultVoice, displayName: settingsStore.settings.defaultVoice)
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {

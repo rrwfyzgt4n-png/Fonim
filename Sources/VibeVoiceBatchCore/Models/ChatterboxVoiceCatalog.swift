@@ -45,13 +45,47 @@ public enum ChatterboxVoiceCatalog {
 
     public static var catalogVoices: [BackendCatalogVoice] {
         predefinedVoices.map { voice in
-            BackendCatalogVoice(id: voice.filename, displayName: voice.displayName)
+            BackendCatalogVoice(
+                id: voice.filename,
+                displayName: voice.displayName,
+                backendID: "chatterbox-tts",
+                modelIDs: [
+                    ChatterboxModelCatalog.turboID,
+                    ChatterboxModelCatalog.originalID,
+                    ChatterboxModelCatalog.multilingualID
+                ],
+                locale: "en",
+                languageCode: "en",
+                traits: traits(forDisplayName: voice.displayName),
+                sourceType: .predefined,
+                rawRuntimeID: voice.filename
+            )
         }
     }
 
     public static var voiceDescriptors: [VoiceDescriptor] {
         predefinedVoices.map { voice in
-            VoiceDescriptor(id: voice.filename, displayName: voice.displayName, locale: "en")
+            VoiceDescriptor(id: voice.filename, displayName: voice.displayName, locale: "en", traits: traits(forDisplayName: voice.displayName))
         }
     }
+
+    public static func traits(forDisplayName displayName: String) -> [String] {
+        let normalized = displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if femaleNames.contains(normalized) {
+            return ["female"]
+        }
+        if maleNames.contains(normalized) {
+            return ["male"]
+        }
+        return []
+    }
+
+    private static let femaleNames: Set<String> = [
+        "abigail", "alice", "cora", "elena", "emily", "gianna", "jade", "layla", "olivia"
+    ]
+
+    private static let maleNames: Set<String> = [
+        "adrian", "alexander", "austin", "axel", "connor", "eli", "everett", "gabriel",
+        "henry", "ian", "jeremiah", "julian", "leonardo", "michael", "miles", "ryan", "thomas"
+    ]
 }

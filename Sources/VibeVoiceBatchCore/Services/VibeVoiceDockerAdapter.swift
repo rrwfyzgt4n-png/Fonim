@@ -30,7 +30,12 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
 
     public func listVoices() async throws -> [VoiceDescriptor] {
         AppDefaults.availableVoices.map { voice in
-            VoiceDescriptor(id: voice, displayName: voice, traits: voiceTraits(for: voice))
+            VoiceDescriptor(
+                id: voice,
+                displayName: voice,
+                locale: AppDefaults.locale(forVibeVoiceVoiceID: voice),
+                traits: voiceTraits(for: voice)
+            )
         }
     }
 

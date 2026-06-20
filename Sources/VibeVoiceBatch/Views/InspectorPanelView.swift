@@ -142,7 +142,7 @@ struct InspectorPanelView: View {
         InspectorGroup(title: "Generation") {
             Picker("Voice", selection: selectedVoiceBinding) {
                 ForEach(store.availableVoiceOptions) { voice in
-                    VoiceInlineLabel(voiceID: voice.id, displayName: voice.displayName, compact: true)
+                    VoiceInlineLabel(voice: voice, compact: true)
                         .tag(voice.id)
                 }
             }

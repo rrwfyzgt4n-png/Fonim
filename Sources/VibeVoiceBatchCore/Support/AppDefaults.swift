@@ -37,6 +37,72 @@ public enum AppDefaults {
         "sp-spk1_man"
     ]
 
+    public static var availableVoiceCatalogVoices: [BackendCatalogVoice] {
+        availableVoices.map { voiceID in
+            BackendCatalogVoice(
+                id: voiceID,
+                displayName: voiceID,
+                backendID: "vibevoice-tts",
+                modelIDs: [modelPath],
+                locale: locale(forVibeVoiceVoiceID: voiceID),
+                languageCode: languageCode(forVibeVoiceVoiceID: voiceID),
+                traits: traits(forVibeVoiceVoiceID: voiceID),
+                sourceType: .predefined,
+                rawRuntimeID: voiceID
+            )
+        }
+    }
+
+    public static func languageCode(forVibeVoiceVoiceID voiceID: String) -> String? {
+        let prefix = voiceID
+            .split(separator: "-")
+            .first
+            .map { String($0).lowercased() } ?? ""
+        switch prefix {
+        case "de", "en", "fr", "it", "nl", "pl", "pt":
+            return prefix
+        case "in":
+            return "hi"
+        case "jp":
+            return "ja"
+        case "kr":
+            return "ko"
+        case "sp":
+            return "es"
+        default:
+            return nil
+        }
+    }
+
+    public static func locale(forVibeVoiceVoiceID voiceID: String) -> String? {
+        guard let languageCode = languageCode(forVibeVoiceVoiceID: voiceID) else { return nil }
+        switch languageCode {
+        case "en":
+            return "en-US"
+        case "es":
+            return "es"
+        case "hi":
+            return "hi"
+        case "ja":
+            return "ja"
+        case "ko":
+            return "ko"
+        default:
+            return languageCode
+        }
+    }
+
+    public static func traits(forVibeVoiceVoiceID voiceID: String) -> [String] {
+        let normalized = voiceID.lowercased()
+        if normalized.hasSuffix("_man") || normalized.hasSuffix("-man") {
+            return ["male"]
+        }
+        if normalized.hasSuffix("_woman") || normalized.hasSuffix("-woman") {
+            return ["female"]
+        }
+        return []
+    }
+
     private static func cfgScaleLabel(_ value: Double) -> String {
         let raw = String(format: "%.2f", value)
         if raw.hasSuffix("00") {

@@ -20,6 +20,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkAssistantStageLockingAndCheckPresentation()
         try checkWorkstationToolbarPolicy()
         try checkOutputsInspectorAggregation()
+        try checkBackendScopedVoiceCatalogMetadata()
         try checkKokoroDiscoveryReport()
         try checkKokoroCatalogReport()
         try checkChatterboxCatalogReport()
@@ -731,6 +732,96 @@ struct VibeVoiceBatchCoreChecks {
         precondition(candidate.connectionSettings.healthCheckURL?.absoluteString == "http://127.0.0.1:8880/health")
     }
 
+    private static func checkBackendScopedVoiceCatalogMetadata() throws {
+        let settings = AppSettings.defaults
+
+        let vibeVoices = settings.voiceOptions(for: BackendProfiles.vibeVoiceTTS)
+        precondition(vibeVoices.count == AppDefaults.availableVoices.count)
+        precondition(vibeVoices.allSatisfy { $0.backendID == BackendProfiles.vibeVoiceTTS.id })
+        precondition(!vibeVoices.contains { $0.id == "Emily.wav" })
+        let spanish = try unwrap(vibeVoices.first { $0.id == "sp-spk0_woman" }, "Expected Spanish VibeVoice voice")
+        precondition(spanish.languageCode == "es")
+        precondition(spanish.traits.contains("female"))
+        let japanese = try unwrap(vibeVoices.first { $0.id == "jp-spk1_woman" }, "Expected Japanese VibeVoice voice")
+        precondition(japanese.languageCode == "ja")
+        let korean = try unwrap(vibeVoices.first { $0.id == "kr-spk0_woman" }, "Expected Korean VibeVoice voice")
+        precondition(korean.languageCode == "ko")
+        let hindi = try unwrap(vibeVoices.first { $0.id == "in-samuel_man" }, "Expected Hindi VibeVoice voice")
+        precondition(hindi.languageCode == "hi")
+        precondition(hindi.traits.contains("male"))
+
+        let kokoroVoices = settings.voiceOptions(for: BackendProfiles.kokoroTTS)
+        precondition(kokoroVoices.count == KokoroVoiceCatalog.fallbackVoices.count)
+        precondition(kokoroVoices.allSatisfy { $0.backendID == BackendProfiles.kokoroTTS.id })
+        precondition(!kokoroVoices.contains { $0.id == "en-carter_man" })
+        let heart = try unwrap(kokoroVoices.first { $0.id == "af_heart" }, "Expected Kokoro Heart voice")
+        precondition(heart.displayName == "Heart")
+        precondition(heart.locale == "en-US")
+        precondition(heart.languageCode == "en")
+        precondition(heart.traits.contains("female"))
+        let siwis = try unwrap(kokoroVoices.first { $0.id == "ff_siwis" }, "Expected Kokoro French voice")
+        precondition(siwis.languageCode == "fr")
+        let partialKokoroSettings = AppSettings(
+            backendCatalogs: [
+                BackendProfiles.kokoroTTS.id: BackendCatalogReport(
+                    profileID: BackendProfiles.kokoroTTS.id,
+                    models: [],
+                    voices: [
+                        BackendCatalogVoice(
+                            id: "am_adam",
+                            displayName: "Runtime Adam",
+                            backendID: BackendProfiles.kokoroTTS.id,
+                            locale: "en-US",
+                            languageCode: "en",
+                            traits: ["male"],
+                            sourceType: .predefined
+                        )
+                    ],
+                    message: "Partial Kokoro runtime catalog"
+                )
+            ]
+        )
+        let mergedKokoroVoices = partialKokoroSettings.voiceOptions(for: BackendProfiles.kokoroTTS)
+        precondition(mergedKokoroVoices.count == KokoroVoiceCatalog.fallbackVoices.count)
+        precondition(mergedKokoroVoices.first { $0.id == "am_adam" }?.displayName == "Runtime Adam")
+
+        let chatterboxVoices = settings.voiceOptions(for: BackendProfiles.chatterboxTTS)
+        precondition(chatterboxVoices.count == 28)
+        precondition(chatterboxVoices.allSatisfy { $0.backendID == BackendProfiles.chatterboxTTS.id })
+        precondition(!chatterboxVoices.contains { $0.id == "en-carter_man" })
+        let emily = try unwrap(chatterboxVoices.first { $0.id == "Emily.wav" }, "Expected Chatterbox Emily voice")
+        precondition(emily.displayName == "Emily")
+        precondition(emily.languageCode == "en")
+        precondition(emily.sourceType == .predefined)
+        precondition(emily.traits.contains("female"))
+        precondition(emily.modelIDs.contains(ChatterboxModelCatalog.turboID))
+        precondition(emily.modelIDs.contains(ChatterboxModelCatalog.originalID))
+        precondition(emily.modelIDs.contains(ChatterboxModelCatalog.multilingualID))
+        let partialChatterboxSettings = AppSettings(
+            backendCatalogs: [
+                BackendProfiles.chatterboxTTS.id: BackendCatalogReport(
+                    profileID: BackendProfiles.chatterboxTTS.id,
+                    models: [],
+                    voices: [
+                        BackendCatalogVoice(
+                            id: "Emily.wav",
+                            displayName: "Runtime Emily",
+                            backendID: BackendProfiles.chatterboxTTS.id,
+                            locale: "en",
+                            languageCode: "en",
+                            traits: ["female"],
+                            sourceType: .predefined
+                        )
+                    ],
+                    message: "Partial Chatterbox runtime catalog"
+                )
+            ]
+        )
+        let mergedChatterboxVoices = partialChatterboxSettings.voiceOptions(for: BackendProfiles.chatterboxTTS)
+        precondition(mergedChatterboxVoices.count == 28)
+        precondition(mergedChatterboxVoices.first { $0.id == "Emily.wav" }?.displayName == "Runtime Emily")
+    }
+
     private static func checkKokoroCatalogReport() throws {
         let profile = BackendProfiles.kokoroTTS.applying(
             BackendConnectionSettings(
@@ -755,7 +846,7 @@ struct VibeVoiceBatchCoreChecks {
                     return BackendHTTPResult(
                         statusCode: 200,
                         body: """
-                        {"voices":{"af_heart":{"name":"Heart","language":"en"},"am_adam":{"display_name":"Adam","language":"en"}}}
+                        {"voices":{"af_heart":{"name":"Heart","language":"en","gender":"female"},"am_adam":{"display_name":"Adam","language":"en","gender":"male"}}}
                         """
                     )
                 default:
@@ -768,6 +859,9 @@ struct VibeVoiceBatchCoreChecks {
         precondition(catalog.models.map(\.id) == ["tts-1", "tts-1-hd"])
         precondition(catalog.voices.map(\.id) == ["af_heart", "am_adam"])
         precondition(catalog.voices.map(\.displayName) == ["Heart", "Adam"])
+        precondition(catalog.voices.first?.backendID == BackendProfiles.kokoroTTS.id)
+        precondition(catalog.voices.first?.languageCode == "en")
+        precondition(catalog.voices.first?.traits.contains("female") == true)
         precondition(catalog.message.contains("Loaded 2 models and 2 voices"))
     }
 
@@ -819,6 +913,10 @@ struct VibeVoiceBatchCoreChecks {
         precondition(catalog.models.first(where: { $0.id == "chatterbox-turbo" })?.configuration["model.repo_id"] == "chatterbox-turbo")
         precondition(catalog.voices.map(\.id).contains("Emily.wav"))
         precondition(catalog.voices.map(\.id).contains("Michael.wav"))
+        precondition(catalog.voices.first(where: { $0.id == "Emily.wav" })?.backendID == BackendProfiles.chatterboxTTS.id)
+        precondition(catalog.voices.first(where: { $0.id == "Emily.wav" })?.languageCode == "en")
+        precondition(catalog.voices.first(where: { $0.id == "Emily.wav" })?.traits.contains("female") == true)
+        precondition(catalog.voices.first(where: { $0.id == "Emily.wav" })?.sourceType == .predefined)
         precondition(!catalog.voices.map(\.id).contains("reference:Gianna.wav"))
         precondition(catalog.message.contains("Loaded Chatterbox model state and 2 predefined voices"))
         precondition(catalog.technicalDetails?.contains("Reference voices discovered: 1") == true)

@@ -69,7 +69,8 @@ struct ModelsVoicesSetupPane: View {
                 id: model.id,
                 displayName: model.displayName,
                 detail: model.owner.map { "Owner: \($0)" } ?? "Model ID: \(model.id)",
-                voiceID: nil
+                voiceID: nil,
+                voice: nil
             )
         }
     }
@@ -80,7 +81,8 @@ struct ModelsVoicesSetupPane: View {
                 id: voice.id,
                 displayName: voice.displayName,
                 detail: "Voice ID: \(voice.id)",
-                voiceID: voice.id
+                voiceID: voice.id,
+                voice: voice
             )
         }
     }
@@ -210,6 +212,7 @@ struct AssistantCatalogChoice: Identifiable, Equatable {
     let displayName: String
     let detail: String
     let voiceID: String?
+    let voice: BackendCatalogVoice?
 }
 
 struct ChoiceSelectionPanel: View {
@@ -237,7 +240,10 @@ struct ChoiceSelectionPanel: View {
             } else {
                 Picker(title, selection: $selectedID) {
                     ForEach(choices) { choice in
-                        if let voiceID = choice.voiceID {
+                        if let voice = choice.voice {
+                            VoiceInlineLabel(voice: voice, compact: true)
+                                .tag(choice.id)
+                        } else if let voiceID = choice.voiceID {
                             VoiceInlineLabel(voiceID: voiceID, displayName: choice.displayName, compact: true)
                                 .tag(choice.id)
                         } else {
@@ -277,7 +283,10 @@ struct ChoiceSelectionRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    if let voiceID = choice.voiceID {
+                    if let voice = choice.voice {
+                        VoiceInlineLabel(voice: voice)
+                            .font(.subheadline.weight(.semibold))
+                    } else if let voiceID = choice.voiceID {
                         VoiceInlineLabel(voiceID: voiceID, displayName: choice.displayName)
                             .font(.subheadline.weight(.semibold))
                     } else {

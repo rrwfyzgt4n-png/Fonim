@@ -9,7 +9,20 @@ internal struct BackendCatalogParser {
 
     func parseKokoroVoices(from body: String) -> [BackendCatalogVoice] {
         parseCatalogEntries(from: body, preferredCollectionKey: "voices").map { entry in
-            BackendCatalogVoice(id: entry.id, displayName: entry.name ?? entry.id)
+            let fallback = KokoroVoiceCatalog.descriptor(for: entry.id, displayName: entry.name)
+            let locale = entry.locale ?? fallback.locale
+            let traits = entry.traits.isEmpty ? fallback.traits : entry.traits
+            return BackendCatalogVoice(
+                id: entry.id,
+                displayName: entry.name ?? fallback.displayName,
+                backendID: "kokoro-tts",
+                modelIDs: ["tts-1"],
+                locale: locale,
+                languageCode: entry.languageCode ?? KokoroVoiceCatalog.languageCode(forLocale: locale),
+                traits: traits,
+                sourceType: .predefined,
+                rawRuntimeID: entry.id
+            )
         }
     }
 
@@ -50,6 +63,9 @@ internal struct BackendCatalogParser {
         var id: String
         var name: String?
         var owner: String?
+        var languageCode: String?
+        var locale: String?
+        var traits: [String]
     }
 
     private func parseCatalogEntries(from body: String, preferredCollectionKey: String) -> [CatalogEntry] {
@@ -75,7 +91,7 @@ internal struct BackendCatalogParser {
 
     private func parseCatalogCollection(_ value: Any) -> [CatalogEntry] {
         if let strings = value as? [String] {
-            return strings.map { CatalogEntry(id: $0, name: $0, owner: nil) }
+            return strings.map { CatalogEntry(id: $0, name: $0, owner: nil, languageCode: nil, locale: nil, traits: []) }
         }
 
         if let dictionary = value as? [String: Any] {
@@ -88,12 +104,12 @@ internal struct BackendCatalogParser {
 
             return dictionary.compactMap { key, item in
                 if let string = item as? String {
-                    return CatalogEntry(id: string, name: string, owner: nil)
+                    return CatalogEntry(id: string, name: string, owner: nil, languageCode: nil, locale: nil, traits: [])
                 }
                 if let nested = item as? [String: Any] {
                     return catalogEntry(from: nested, fallbackID: key)
                 }
-                return CatalogEntry(id: key, name: key, owner: nil)
+                return CatalogEntry(id: key, name: key, owner: nil, languageCode: nil, locale: nil, traits: [])
             }
             .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
         }
@@ -101,7 +117,7 @@ internal struct BackendCatalogParser {
         guard let array = value as? [Any] else { return [] }
         return array.compactMap { item in
             if let string = item as? String {
-                return CatalogEntry(id: string, name: string, owner: nil)
+                return CatalogEntry(id: string, name: string, owner: nil, languageCode: nil, locale: nil, traits: [])
             }
             guard let dictionary = item as? [String: Any] else { return nil }
             return catalogEntry(from: dictionary, fallbackID: nil)
@@ -135,21 +151,56 @@ internal struct BackendCatalogParser {
                 dictionary["displayName"] as? String ??
                 dictionary["label"] as? String ??
                 dictionary["name"] as? String,
-            owner: dictionary["owned_by"] as? String ?? dictionary["owner"] as? String
+            owner: dictionary["owned_by"] as? String ?? dictionary["owner"] as? String,
+            languageCode: (dictionary["language"] as? String ?? dictionary["language_code"] as? String ?? dictionary["languageCode"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+            locale: dictionary["locale"] as? String,
+            traits: Self.traits(from: dictionary)
         )
     }
 
     private func parseChatterboxVoiceCollection(_ value: Any, prefix: String, suffix: String) -> [BackendCatalogVoice] {
         if let strings = value as? [String] {
             return strings.map { voice in
-                BackendCatalogVoice(id: "\(prefix)\(voice)", displayName: "\(voice)\(suffix)")
+                let cleanName = cleanChatterboxDisplayName(voice)
+                return BackendCatalogVoice(
+                    id: "\(prefix)\(voice)",
+                    displayName: "\(cleanName)\(suffix)",
+                    backendID: "chatterbox-tts",
+                    modelIDs: [
+                        ChatterboxModelCatalog.turboID,
+                        ChatterboxModelCatalog.originalID,
+                        ChatterboxModelCatalog.multilingualID
+                    ],
+                    locale: "en",
+                    languageCode: "en",
+                    traits: ChatterboxVoiceCatalog.traits(forDisplayName: cleanName),
+                    sourceType: prefix.isEmpty ? .predefined : .reference,
+                    rawRuntimeID: voice
+                )
             }
         }
 
         guard let array = value as? [Any] else { return [] }
         return array.compactMap { item in
             if let string = item as? String {
-                return BackendCatalogVoice(id: "\(prefix)\(string)", displayName: "\(string)\(suffix)")
+                let cleanName = cleanChatterboxDisplayName(string)
+                return BackendCatalogVoice(
+                    id: "\(prefix)\(string)",
+                    displayName: "\(cleanName)\(suffix)",
+                    backendID: "chatterbox-tts",
+                    modelIDs: [
+                        ChatterboxModelCatalog.turboID,
+                        ChatterboxModelCatalog.originalID,
+                        ChatterboxModelCatalog.multilingualID
+                    ],
+                    locale: "en",
+                    languageCode: "en",
+                    traits: ChatterboxVoiceCatalog.traits(forDisplayName: cleanName),
+                    sourceType: prefix.isEmpty ? .predefined : .reference,
+                    rawRuntimeID: string
+                )
             }
             guard let dictionary = item as? [String: Any] else { return nil }
             let id = dictionary["filename"] as? String ??
@@ -162,8 +213,43 @@ internal struct BackendCatalogParser {
                 dictionary["displayName"] as? String ??
                 dictionary["name"] as? String ??
                 id
-            return BackendCatalogVoice(id: "\(prefix)\(id)", displayName: "\(displayName)\(suffix)")
+            let cleanName = cleanChatterboxDisplayName(displayName)
+            return BackendCatalogVoice(
+                id: "\(prefix)\(id)",
+                displayName: "\(cleanName)\(suffix)",
+                backendID: "chatterbox-tts",
+                modelIDs: [
+                    ChatterboxModelCatalog.turboID,
+                    ChatterboxModelCatalog.originalID,
+                    ChatterboxModelCatalog.multilingualID
+                ],
+                locale: "en",
+                languageCode: "en",
+                traits: ChatterboxVoiceCatalog.traits(forDisplayName: cleanName),
+                sourceType: prefix.isEmpty ? .predefined : .reference,
+                rawRuntimeID: id
+            )
         }
+    }
+
+    private static func traits(from dictionary: [String: Any]) -> [String] {
+        var traits: [String] = []
+        if let array = dictionary["traits"] as? [String] {
+            traits.append(contentsOf: array)
+        }
+        if let gender = dictionary["gender"] as? String {
+            traits.append(gender)
+        }
+        if let style = dictionary["style"] as? String {
+            traits.append(style)
+        }
+        return traits
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    private func cleanChatterboxDisplayName(_ value: String) -> String {
+        ((value as NSString).lastPathComponent as NSString).deletingPathExtension
     }
 }
 

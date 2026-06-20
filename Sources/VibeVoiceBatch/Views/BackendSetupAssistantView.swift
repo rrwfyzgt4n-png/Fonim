@@ -250,7 +250,9 @@ struct BackendSetupAssistantView: View {
 
     private var setupVoiceOptions: [BackendCatalogVoice] {
         if let catalog = setupStore.catalogReport, !catalog.voices.isEmpty {
-            return catalog.voices
+            var mergedSettings = settingsStore.settings
+            mergedSettings.backendCatalogs[selectedBackend.id] = catalog
+            return mergedSettings.voiceOptions(for: selectedBackend)
         }
         return settingsStore.voiceOptions(for: selectedBackend)
     }

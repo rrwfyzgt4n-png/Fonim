@@ -706,7 +706,14 @@ struct VoicesView: View {
     }
 
     private func saveVoiceProfile(_ item: VoiceLibraryItem) {
-        let descriptor = VoiceDisplayFormatter.descriptor(for: item.voiceID, displayName: item.displayName)
+        let descriptor = VoiceDisplayFormatter.descriptor(
+            for: item.voiceID,
+            displayName: item.displayName,
+            languageCode: item.explicitLanguageCode,
+            locale: item.locale,
+            countryFlag: item.countryFlag,
+            traits: item.traits
+        )
         if let preset = workspaceStore.saveCurrentVoicePreset(
             voiceID: item.voiceID,
             title: descriptor.compactText,
@@ -747,8 +754,14 @@ private struct VoiceLibraryItem: Identifiable, Equatable {
     let backendID: String
     let backendName: String
     let modelID: String
+    let modelIDs: [String]
     let voiceID: String
     let displayName: String
+    let locale: String?
+    let explicitLanguageCode: String?
+    let countryFlag: String?
+    let catalogTraits: [String]
+    let sourceType: BackendCatalogVoiceSource?
     let source: Source
 
     static func catalog(_ voice: BackendCatalogVoice, backend: BackendProfile, modelID: String) -> VoiceLibraryItem {
@@ -757,8 +770,14 @@ private struct VoiceLibraryItem: Identifiable, Equatable {
             backendID: backend.id,
             backendName: backend.displayName,
             modelID: modelID,
+            modelIDs: voice.modelIDs,
             voiceID: voice.id,
             displayName: voice.displayName,
+            locale: voice.locale,
+            explicitLanguageCode: voice.languageCode,
+            countryFlag: voice.countryFlag,
+            catalogTraits: voice.traits,
+            sourceType: voice.sourceType,
             source: .catalog
         )
     }
@@ -769,8 +788,14 @@ private struct VoiceLibraryItem: Identifiable, Equatable {
             backendID: preset.backendID,
             backendName: backendName(preset.backendID),
             modelID: preset.modelID,
+            modelIDs: [preset.modelID],
             voiceID: preset.voiceID,
             displayName: preset.displayName,
+            locale: preset.locale,
+            explicitLanguageCode: preset.locale,
+            countryFlag: nil,
+            catalogTraits: preset.traits,
+            sourceType: .savedProfile,
             source: .savedProfile(preset)
         )
     }
@@ -786,11 +811,40 @@ private struct VoiceLibraryItem: Identifiable, Equatable {
     }
 
     var traits: [String] {
-        preset?.traits ?? []
+        preset?.traits ?? catalogTraits
     }
 
     var languageCode: String {
-        preset?.locale ?? VoiceDisplayFormatter.descriptor(for: voiceID, displayName: displayName).languageCode
+        VoiceDisplayFormatter
+            .descriptor(
+                for: voiceID,
+                displayName: displayName,
+                languageCode: explicitLanguageCode,
+                locale: locale,
+                countryFlag: countryFlag,
+                traits: traits
+            )
+            .languageCode
+    }
+
+    var sourceDescription: String {
+        if isSavedProfile {
+            return "Saved profile"
+        }
+        switch sourceType {
+        case .predefined:
+            return "Predefined voice"
+        case .reference:
+            return "Reference voice"
+        case .custom:
+            return "Custom voice"
+        case .catalog:
+            return "Backend catalog"
+        case .savedProfile:
+            return "Saved profile"
+        case nil:
+            return "Backend catalog"
+        }
     }
 
     static func backendName(_ backendID: String) -> String {
@@ -809,7 +863,15 @@ private struct VoiceLibraryRow: View {
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 3) {
-                VoiceInlineLabel(voiceID: item.voiceID, displayName: item.displayName, compact: true)
+                VoiceInlineLabel(
+                    voiceID: item.voiceID,
+                    displayName: item.displayName,
+                    languageCode: item.explicitLanguageCode,
+                    locale: item.locale,
+                    countryFlag: item.countryFlag,
+                    traits: item.traits,
+                    compact: true
+                )
                     .fontWeight(isSelected ? .semibold : .regular)
                 Text(item.isSavedProfile ? "Saved profile" : item.backendName)
                     .font(.caption)
@@ -842,7 +904,14 @@ private struct VoiceLibraryDetailPane: View {
                     WorkspaceCard {
                         VStack(alignment: .leading, spacing: 14) {
                             HStack(alignment: .firstTextBaseline) {
-                                VoiceInlineLabel(voiceID: item.voiceID, displayName: item.displayName)
+                                VoiceInlineLabel(
+                                    voiceID: item.voiceID,
+                                    displayName: item.displayName,
+                                    languageCode: item.explicitLanguageCode,
+                                    locale: item.locale,
+                                    countryFlag: item.countryFlag,
+                                    traits: item.traits
+                                )
                                     .font(.title3.weight(.semibold))
                                 if item.isSavedProfile {
                                     Text("Saved")
@@ -860,7 +929,7 @@ private struct VoiceLibraryDetailPane: View {
                                 DetailGridRow("Model", item.modelID)
                                 DetailGridRow("Voice ID", item.voiceID)
                                 DetailGridRow("Language", VoiceDisplayFormatter.languageName(for: item.languageCode))
-                                DetailGridRow("Source", item.isSavedProfile ? "Saved profile" : "Backend catalog")
+                                DetailGridRow("Source", item.sourceDescription)
                             }
 
                             HStack {
