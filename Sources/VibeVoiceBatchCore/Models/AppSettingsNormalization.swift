@@ -147,7 +147,9 @@ public struct AppSettingsNormalizationResult: Equatable, Sendable {
 
         let selectedProfile = copy.backendProfile(id: copy.defaultBackendID)
         let selectedCatalog = copy.backendCatalog(for: copy.defaultBackendID)
-        let catalogModels = selectedCatalog?.models ?? []
+        let catalogModels = (selectedCatalog?.models ?? []).filter { model in
+            selectedProfile.engineType != .chatterbox || ChatterboxModelCatalog.isSupportedModel(model.id)
+        }
         if !catalogModels.isEmpty {
             if !catalogModels.contains(where: { $0.id == copy.defaultModelID }) {
                 let oldValue = copy.defaultModelID

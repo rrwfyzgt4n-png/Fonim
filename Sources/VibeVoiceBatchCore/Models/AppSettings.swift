@@ -224,14 +224,28 @@ public struct AppSettings: Codable, Equatable, Sendable {
             )
         case .chatterbox:
             if let fallback = ChatterboxVoiceCatalog.catalogVoices.first(where: { $0.id == voice.id }) {
-                return fallback.mergingMissingMetadata(from: voice)
+                let merged = fallback.mergingMissingMetadata(from: voice)
+                let supportedModelIDs = merged.modelIDs.filter { ChatterboxModelCatalog.isSupportedModel($0) }
+                return BackendCatalogVoice(
+                    id: merged.id,
+                    displayName: merged.displayName,
+                    backendID: merged.backendID,
+                    modelIDs: supportedModelIDs.isEmpty ? ChatterboxModelCatalog.definitions.map(\.id) : supportedModelIDs,
+                    locale: merged.locale,
+                    languageCode: merged.languageCode,
+                    countryFlag: merged.countryFlag,
+                    traits: merged.traits,
+                    sourceType: merged.sourceType,
+                    rawRuntimeID: merged.rawRuntimeID
+                )
             }
             let cleanName = ((voice.displayName as NSString).lastPathComponent as NSString).deletingPathExtension
+            let supportedModelIDs = voice.modelIDs.filter { ChatterboxModelCatalog.isSupportedModel($0) }
             return BackendCatalogVoice(
                 id: voice.id,
                 displayName: cleanName,
                 backendID: voice.backendID ?? profile.id,
-                modelIDs: voice.modelIDs.isEmpty ? ChatterboxModelCatalog.definitions.map(\.id) : voice.modelIDs,
+                modelIDs: supportedModelIDs.isEmpty ? ChatterboxModelCatalog.definitions.map(\.id) : supportedModelIDs,
                 locale: voice.locale ?? "en",
                 languageCode: voice.languageCode ?? "en",
                 countryFlag: voice.countryFlag,

@@ -43,7 +43,10 @@ final class SettingsStore: ObservableObject {
     func modelOptions(for profile: BackendProfile) -> [BackendCatalogModel] {
         if let catalog = settings.backendCatalog(for: profile.id),
            !catalog.models.isEmpty {
-            return catalog.models
+            let models = availableModels(in: catalog.models, for: profile)
+            if !models.isEmpty {
+                return models
+            }
         }
         return profile.requiredModels.map { model in
             BackendCatalogModel(id: model.id, displayName: model.displayName)
@@ -115,18 +118,20 @@ final class SettingsStore: ObservableObject {
     func saveBackendCatalog(_ catalog: BackendCatalogReport, for profileID: String) {
         update { settings in
             settings.backendCatalogs[profileID] = catalog
+            let profile = settings.backendProfile(id: profileID)
+            let catalogModels = availableModels(in: catalog.models, for: profile)
             var connection = settings.backendConnection(for: profileID)
-            if !catalog.models.isEmpty {
-                connection.modelID = preferredModel(in: catalog.models, settings: settings, connection: connection)
+            if !catalogModels.isEmpty {
+                connection.modelID = preferredModel(in: catalogModels, settings: settings, connection: connection)
             }
             if !catalog.voices.isEmpty {
                 connection.defaultVoice = preferredVoice(in: catalog.voices, settings: settings, connection: connection)
             }
             settings.backendConnections[profileID] = connection
             if settings.defaultBackendID == profileID {
-                if !catalog.models.isEmpty,
-                   !catalog.models.contains(where: { $0.id == settings.defaultModelID }) {
-                    settings.defaultModelID = preferredModel(in: catalog.models, settings: settings, connection: connection)
+                if !catalogModels.isEmpty,
+                   !catalogModels.contains(where: { $0.id == settings.defaultModelID }) {
+                    settings.defaultModelID = preferredModel(in: catalogModels, settings: settings, connection: connection)
                 }
                 if !catalog.voices.isEmpty,
                    !catalog.voices.contains(where: { $0.id == settings.defaultVoice }) {
@@ -149,6 +154,16 @@ final class SettingsStore: ObservableObject {
             return match
         }
         return voices[0].id
+    }
+
+    private func availableModels(
+        in models: [BackendCatalogModel],
+        for profile: BackendProfile
+    ) -> [BackendCatalogModel] {
+        guard profile.engineType == .chatterbox else {
+            return models
+        }
+        return models.filter { ChatterboxModelCatalog.isSupportedModel($0.id) }
     }
 
     private func preferredModel(

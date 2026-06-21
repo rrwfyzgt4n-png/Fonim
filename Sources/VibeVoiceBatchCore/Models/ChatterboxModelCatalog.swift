@@ -31,12 +31,9 @@ public struct ChatterboxModelDefinition: Equatable, Identifiable, Sendable {
 public enum ChatterboxModelCatalog {
     public static let turboID = "chatterbox-turbo"
     public static let originalID = "chatterbox"
-    public static let multilingualID = "chatterbox-multilingual"
 
-    public static let multilingualLanguageCodes: [String] = [
-        "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja",
-        "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh"
-    ]
+    /// Kept only so saved settings from earlier builds can be recognized and repaired.
+    public static let multilingualID = "chatterbox-multilingual"
 
     public static let definitions: [ChatterboxModelDefinition] = [
         ChatterboxModelDefinition(
@@ -56,17 +53,12 @@ public enum ChatterboxModelCatalog {
             capabilities: ["predefined_voices", "voice_cloning", "expressive_controls"],
             runtimeIdentifier: "original",
             configuration: ["model.repo_id": originalID]
-        ),
-        ChatterboxModelDefinition(
-            id: multilingualID,
-            displayName: "Chatterbox Multilingual (23 Languages)",
-            detail: "Multilingual generation with language selection.",
-            languageCodes: multilingualLanguageCodes,
-            capabilities: ["predefined_voices", "voice_cloning", "multilingual"],
-            runtimeIdentifier: "multilingual",
-            configuration: ["model.repo_id": multilingualID]
         )
     ]
+
+    public static var supportedModelIDs: Set<String> {
+        Set(definitions.map(\.id))
+    }
 
     public static var requiredModels: [RequiredModel] {
         definitions.map { definition in
@@ -93,22 +85,18 @@ public enum ChatterboxModelCatalog {
         definition(for: modelID)?.languageCodes ?? ["en"]
     }
 
-    public static func supportsMultilingual(_ modelID: String) -> Bool {
-        normalizedModelID(from: modelID) == multilingualID
+    public static func isSupportedModel(_ modelID: String) -> Bool {
+        supportedModelIDs.contains(normalizedModelID(from: modelID))
     }
 
     public static func catalogModels(
         loadedModelID: String? = nil,
-        turboAvailable: Bool? = nil,
-        multilingualAvailable: Bool? = nil
+        turboAvailable: Bool? = nil
     ) -> [BackendCatalogModel] {
         definitions.map { definition in
             var detail = definition.detail
             if definition.id == turboID, turboAvailable == false {
                 detail += " This runtime reports that Turbo is not available."
-            }
-            if definition.id == multilingualID, multilingualAvailable == false {
-                detail += " This runtime reports that Multilingual is not available."
             }
             return BackendCatalogModel(
                 id: definition.id,

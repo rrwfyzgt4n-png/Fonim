@@ -38,8 +38,7 @@ internal struct BackendCatalogParser {
         let loadedModelID = loaded == false ? nil : ChatterboxModelCatalog.normalizedModelID(from: modelType ?? className)
         return ChatterboxModelCatalog.catalogModels(
             loadedModelID: loadedModelID,
-            turboAvailable: dictionary["turbo_available_in_package"] as? Bool,
-            multilingualAvailable: dictionary["multilingual_available_in_package"] as? Bool
+            turboAvailable: dictionary["turbo_available_in_package"] as? Bool
         )
     }
 
@@ -170,8 +169,7 @@ internal struct BackendCatalogParser {
                     backendID: "chatterbox-tts",
                     modelIDs: [
                         ChatterboxModelCatalog.turboID,
-                        ChatterboxModelCatalog.originalID,
-                        ChatterboxModelCatalog.multilingualID
+                        ChatterboxModelCatalog.originalID
                     ],
                     locale: "en",
                     languageCode: "en",
@@ -192,8 +190,7 @@ internal struct BackendCatalogParser {
                     backendID: "chatterbox-tts",
                     modelIDs: [
                         ChatterboxModelCatalog.turboID,
-                        ChatterboxModelCatalog.originalID,
-                        ChatterboxModelCatalog.multilingualID
+                        ChatterboxModelCatalog.originalID
                     ],
                     locale: "en",
                     languageCode: "en",
@@ -220,8 +217,7 @@ internal struct BackendCatalogParser {
                 backendID: "chatterbox-tts",
                 modelIDs: [
                     ChatterboxModelCatalog.turboID,
-                    ChatterboxModelCatalog.originalID,
-                    ChatterboxModelCatalog.multilingualID
+                    ChatterboxModelCatalog.originalID
                 ],
                 locale: "en",
                 languageCode: "en",

@@ -343,8 +343,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(BackendProfiles.chatterboxTTS.engineType == .chatterbox)
         precondition(BackendProfiles.chatterboxTTS.requiredModels.map(\.id) == [
             ChatterboxModelCatalog.turboID,
-            ChatterboxModelCatalog.originalID,
-            ChatterboxModelCatalog.multilingualID
+            ChatterboxModelCatalog.originalID
         ])
         precondition(BackendProfiles.chatterboxTTS.healthCheckURL?.absoluteString == "http://127.0.0.1:8004/api/model-info")
         precondition(BackendConnectionSettings.defaultConfigurations[BackendProfiles.chatterboxTTS.id]?.generatePath == "/tts")
@@ -838,7 +837,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(emily.traits.contains("female"))
         precondition(emily.modelIDs.contains(ChatterboxModelCatalog.turboID))
         precondition(emily.modelIDs.contains(ChatterboxModelCatalog.originalID))
-        precondition(emily.modelIDs.contains(ChatterboxModelCatalog.multilingualID))
+        precondition(!emily.modelIDs.contains(ChatterboxModelCatalog.multilingualID))
         precondition(ChatterboxVoiceCatalog.voice(emily, supportsOutputLanguage: "en"))
         precondition(!ChatterboxVoiceCatalog.voice(emily, supportsOutputLanguage: "hi"))
         let hindiChatterboxVoice = BackendCatalogVoice(
@@ -851,15 +850,6 @@ struct VibeVoiceBatchCoreChecks {
         )
         precondition(ChatterboxVoiceCatalog.voice(hindiChatterboxVoice, supportsOutputLanguage: "hi"))
         precondition(!ChatterboxVoiceCatalog.voice(hindiChatterboxVoice, supportsOutputLanguage: "en"))
-        let multilingualVoice = BackendCatalogVoice(
-            id: "Omni.wav",
-            displayName: "Omni",
-            backendID: BackendProfiles.chatterboxTTS.id,
-            traits: ["multilingual"],
-            sourceType: .predefined
-        )
-        precondition(ChatterboxVoiceCatalog.voice(multilingualVoice, supportsOutputLanguage: "hi"))
-        precondition(ChatterboxVoiceCatalog.voice(multilingualVoice, supportsOutputLanguage: "en"))
         let partialChatterboxSettings = AppSettings(
             backendCatalogs: [
                 BackendProfiles.chatterboxTTS.id: BackendCatalogReport(
@@ -970,9 +960,9 @@ struct VibeVoiceBatchCoreChecks {
         )
 
         let catalog = manager.catalogReport(for: profile)
-        precondition(catalog.models.map(\.id) == ["chatterbox-turbo", "chatterbox", "chatterbox-multilingual"])
+        precondition(catalog.models.map(\.id) == ["chatterbox-turbo", "chatterbox"])
         precondition(catalog.models.first(where: { $0.id == "chatterbox" })?.isLoaded == true)
-        precondition(catalog.models.first(where: { $0.id == "chatterbox-multilingual" })?.languageCodes.count == 23)
+        precondition(!catalog.models.contains { $0.id == "chatterbox-multilingual" })
         precondition(catalog.models.first(where: { $0.id == "chatterbox-turbo" })?.configuration["model.repo_id"] == "chatterbox-turbo")
         precondition(catalog.voices.map(\.id).contains("Emily.wav"))
         precondition(catalog.voices.map(\.id).contains("Michael.wav"))
@@ -1777,10 +1767,12 @@ struct VibeVoiceBatchCoreChecks {
             chatterboxLanguage: "fr"
         ).normalizationResult()
         let multilingualSettings = multilingualResult.settings
-        precondition(multilingualSettings.defaultModelID == ChatterboxModelCatalog.multilingualID)
-        precondition(multilingualSettings.chatterboxLanguage == "fr")
-        precondition(multilingualSettings.generationExtraParameters(for: multilingualSettings.selectedBackendProfile)["language"] == "fr")
-        precondition(multilingualSettings.generationExtraParameters(for: multilingualSettings.selectedBackendProfile)["model_repo_id"] == ChatterboxModelCatalog.multilingualID)
+        precondition(multilingualResult.recoveryNotes.contains { $0.reason == .invalidModel })
+        precondition(multilingualResult.recoveryNotes.contains { $0.reason == .invalidChatterboxSetting })
+        precondition(multilingualSettings.defaultModelID == ChatterboxModelCatalog.turboID)
+        precondition(multilingualSettings.chatterboxLanguage == "en")
+        precondition(multilingualSettings.generationExtraParameters(for: multilingualSettings.selectedBackendProfile)["language"] == "en")
+        precondition(multilingualSettings.generationExtraParameters(for: multilingualSettings.selectedBackendProfile)["model_repo_id"] == ChatterboxModelCatalog.turboID)
 
         let validResult = AppSettings.defaults.normalizationResult()
         precondition(!validResult.didRecover)
