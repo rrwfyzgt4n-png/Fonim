@@ -12,6 +12,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkArchiveDeletedSessionMovesToRecovery()
         try checkArchiveDeletedSessionNeverOverwritesRecoveryFolder()
         try checkReadsPCMDuration()
+        try checkGeneratedAudioLibrarySummary()
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
         try await checkBackendProfilesAndAdapterContracts()
@@ -205,6 +206,52 @@ struct VibeVoiceBatchCoreChecks {
             throw CheckError("Expected WAV duration")
         }
         precondition(abs(duration - 2.0) < 0.001)
+    }
+
+    private static func checkGeneratedAudioLibrarySummary() throws {
+        try withStore { _, store in
+            let firstDate = Date(timeIntervalSince1970: 1_718_171_695)
+            _ = try completedOutputRecord(
+                store: store,
+                text: "First finished output.",
+                voice: "en-carter_man",
+                backendImage: "vibevoice-cpu",
+                audioDuration: 3_600,
+                outputBytes: Data([1, 2, 3]),
+                now: firstDate
+            )
+            _ = try completedOutputRecord(
+                store: store,
+                text: "Second finished output.",
+                voice: "en-mike_man",
+                backendImage: "vibevoice-cpu",
+                audioDuration: 243,
+                outputBytes: Data([4, 5, 6]),
+                now: firstDate.addingTimeInterval(2)
+            )
+
+            let missingDuration = try store.createDraft(
+                text: "Completed before duration metadata existed.",
+                voice: "en-carter_man",
+                cfgScale: "1.8",
+                now: firstDate.addingTimeInterval(4)
+            )
+            var metadata = missingDuration.metadata
+            metadata.status = .completed
+            metadata.completedAt = firstDate.addingTimeInterval(5)
+            try store.writeMetadata(metadata, in: missingDuration.folderURL)
+
+            let summary = GeneratedAudioLibrarySummary(sessions: try store.loadSessions())
+            precondition(summary.generatedSessionCount == 3)
+            precondition(summary.sessionsWithKnownDurationCount == 2)
+            precondition(summary.totalAudioDurationSeconds == 3_843)
+            precondition(summary.missingDurationCount == 1)
+            precondition(summary.hasGeneratedAudioDuration)
+            precondition(SessionFormatters.longDuration(summary.totalAudioDurationSeconds) == "1 hour 4 minutes and 3 seconds")
+
+            let heyJude = GeneratedAudioReference(title: "Hey Jude", creator: "The Beatles", durationSeconds: 431)
+            precondition(heyJude.equivalentText(for: summary.totalAudioDurationSeconds) == "9 plays of Hey Jude by The Beatles")
+        }
     }
 
     private static func checkParsesLiveProgressAndFinalSummary() throws {
@@ -1965,6 +2012,14 @@ struct VibeVoiceBatchCoreChecks {
             contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Views/ContentView.swift"),
             encoding: .utf8
         )
+        let app = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/App/VibeVoiceBatchApp.swift"),
+            encoding: .utf8
+        )
+        let infoView = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Views/FonimInfoView.swift"),
+            encoding: .utf8
+        )
         let buildScript = try String(contentsOf: root.appendingPathComponent("script/build_and_run.sh"), encoding: .utf8)
         let packageScript = try String(contentsOf: root.appendingPathComponent("script/package_app.sh"), encoding: .utf8)
         let smokeScript = try String(contentsOf: root.appendingPathComponent("script/smoke_test_release.sh"), encoding: .utf8)
@@ -1975,6 +2030,12 @@ struct VibeVoiceBatchCoreChecks {
         precondition(package.contains(".executable(name: \"Fonim\", targets: [\"VibeVoiceBatch\"])"))
         precondition(!package.contains(".executable(name: \"VibeVoiceBatch\", targets: [\"VibeVoiceBatch\"])"))
         precondition(contentView.contains(".alert(\"Fonim\""))
+        precondition(app.contains("CommandGroup(replacing: .appInfo)"))
+        precondition(app.contains("Window(\"About Fonim\", id: \"fonim-info\")"))
+        precondition(app.contains("OpenFonimInfoButton"))
+        precondition(infoView.contains("GeneratedAudioLibrarySummary"))
+        precondition(infoView.contains("GeneratedAudioReference.defaultReferences"))
+        precondition(infoView.contains("New Comparison"))
         precondition(buildScript.contains("APP_NAME=\"Fonim\""))
         precondition(buildScript.contains("PRODUCT_NAME=\"Fonim\""))
         precondition(buildScript.contains("BUNDLE_ID=\"local.vibevoice.batch\""))

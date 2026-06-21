@@ -32,6 +32,10 @@ struct FonimApp: App {
                 .frame(minWidth: 980, minHeight: 680)
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                OpenFonimInfoButton()
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button("New Text") {
                     store.newDocument()
@@ -96,6 +100,23 @@ struct FonimApp: App {
         }
         .defaultSize(width: 960, height: 680)
         .windowResizability(.contentSize)
+
+        Window("About Fonim", id: "fonim-info") {
+            FonimInfoView()
+                .environmentObject(store)
+        }
+        .defaultSize(width: 560, height: 360)
+        .windowResizability(.contentSize)
+    }
+}
+
+private struct OpenFonimInfoButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("About Fonim") {
+            openWindow(id: "fonim-info")
+        }
     }
 }
 
