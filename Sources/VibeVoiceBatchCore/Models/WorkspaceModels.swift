@@ -216,6 +216,16 @@ public struct NarrationBatch: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct ScriptImportResult: Equatable, Sendable {
+    public var scripts: [NarrationScript]
+    public var batch: NarrationBatch
+
+    public init(scripts: [NarrationScript], batch: NarrationBatch) {
+        self.scripts = scripts
+        self.batch = batch
+    }
+}
+
 public struct NarrationVoicePreset: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var displayName: String

@@ -46,6 +46,34 @@ final class WorkspaceStore: ObservableObject {
     }
 
     @discardableResult
+    func importScriptBatch(
+        title: String,
+        chunks: [ScriptChunk],
+        backendID: String,
+        modelID: String,
+        voice: String,
+        settings: GenerationSettings
+    ) -> ScriptImportResult? {
+        do {
+            let result = try fileStore.createScriptBatch(
+                title: title,
+                chunks: chunks,
+                backendID: backendID,
+                modelID: modelID,
+                voice: voice,
+                settings: settings,
+                notes: "Imported text split into \(chunks.count) generation chunks."
+            )
+            refresh()
+            alertMessage = nil
+            return result
+        } catch {
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not import script")
+            return nil
+        }
+    }
+
+    @discardableResult
     func fileGenerationSessions(_ sessionIDs: [String], into project: NarrationProject) -> NarrationProject? {
         do {
             let updated = try fileStore.attachGenerationSessions(sessionIDs, toProject: project.id)

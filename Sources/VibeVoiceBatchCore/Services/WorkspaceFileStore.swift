@@ -78,6 +78,8 @@ public final class WorkspaceFileStore {
         projectID: String? = nil,
         title: String,
         text: String,
+        backendID: String = BackendProfiles.vibeVoiceTTS.id,
+        modelID: String = AppDefaults.modelPath,
         voice: String = AppDefaults.defaultVoice,
         settings: GenerationSettings = GenerationSettings(),
         notes: String = "",
@@ -94,6 +96,8 @@ public final class WorkspaceFileStore {
             text: text,
             createdAt: now,
             updatedAt: now,
+            defaultBackendID: backendID,
+            defaultModelID: modelID,
             defaultVoice: voice,
             defaultSettings: settings,
             notes: notes
@@ -103,6 +107,40 @@ public final class WorkspaceFileStore {
             try linkScript(script.id, toProject: projectID, now: now)
         }
         return script
+    }
+
+    public func createScriptBatch(
+        projectID: String? = nil,
+        title: String,
+        chunks: [ScriptChunk],
+        backendID: String = BackendProfiles.vibeVoiceTTS.id,
+        modelID: String = AppDefaults.modelPath,
+        voice: String = AppDefaults.defaultVoice,
+        settings: GenerationSettings = GenerationSettings(),
+        notes: String = "",
+        now: Date = Date()
+    ) throws -> ScriptImportResult {
+        let scripts = try chunks.enumerated().map { index, chunk in
+            try createScript(
+                projectID: projectID,
+                title: chunk.title.isEmpty ? "\(title) \(index + 1)" : chunk.title,
+                text: chunk.text,
+                backendID: backendID,
+                modelID: modelID,
+                voice: voice,
+                settings: settings,
+                notes: notes,
+                now: now.addingTimeInterval(TimeInterval(index) / 100)
+            )
+        }
+        let batch = try createBatch(
+            projectID: projectID,
+            title: title,
+            scriptIDs: scripts.map(\.id),
+            notes: notes,
+            now: now.addingTimeInterval(1)
+        )
+        return ScriptImportResult(scripts: scripts, batch: batch)
     }
 
     public func createBatch(

@@ -1371,6 +1371,24 @@ struct VibeVoiceBatchCoreChecks {
         let projectAfterBatch = try workspaceStore.loadProject(id: project.id)
         precondition(projectAfterBatch.batchIDs == [batch.id])
 
+        let importedChunks = ScriptChunker.chunks(
+            from: "First imported paragraph.\n\n---\n\nSecond imported paragraph.",
+            baseTitle: "Imported File"
+        )
+        precondition(importedChunks.count == 2)
+        let imported = try workspaceStore.createScriptBatch(
+            title: "Imported File",
+            chunks: importedChunks,
+            backendID: BackendProfiles.kokoroTTS.id,
+            modelID: "kokoro",
+            voice: "af_sky",
+            settings: GenerationSettings(cfgScale: "1.0", ddpmInferenceSteps: 4),
+            now: createdAt.addingTimeInterval(20)
+        )
+        precondition(imported.scripts.count == 2)
+        precondition(imported.scripts.first?.defaultBackendID == BackendProfiles.kokoroTTS.id)
+        precondition(imported.batch.items.count == 2)
+
         let firstRun = try sessionStore.createDraft(
             text: script.text,
             voice: script.defaultVoice,
@@ -1430,15 +1448,15 @@ struct VibeVoiceBatchCoreChecks {
 
         let snapshot = try workspaceStore.loadSnapshot()
         precondition(snapshot.projects.count == 1)
-        precondition(snapshot.scripts.count == 2)
-        precondition(snapshot.batches.count == 1)
+        precondition(snapshot.scripts.count == 4)
+        precondition(snapshot.batches.count == 2)
 
         do {
             _ = try workspaceStore.createScript(projectID: "missing-project", title: "Orphan", text: "Nope")
             throw CheckError("Expected missing project to fail")
         } catch is CocoaError {
             let scriptCount = try workspaceStore.loadScripts().count
-            precondition(scriptCount == 2)
+            precondition(scriptCount == 4)
         }
 
         do {
@@ -1446,7 +1464,7 @@ struct VibeVoiceBatchCoreChecks {
             throw CheckError("Expected missing script to fail")
         } catch is CocoaError {
             let batchCount = try workspaceStore.loadBatches().count
-            precondition(batchCount == 1)
+            precondition(batchCount == 2)
         }
     }
 
@@ -1966,10 +1984,12 @@ struct VibeVoiceBatchCoreChecks {
         let settings = try String(contentsOf: views.appendingPathComponent("SettingsView.swift"), encoding: .utf8)
         let assistantModels = try String(contentsOf: views.appendingPathComponent("BackendSetupAssistantModelsStep.swift"), encoding: .utf8)
         let workspaceSections = try String(contentsOf: views.appendingPathComponent("WorkspaceSectionViews.swift"), encoding: .utf8)
+        let scriptImportSheet = try String(contentsOf: views.appendingPathComponent("ScriptImportSheet.swift"), encoding: .utf8)
         let app = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/App/VibeVoiceBatchApp.swift"), encoding: .utf8)
         let stores = root.appendingPathComponent("Sources/VibeVoiceBatch/Stores", isDirectory: true)
         let settingsStore = try String(contentsOf: stores.appendingPathComponent("SettingsStore.swift"), encoding: .utf8)
         let appStore = try String(contentsOf: stores.appendingPathComponent("AppStore.swift"), encoding: .utf8)
+        let appStoreScriptQueue = try String(contentsOf: stores.appendingPathComponent("AppStore+ScriptQueue.swift"), encoding: .utf8)
 
         precondition(sidebar.contains("Section(\"Generation\")"))
         precondition(sidebar.contains("ForEach(store.sessions)"))
@@ -2015,6 +2035,12 @@ struct VibeVoiceBatchCoreChecks {
         precondition(workspaceSections.contains("Pause Queue"))
         precondition(workspaceSections.contains("Resume Queue"))
         precondition(workspaceSections.contains("Paused"))
+        precondition(workspaceSections.contains("Label(\"Import TXT\""))
+        precondition(workspaceSections.contains("ScriptChunker.chunks"))
+        precondition(scriptImportSheet.contains("Save and Queue"))
+        precondition(scriptImportSheet.contains("ScriptImportSheet"))
+        precondition(appStoreScriptQueue.contains("queueImportedScripts"))
+        precondition(appStoreScriptQueue.contains("enqueueGeneration"))
         precondition(workspaceSections.contains("No Queued Generations"))
         precondition(!workspaceSections.contains("Saved Batches"))
         precondition(content.contains("Pause Queue"))

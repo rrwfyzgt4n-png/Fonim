@@ -481,20 +481,23 @@ final class AppStore: ObservableObject {
         generate()
     }
 
-    private func enqueueGeneration(
+    func enqueueGeneration(
         text: String,
         voice: String,
         cfgScale: String,
-        ddpmInferenceSteps: Int
+        ddpmInferenceSteps: Int,
+        backendID: String? = nil,
+        modelID: String? = nil
     ) {
+        let backendProfile = backendID.map { settingsStore.backendProfile(id: $0) } ?? selectedBackendProfile
         let enqueued = generationQueueCoordinator.enqueue(
             text: text,
-            backendID: selectedBackendProfile.id,
-            modelID: selectedModelID,
+            backendID: backendProfile.id,
+            modelID: modelID ?? selectedModelID,
             voice: voice,
             cfgScale: cfgScale,
             ddpmInferenceSteps: ddpmInferenceSteps,
-            extraParameters: settingsStore.settings.generationExtraParameters(for: selectedBackendProfile)
+            extraParameters: settingsStore.settings.generationExtraParameters(for: backendProfile)
         )
         let job = enqueued.job
         queuedGenerations.append(isQueuePaused ? generationQueueCoordinator.pausedItem(from: enqueued.item) : enqueued.item)
@@ -981,17 +984,5 @@ final class AppStore: ObservableObject {
         elapsedTimer?.invalidate()
         elapsedTimer = nil
         activeStartedAt = nil
-    }
-}
-
-
-private extension BackendStatusSnapshot {
-    var alertMessageWithDetails: String {
-        [
-            alertMessage,
-            technicalDetails.map { "Details:\n\($0)" }
-        ]
-        .compactMap { $0 }
-        .joined(separator: "\n\n")
     }
 }

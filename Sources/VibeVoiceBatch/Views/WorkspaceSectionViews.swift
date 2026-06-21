@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import VibeVoiceBatchCore
 
 struct ProjectsView: View {
@@ -309,39 +310,112 @@ private struct ProjectMetric: View {
 }
 
 struct ScriptsView: View {
+    @EnvironmentObject private var appStore: AppStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @State private var importPreview: ScriptImportPreview?
 
     var body: some View {
         WorkspaceListShell(
             title: "Scripts",
-            subtitle: "Editable narration sources.",
-            isEmpty: workspaceStore.scripts.isEmpty,
+            subtitle: "Import text, split it into generation chunks, and keep script records.",
+            isEmpty: false,
             emptySystemImage: "doc.text",
             emptyTitle: "No Scripts",
-            emptyMessage: "No script records are saved."
+            emptyMessage: "Import a text file to create script chunks."
         ) {
-            ForEach(workspaceStore.scripts) { script in
-                WorkspaceCard {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(script.title)
-                                .font(.headline)
-                            Spacer()
-                            WorkspaceStatusBadge(status: script.status)
+            HStack {
+                Button {
+                    chooseTextFile()
+                } label: {
+                    Label("Import TXT", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.borderedProminent)
+                Spacer()
+                Text("\(workspaceStore.scripts.count) scripts")
+                    .foregroundStyle(.secondary)
+            }
+
+            if workspaceStore.scripts.isEmpty {
+                EmptyWorkspaceView(
+                    systemImage: "doc.text",
+                    title: "No Scripts",
+                    message: "Import a text file to create script chunks."
+                )
+            } else {
+                ForEach(workspaceStore.scripts) { script in
+                    WorkspaceCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(script.title)
+                                    .font(.headline)
+                                Spacer()
+                                WorkspaceStatusBadge(status: script.status)
+                            }
+
+                            Text("\(script.inputWordCount) words  \(script.generationSessionIDs.count) generations")
+                                .foregroundStyle(.secondary)
+
+                            Text(script.text)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
                         }
-
-                        Text("\(script.inputWordCount) words  \(script.generationSessionIDs.count) generations")
-                            .foregroundStyle(.secondary)
-
-                        Text(script.text)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
                     }
                 }
             }
         }
+        .sheet(item: $importPreview) { preview in
+            ScriptImportSheet(
+                preview: preview,
+                onCancel: { importPreview = nil },
+                onSave: { shouldQueue in
+                    saveImport(preview, shouldQueue: shouldQueue)
+                }
+            )
+        }
         .navigationTitle("Scripts")
+    }
+
+    private func chooseTextFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.plainText, .utf8PlainText, .text]
+        panel.prompt = "Import"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let title = url.deletingPathExtension().lastPathComponent
+            importPreview = ScriptImportPreview(
+                sourceURL: url,
+                title: title,
+                chunks: ScriptChunker.chunks(from: text, baseTitle: title)
+            )
+        } catch {
+            workspaceStore.alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not read text file")
+        }
+    }
+
+    private func saveImport(_ preview: ScriptImportPreview, shouldQueue: Bool) {
+        let result = workspaceStore.importScriptBatch(
+            title: preview.title,
+            chunks: preview.chunks,
+            backendID: appStore.selectedBackendProfile.id,
+            modelID: appStore.selectedModelID,
+            voice: appStore.selectedVoice,
+            settings: GenerationSettings(
+                cfgScale: appStore.cfgScale,
+                ddpmInferenceSteps: appStore.ddpmInferenceSteps
+            )
+        )
+        importPreview = nil
+        guard let result else { return }
+        if shouldQueue {
+            appStore.queueImportedScripts(result.scripts)
+        } else {
+            appStore.statusMessage = "Imported \(result.scripts.count) scripts"
+        }
     }
 }
 
