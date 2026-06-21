@@ -3,6 +3,7 @@ import VibeVoiceBatchCore
 
 enum QueuedGenerationStatus: String, Equatable {
     case queued
+    case paused
     case running
     case completed
     case failed
@@ -11,6 +12,7 @@ enum QueuedGenerationStatus: String, Equatable {
     var displayName: String {
         switch self {
         case .queued: "Queued"
+        case .paused: "Paused"
         case .running: "Running"
         case .completed: "Completed"
         case .failed: "Failed"
@@ -22,7 +24,7 @@ enum QueuedGenerationStatus: String, Equatable {
         switch self {
         case .completed, .failed, .cancelled:
             true
-        case .queued, .running:
+        case .queued, .paused, .running:
             false
         }
     }

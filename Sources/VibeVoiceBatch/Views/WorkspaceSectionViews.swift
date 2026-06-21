@@ -358,7 +358,7 @@ struct BatchesView: View {
             switch lhs.status {
             case .running:
                 return (lhs.startedAt ?? lhs.createdAt) > (rhs.startedAt ?? rhs.createdAt)
-            case .queued:
+            case .queued, .paused:
                 return lhs.createdAt > rhs.createdAt
             case .completed, .failed, .cancelled:
                 return (lhs.completedAt ?? lhs.createdAt) > (rhs.completedAt ?? rhs.createdAt)
@@ -375,6 +375,7 @@ struct BatchesView: View {
                 )
 
                 BatchQueueSummaryStrip(items: orderedQueueItems)
+                BatchQueueControlRow(items: orderedQueueItems)
 
                 if orderedQueueItems.isEmpty {
                     EmptyWorkspaceView(
@@ -406,10 +407,12 @@ struct BatchesView: View {
             return 0
         case .queued:
             return 1
-        case .failed, .cancelled:
+        case .paused:
             return 2
-        case .completed:
+        case .failed, .cancelled:
             return 3
+        case .completed:
+            return 4
         }
     }
 }
@@ -425,6 +428,10 @@ private struct BatchQueueSummaryStrip: View {
         items.filter { $0.status == .queued }.count
     }
 
+    private var pausedCount: Int {
+        items.filter { $0.status == .paused }.count
+    }
+
     private var finishedCount: Int {
         items.filter(\.status.isTerminal).count
     }
@@ -434,6 +441,7 @@ private struct BatchQueueSummaryStrip: View {
             HStack(spacing: 12) {
                 BatchQueueMetric(title: "Running", value: "\(runningCount)")
                 BatchQueueMetric(title: "Waiting", value: "\(waitingCount)")
+                BatchQueueMetric(title: "Paused", value: "\(pausedCount)")
                 BatchQueueMetric(title: "Finished", value: "\(finishedCount)")
                 Spacer(minLength: 0)
             }
@@ -445,9 +453,50 @@ private struct BatchQueueSummaryStrip: View {
             ) {
                 BatchQueueMetric(title: "Running", value: "\(runningCount)")
                 BatchQueueMetric(title: "Waiting", value: "\(waitingCount)")
+                BatchQueueMetric(title: "Paused", value: "\(pausedCount)")
                 BatchQueueMetric(title: "Finished", value: "\(finishedCount)")
             }
         }
+    }
+}
+
+private struct BatchQueueControlRow: View {
+    @EnvironmentObject private var appStore: AppStore
+    let items: [QueuedGenerationItem]
+
+    private var hasWaitingItems: Bool {
+        items.contains { $0.status == .queued }
+    }
+
+    private var hasPausedItems: Bool {
+        items.contains { $0.status == .paused }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                appStore.pauseGenerationQueue()
+            } label: {
+                Label("Pause Queue", systemImage: "pause.circle")
+            }
+            .disabled(!hasWaitingItems)
+            .help(hasWaitingItems ? "Pause queued generations after the current run" : "No waiting generations to pause")
+
+            Button {
+                appStore.resumeGenerationQueue()
+            } label: {
+                Label("Resume Queue", systemImage: "play.circle")
+            }
+            .disabled(!hasPausedItems)
+            .help(hasPausedItems ? "Resume paused queued generations" : "No paused generations to resume")
+
+            Spacer(minLength: 0)
+
+            Text("Stop still applies to the running generation.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.bordered)
     }
 }
 
@@ -517,7 +566,7 @@ private struct QueueItemCard: View {
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.borderless)
-                    .disabled(item.status != .queued && item.status != .running)
+                    .disabled(item.status != .queued && item.status != .paused && item.status != .running)
                     .help(item.status == .running ? "Stop Generation" : "Remove from Queue")
                     .accessibilityLabel(item.status == .running ? "Stop generation" : "Remove queued generation")
 
@@ -1623,6 +1672,7 @@ private extension QueuedGenerationStatus {
     var systemImage: String {
         switch self {
         case .queued: "clock"
+        case .paused: "pause.circle"
         case .running: "waveform.circle"
         case .completed: "checkmark.circle"
         case .failed: "xmark.octagon"
@@ -1636,6 +1686,7 @@ private extension QueuedGenerationStatus {
         case .failed: .red
         case .cancelled: .orange
         case .running: .blue
+        case .paused: .orange
         case .queued: .purple
         }
     }

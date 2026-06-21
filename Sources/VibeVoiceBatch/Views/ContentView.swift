@@ -318,6 +318,24 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var workspaceToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            if isBatchesSelection {
+                Button {
+                    store.pauseGenerationQueue()
+                } label: {
+                    Label("Pause Queue", systemImage: "pause.circle")
+                }
+                .disabled(!store.queuedGenerations.contains(where: { $0.status == .queued }))
+                .help("Pause queued generations after the current run")
+
+                Button {
+                    store.resumeGenerationQueue()
+                } label: {
+                    Label("Resume Queue", systemImage: "play.circle")
+                }
+                .disabled(!store.queuedGenerations.contains(where: { $0.status == .paused }))
+                .help("Resume paused queued generations")
+            }
+
             Button {
                 workspaceStore.refresh()
                 store.refreshHistory()
@@ -326,6 +344,13 @@ struct ContentView: View {
             }
             .disabled(workspaceStore.isRefreshing)
         }
+    }
+
+    private var isBatchesSelection: Bool {
+        if case .section(.batches) = selection ?? .section(.history) {
+            return true
+        }
+        return false
     }
 
     private var playWAVTitle: String {

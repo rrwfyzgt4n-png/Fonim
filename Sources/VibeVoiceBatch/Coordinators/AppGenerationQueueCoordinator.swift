@@ -41,6 +41,32 @@ final class AppGenerationQueueCoordinator {
         return queuedJobPayloads[nextItem.id]
     }
 
+    func pausedItem(from item: QueuedGenerationItem) -> QueuedGenerationItem {
+        var paused = item
+        paused.status = .paused
+        paused.statusMessage = "Paused"
+        return paused
+    }
+
+    func pauseQueuedItems(_ items: inout [QueuedGenerationItem]) -> Bool {
+        var didPause = false
+        for index in items.indices where items[index].status == .queued {
+            items[index] = pausedItem(from: items[index])
+            didPause = true
+        }
+        return didPause
+    }
+
+    func resumePausedItems(_ items: inout [QueuedGenerationItem]) -> Bool {
+        var didResume = false
+        for index in items.indices where items[index].status == .paused {
+            items[index].status = .queued
+            items[index].statusMessage = "Waiting"
+            didResume = true
+        }
+        return didResume
+    }
+
     func cancelQueuedPayload(id: String) {
         queuedJobPayloads[id] = nil
     }

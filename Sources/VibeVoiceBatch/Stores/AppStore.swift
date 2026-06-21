@@ -25,6 +25,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var activeBackendOperation: BackendOperationKind?
     @Published private(set) var isPreparingGeneration = false
     @Published private(set) var queuedGenerations: [QueuedGenerationItem] = []
+    @Published private(set) var isQueuePaused = false
     @Published var selectedQueueItemID: String?
     @Published var selectedOutputSessionIDs: Set<String> = []
     @Published var statusMessage = "Ready"
@@ -338,17 +339,31 @@ final class AppStore: ObservableObject {
         case .running:
             guard item.id == activeJobID else { return }
             cancelGeneration()
-        case .queued:
+        case .queued, .paused:
             generationQueueCoordinator.cancelQueuedPayload(id: item.id)
             updateQueuedGeneration(id: item.id) { queuedItem in
                 queuedItem.status = .cancelled
-                queuedItem.statusMessage = "Cancelled before start"
+                queuedItem.statusMessage = item.status == .paused ? "Cancelled while paused" : "Cancelled before start"
                 queuedItem.completedAt = Date()
             }
-            statusMessage = "Cancelled queued generation"
+            statusMessage = item.status == .paused ? "Cancelled paused generation" : "Cancelled queued generation"
         case .completed, .failed, .cancelled:
             break
         }
+    }
+
+    func pauseGenerationQueue() {
+        guard generationQueueCoordinator.pauseQueuedItems(&queuedGenerations) else { return }
+        isQueuePaused = true
+        statusMessage = "Queue paused"
+    }
+
+    func resumeGenerationQueue() {
+        guard isQueuePaused || queuedGenerations.contains(where: { $0.status == .paused }) else { return }
+        isQueuePaused = false
+        _ = generationQueueCoordinator.resumePausedItems(&queuedGenerations)
+        statusMessage = "Queue resumed"
+        startNextQueuedGenerationIfIdle()
     }
 
     func retryQueuedGeneration(_ item: QueuedGenerationItem) {
@@ -482,16 +497,17 @@ final class AppStore: ObservableObject {
             extraParameters: settingsStore.settings.generationExtraParameters(for: selectedBackendProfile)
         )
         let job = enqueued.job
-        queuedGenerations.append(enqueued.item)
+        queuedGenerations.append(isQueuePaused ? generationQueueCoordinator.pausedItem(from: enqueued.item) : enqueued.item)
         selectedQueueItemID = job.id
         selectedSessionID = nil
         hasUnsavedEditorText = false
-        statusMessage = isGenerating ? "Queued for generation" : "Queued"
+        statusMessage = isQueuePaused ? "Queued while paused" : (isGenerating ? "Queued for generation" : "Queued")
         setLatestGenerationLogLine(statusMessage)
         startNextQueuedGenerationIfIdle()
     }
 
     private func startNextQueuedGenerationIfIdle() {
+        guard !isQueuePaused else { return }
         guard !isGenerating else { return }
         guard let job = generationQueueCoordinator.nextQueuedJob(from: queuedGenerations) else {
             return
@@ -968,22 +984,6 @@ final class AppStore: ObservableObject {
     }
 }
 
-private extension QueuedGenerationStatus {
-    init(recordStatus: GenerationRecordStatus) {
-        switch recordStatus {
-        case .queued:
-            self = .queued
-        case .running:
-            self = .running
-        case .completed:
-            self = .completed
-        case .failed:
-            self = .failed
-        case .cancelled:
-            self = .cancelled
-        }
-    }
-}
 
 private extension BackendStatusSnapshot {
     var alertMessageWithDetails: String {
