@@ -56,7 +56,7 @@ class GenerationHeartbeat:
             elapsed = time.time() - self.started_at
         fraction = progress if progress is not None else min(0.95, elapsed / self.estimated_seconds)
         print(
-            "VibeVoiceBatch progress: "
+            "Fonim progress: "
             f"phase={phase or self.phase} "
             f"elapsed={clock(elapsed)} "
             f"estimated={clock(self.estimated_seconds)} "
@@ -293,7 +293,7 @@ def main():
     estimated_generation_seconds = estimate_generation_seconds(input_tokens, args.ddpm_inference_steps, full_script)
     print(f"Starting generation with cfg_scale: {args.cfg_scale}, ddpm_inference_steps: {args.ddpm_inference_steps}")
     print(
-        "VibeVoiceBatch progress: "
+        "Fonim progress: "
         f"phase=starting_generation elapsed=00:00 estimated={clock(estimated_generation_seconds)} progress=0.00%",
         flush=True,
     )

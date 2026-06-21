@@ -10,8 +10,8 @@
 
 Outputs:
 
-- `dist/VibeVoiceBatch.app`
-- `dist/VibeVoiceBatch-0.13.0.zip`
+- `dist/Fonim.app`
+- `dist/Fonim-0.13.0.zip`
 
 The default package is ad-hoc signed. It is suitable for local testing and direct transfer between trusted Macs, but it is not notarized.
 
@@ -29,7 +29,7 @@ The script signs with hardened runtime when a real identity is supplied. Submit 
 
 The packaging script runs:
 
-- `swift build -c release --product VibeVoiceBatch`
+- `swift build -c release --product Fonim`
 - app bundle assembly with `Info.plist`, `PkgInfo`, binary, and `AppIcon.icns`
 - `codesign --verify --deep --strict`
 - `plutil -lint`

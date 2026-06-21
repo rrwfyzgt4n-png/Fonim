@@ -36,6 +36,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkAssistantViewDecomposition()
         try checkAppStoreResponsibilitySplit()
         try checkPostRefactorUXPolish()
+        try checkAppIdentityAndPackaging()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
         try await checkChatterboxHTTPAdapterGeneratesThroughSessionStore()
@@ -226,7 +227,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(coloredProgress.maxSteps == 100)
         precondition(coloredProgress.reportedElapsedSeconds == 10)
 
-        let estimatedProgressText = "VibeVoiceBatch progress: phase=generation elapsed=00:12 estimated=02:00 progress=10.00%"
+        let estimatedProgressText = "Fonim progress: phase=generation elapsed=00:12 estimated=02:00 progress=10.00%"
         guard let estimatedProgress = GenerationOutputParser.latestEstimatedProgress(in: estimatedProgressText) else {
             throw CheckError("Expected estimated generation progress")
         }
@@ -235,7 +236,13 @@ struct VibeVoiceBatchCoreChecks {
         precondition(estimatedProgress.elapsedSeconds == 12)
         precondition(estimatedProgress.estimatedSeconds == 120)
 
-        let preciseEstimatedText = "VibeVoiceBatch progress: phase=generation elapsed=01:54 estimated=08:21 progress=22.78%"
+        let legacyEstimatedText = "VibeVoiceBatch progress: phase=generation elapsed=00:14 estimated=02:20 progress=10.00%"
+        guard let legacyEstimatedProgress = GenerationOutputParser.latestEstimatedProgress(in: legacyEstimatedText) else {
+            throw CheckError("Expected legacy estimated generation progress")
+        }
+        precondition(legacyEstimatedProgress.elapsedSeconds == 14)
+
+        let preciseEstimatedText = "Fonim progress: phase=generation elapsed=01:54 estimated=08:21 progress=22.78%"
         guard let preciseEstimatedProgress = GenerationOutputParser.latestEstimatedProgress(in: preciseEstimatedText) else {
             throw CheckError("Expected precise estimated generation progress")
         }
@@ -1951,6 +1958,34 @@ struct VibeVoiceBatchCoreChecks {
         precondition(assistantWelcome.contains("BackendModeSummary"))
     }
 
+    private static func checkAppIdentityAndPackaging() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let package = try String(contentsOf: root.appendingPathComponent("Package.swift"), encoding: .utf8)
+        let contentView = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Views/ContentView.swift"),
+            encoding: .utf8
+        )
+        let buildScript = try String(contentsOf: root.appendingPathComponent("script/build_and_run.sh"), encoding: .utf8)
+        let packageScript = try String(contentsOf: root.appendingPathComponent("script/package_app.sh"), encoding: .utf8)
+        let smokeScript = try String(contentsOf: root.appendingPathComponent("script/smoke_test_release.sh"), encoding: .utf8)
+        let packaging = try String(contentsOf: root.appendingPathComponent("PACKAGING.md"), encoding: .utf8)
+        let qaChecklist = try String(contentsOf: root.appendingPathComponent("QA_RELEASE_CHECKLIST.md"), encoding: .utf8)
+
+        precondition(package.contains("name: \"Fonim\""))
+        precondition(package.contains(".executable(name: \"Fonim\", targets: [\"VibeVoiceBatch\"])"))
+        precondition(!package.contains(".executable(name: \"VibeVoiceBatch\", targets: [\"VibeVoiceBatch\"])"))
+        precondition(contentView.contains(".alert(\"Fonim\""))
+        precondition(buildScript.contains("APP_NAME=\"Fonim\""))
+        precondition(buildScript.contains("PRODUCT_NAME=\"Fonim\""))
+        precondition(buildScript.contains("BUNDLE_ID=\"local.vibevoice.batch\""))
+        precondition(packageScript.contains("APP_NAME=\"Fonim\""))
+        precondition(packageScript.contains("PRODUCT_NAME=\"Fonim\""))
+        precondition(packageScript.contains("<string>Fonim</string>"))
+        precondition(smokeScript.contains("APP_NAME=\"Fonim\""))
+        precondition(packaging.contains("dist/Fonim.app"))
+        precondition(qaChecklist.contains("dist/Fonim.app"))
+    }
+
     private static func checkVibeVoiceAdapterGeneratesThroughSessionStore() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("VibeVoiceBatchAdapterChecks-\(UUID().uuidString)", isDirectory: true)
@@ -1963,7 +1998,7 @@ struct VibeVoiceBatchCoreChecks {
         let runner = FakeDockerRunner()
         runner.chunks = [
             "Prefilled 70 text tokens, generated 80 speech tokens, current step (298 / 8192):   4%| | 298/8192 [00:27]\n",
-            "VibeVoiceBatch progress: phase=starting_generation elapsed=00:30 estimated=05:00 progress=10.00%\n",
+            "Fonim progress: phase=starting_generation elapsed=00:30 estimated=05:00 progress=10.00%\n",
             """
             Input file: /app/input.txt
             Output file: /app/outputs/input_generated.wav

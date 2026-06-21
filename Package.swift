@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "VibeVoiceBatch",
+    name: "Fonim",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "VibeVoiceBatch", targets: ["VibeVoiceBatch"]),
+        .executable(name: "Fonim", targets: ["VibeVoiceBatch"]),
         .executable(name: "VibeVoiceBatchCoreChecks", targets: ["VibeVoiceBatchCoreChecks"]),
         .library(name: "VibeVoiceBatchCore", targets: ["VibeVoiceBatchCore"])
     ],

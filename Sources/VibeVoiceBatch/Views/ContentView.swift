@@ -76,7 +76,7 @@ struct ContentView: View {
                 break
             }
         }
-        .alert("VibeVoice Batch", isPresented: alertBinding) {
+        .alert("Fonim", isPresented: alertBinding) {
             Button("Copy Details") {
                 copyAlertDetails()
             }

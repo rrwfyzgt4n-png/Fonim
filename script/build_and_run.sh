@@ -2,7 +2,8 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="VibeVoiceBatch"
+APP_NAME="Fonim"
+PRODUCT_NAME="Fonim"
 BUNDLE_ID="local.vibevoice.batch"
 MIN_SYSTEM_VERSION="13.0"
 
@@ -17,8 +18,8 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build --product "$PRODUCT_NAME"
+BUILD_BINARY="$(swift build --show-bin-path)/$PRODUCT_NAME"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"

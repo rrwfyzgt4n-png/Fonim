@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="VibeVoiceBatch"
+APP_NAME="Fonim"
 EXPECTED_BUNDLE_ID="local.vibevoice.batch"
 EXPECTED_VERSION="${VERSION:-0.13.0}"
 

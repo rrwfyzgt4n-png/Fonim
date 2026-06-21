@@ -232,7 +232,7 @@ public enum GenerationOutputParser {
 
     public static func latestEstimatedProgress(in logText: String) -> EstimatedGenerationProgress? {
         let suffix = normalizedSuffix(logText)
-        let pattern = #"VibeVoiceBatch progress:\s+phase=([^\s]+)\s+elapsed=([0-9:.]+)\s+estimated=([0-9:.]+)\s+progress=([\d.]+)%"#
+        let pattern = #"(?:Fonim|VibeVoiceBatch) progress:\s+phase=([^\s]+)\s+elapsed=([0-9:.]+)\s+estimated=([0-9:.]+)\s+progress=([\d.]+)%"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return nil

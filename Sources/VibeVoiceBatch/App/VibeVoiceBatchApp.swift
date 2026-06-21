@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct VibeVoiceBatchApp: App {
+struct FonimApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var settingsStore: SettingsStore
     @StateObject private var store: AppStore

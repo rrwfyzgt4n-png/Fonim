@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="VibeVoiceBatch"
+APP_NAME="Fonim"
+PRODUCT_NAME="Fonim"
 BUNDLE_ID="local.vibevoice.batch"
 MIN_SYSTEM_VERSION="13.0"
 VERSION="${VERSION:-0.13.0}"
@@ -69,11 +70,11 @@ done
 mkdir -p "$DIST_DIR"
 
 if [[ "$CONFIGURATION" == "release" ]]; then
-  swift build -c release --product "$APP_NAME"
-  BUILD_BINARY="$(swift build -c release --show-bin-path)/$APP_NAME"
+  swift build -c release --product "$PRODUCT_NAME"
+  BUILD_BINARY="$(swift build -c release --show-bin-path)/$PRODUCT_NAME"
 else
-  swift build --product "$APP_NAME"
-  BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+  swift build --product "$PRODUCT_NAME"
+  BUILD_BINARY="$(swift build --show-bin-path)/$PRODUCT_NAME"
 fi
 
 rm -rf "$APP_BUNDLE"
@@ -93,7 +94,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleDisplayName</key>
-  <string>VibeVoice Batch</string>
+  <string>Fonim</string>
   <key>CFBundleExecutable</key>
   <string>$APP_NAME</string>
   <key>CFBundleIconFile</key>

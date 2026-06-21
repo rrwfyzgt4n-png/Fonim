@@ -5,8 +5,8 @@ Use this checklist before handing off a release candidate.
 ## Automated
 
 - Run `./script/smoke_test_release.sh`.
-- Confirm `dist/VibeVoiceBatch.app` exists.
-- Confirm `dist/VibeVoiceBatch-0.13.0.zip` exists.
+- Confirm `dist/Fonim.app` exists.
+- Confirm `dist/Fonim-0.13.0.zip` exists.
 - Confirm code signing verification passes.
 - Confirm no app source references the legacy Python GUI.
 
