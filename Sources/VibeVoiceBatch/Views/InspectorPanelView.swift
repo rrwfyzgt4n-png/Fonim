@@ -71,10 +71,13 @@ struct InspectorPanelView: View {
                 backendSection
                 exportSection
                 metadataSection
-            case .section(.history), .historySession:
+            case .section(.history):
                 generationSection
                 backendSection
                 exportSection
+                metadataSection
+            case .historySession:
+                lockedSessionGenerationSection
                 metadataSection
             }
         }
@@ -207,6 +210,28 @@ struct InspectorPanelView: View {
                     }
                 }
                 .pickerStyle(.menu)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var lockedSessionGenerationSection: some View {
+        if let session = store.selectedSession {
+            InspectorGroup(title: "Archived Generation") {
+                Text("Archived sessions are read-only. Duplicate as New to reuse these settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                InspectorVoiceValue(label: "Voice", voiceID: session.metadata.voice)
+                InspectorValue(label: "CFG", value: session.metadata.cfgScale)
+                InspectorValue(label: "Steps", value: session.metadata.ddpmInferenceSteps.map(String.init) ?? "--")
+                InspectorValue(label: "Backend", value: backendDisplayName(for: session))
+                InspectorValue(label: "Output", value: session.outputURL?.lastPathComponent ?? "No WAV")
+            }
+        } else {
+            InspectorGroup(title: "Archived Generation") {
+                InspectorValue(label: "State", value: "No session selected")
             }
         }
     }

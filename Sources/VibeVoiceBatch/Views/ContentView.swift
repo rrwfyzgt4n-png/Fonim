@@ -157,15 +157,17 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItemGroup(placement: .navigation) {
             Button {
                 store.newDocument()
             } label: {
-                Label("New", systemImage: "doc.badge.plus")
+                Label("New Generation", systemImage: "doc.badge.plus")
             }
             .keyboardShortcut("n", modifiers: [.command])
-            .help("New")
+            .help("New Generation")
+        }
 
+        ToolbarItemGroup(placement: .primaryAction) {
             Button {
                 store.saveDraft()
             } label: {
@@ -187,11 +189,11 @@ struct ContentView: View {
             Button(role: .destructive) {
                 store.cancelGeneration()
             } label: {
-                Label("Cancel", systemImage: "stop.circle")
+                Label("Stop", systemImage: "stop.circle.fill")
             }
             .keyboardShortcut(".", modifiers: [.command])
             .disabled(!store.isGenerating)
-            .help("Cancel Generation")
+            .help("Stop Generation")
         }
     }
 

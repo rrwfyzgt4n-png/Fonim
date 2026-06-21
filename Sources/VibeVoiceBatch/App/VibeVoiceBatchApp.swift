@@ -56,7 +56,7 @@ struct FonimApp: App {
                 .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(!store.canGenerate)
 
-                Button("Cancel Generation") {
+                Button("Stop Generation") {
                     store.cancelGeneration()
                 }
                 .keyboardShortcut(".", modifiers: [.command])

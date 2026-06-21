@@ -347,57 +347,50 @@ struct ScriptsView: View {
 
 struct BatchesView: View {
     @EnvironmentObject private var appStore: AppStore
-    @EnvironmentObject private var workspaceStore: WorkspaceStore
+
+    private var orderedQueueItems: [QueuedGenerationItem] {
+        appStore.queuedGenerations.sorted { lhs, rhs in
+            let lhsRank = queueRank(lhs.status)
+            let rhsRank = queueRank(rhs.status)
+            if lhsRank != rhsRank {
+                return lhsRank < rhsRank
+            }
+            switch lhs.status {
+            case .running:
+                return (lhs.startedAt ?? lhs.createdAt) > (rhs.startedAt ?? rhs.createdAt)
+            case .queued:
+                return lhs.createdAt > rhs.createdAt
+            case .completed, .failed, .cancelled:
+                return (lhs.completedAt ?? lhs.createdAt) > (rhs.completedAt ?? rhs.createdAt)
+            }
+        }
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 SectionHeader(
                     title: "Batches",
-                    subtitle: "Generation queue and saved script groups."
+                    subtitle: "Queued generation work, with the active item first."
                 )
 
-                if appStore.queuedGenerations.isEmpty && workspaceStore.batches.isEmpty {
+                BatchQueueSummaryStrip(items: orderedQueueItems)
+
+                if orderedQueueItems.isEmpty {
                     EmptyWorkspaceView(
                         systemImage: "tray.full",
-                        title: "No Batches",
+                        title: "No Queued Generations",
                         message: "Queued generation work will appear here."
                     )
-                }
-
-                if !appStore.queuedGenerations.isEmpty {
+                } else {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Generation Queue")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .textCase(.uppercase)
 
-                        ForEach(appStore.queuedGenerations) { item in
+                        ForEach(orderedQueueItems) { item in
                             QueueItemCard(item: item)
-                        }
-                    }
-                }
-
-                if !workspaceStore.batches.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Saved Batches")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-
-                        ForEach(workspaceStore.batches) { batch in
-                            WorkspaceCard {
-                                HStack(alignment: .firstTextBaseline) {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text(batch.title)
-                                            .font(.headline)
-                                        Text("\(batch.items.count) items  \(completedCount(batch)) completed")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    WorkspaceStatusBadge(status: batch.status)
-                                }
-                            }
                         }
                     }
                 }
@@ -407,8 +400,74 @@ struct BatchesView: View {
         .navigationTitle("Batches")
     }
 
-    private func completedCount(_ batch: NarrationBatch) -> Int {
-        batch.items.filter { $0.status == .completed }.count
+    private func queueRank(_ status: QueuedGenerationStatus) -> Int {
+        switch status {
+        case .running:
+            return 0
+        case .queued:
+            return 1
+        case .failed, .cancelled:
+            return 2
+        case .completed:
+            return 3
+        }
+    }
+}
+
+private struct BatchQueueSummaryStrip: View {
+    let items: [QueuedGenerationItem]
+
+    private var runningCount: Int {
+        items.filter { $0.status == .running }.count
+    }
+
+    private var waitingCount: Int {
+        items.filter { $0.status == .queued }.count
+    }
+
+    private var finishedCount: Int {
+        items.filter(\.status.isTerminal).count
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                BatchQueueMetric(title: "Running", value: "\(runningCount)")
+                BatchQueueMetric(title: "Waiting", value: "\(waitingCount)")
+                BatchQueueMetric(title: "Finished", value: "\(finishedCount)")
+                Spacer(minLength: 0)
+            }
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 110), spacing: 10, alignment: .leading)],
+                alignment: .leading,
+                spacing: 10
+            ) {
+                BatchQueueMetric(title: "Running", value: "\(runningCount)")
+                BatchQueueMetric(title: "Waiting", value: "\(waitingCount)")
+                BatchQueueMetric(title: "Finished", value: "\(finishedCount)")
+            }
+        }
+    }
+}
+
+private struct BatchQueueMetric: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.title3.weight(.semibold))
+                .monospacedDigit()
+        }
+        .frame(minWidth: 96, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -451,16 +510,16 @@ private struct QueueItemCard: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer()
-                    Button {
+                    Button(role: .destructive) {
                         appStore.cancelQueuedGeneration(item)
                     } label: {
-                        Image(systemName: "stop.circle")
+                        Image(systemName: item.status == .running ? "stop.circle.fill" : "xmark.circle")
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.borderless)
                     .disabled(item.status != .queued && item.status != .running)
-                    .help("Cancel")
-                    .accessibilityLabel("Cancel queued generation")
+                    .help(item.status == .running ? "Stop Generation" : "Remove from Queue")
+                    .accessibilityLabel(item.status == .running ? "Stop generation" : "Remove queued generation")
 
                     Button {
                         appStore.retryQueuedGeneration(item)
