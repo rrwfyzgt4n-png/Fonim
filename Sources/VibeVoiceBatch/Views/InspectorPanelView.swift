@@ -162,12 +162,24 @@ struct InspectorPanelView: View {
     private var generationSection: some View {
         InspectorGroup(title: "Generation") {
             Picker("Voice", selection: selectedVoiceBinding) {
-                ForEach(store.availableVoiceOptions) { voice in
-                    Text(VoiceDisplayFormatter.displayText(for: voice))
-                        .tag(voice.id)
+                if store.availableVoiceOptions.isEmpty {
+                    Text("No compatible voices")
+                        .tag(store.selectedVoice)
+                } else {
+                    ForEach(store.availableVoiceOptions) { voice in
+                        Text(VoiceDisplayFormatter.displayText(for: voice))
+                            .tag(voice.id)
+                    }
                 }
             }
             .pickerStyle(.menu)
+
+            if store.availableVoiceOptions.isEmpty {
+                Text("No Chatterbox voice is marked available for the selected language.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if store.selectedBackendProfile.engineType == .chatterbox {
                 ChatterboxGenerationControls(

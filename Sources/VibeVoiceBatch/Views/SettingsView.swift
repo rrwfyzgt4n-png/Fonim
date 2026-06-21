@@ -264,14 +264,19 @@ private struct VoicesSettingsPane: View {
     var body: some View {
         Form {
             Picker("Default voice", selection: defaultVoiceBinding) {
-                ForEach(settingsStore.generationVoiceOptions(for: appStore.selectedBackendProfile)) { voice in
-                    Text(VoiceDisplayFormatter.displayText(for: voice))
-                        .tag(voice.id)
+                if availableGenerationVoices.isEmpty {
+                    Text("No compatible voices")
+                        .tag(defaultVoiceBinding.wrappedValue)
+                } else {
+                    ForEach(availableGenerationVoices) { voice in
+                        Text(VoiceDisplayFormatter.displayText(for: voice))
+                            .tag(voice.id)
+                    }
                 }
             }
             .pickerStyle(.menu)
 
-            LabeledContent("Available voices", value: "\(settingsStore.generationVoiceOptions(for: appStore.selectedBackendProfile).count)")
+            LabeledContent("Available voices", value: "\(availableGenerationVoices.count)")
             HStack {
                 Text("Current default")
                 Spacer()
@@ -281,9 +286,12 @@ private struct VoicesSettingsPane: View {
         .formStyle(.grouped)
     }
 
+    private var availableGenerationVoices: [BackendCatalogVoice] {
+        settingsStore.generationVoiceOptions(for: appStore.selectedBackendProfile)
+    }
+
     private var currentDefaultVoice: BackendCatalogVoice {
-        settingsStore
-            .generationVoiceOptions(for: appStore.selectedBackendProfile)
+        availableGenerationVoices
             .first { $0.id == settingsStore.settings.defaultVoice } ??
             BackendCatalogVoice(id: settingsStore.settings.defaultVoice, displayName: settingsStore.settings.defaultVoice)
     }

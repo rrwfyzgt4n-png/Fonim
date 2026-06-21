@@ -63,22 +63,13 @@ final class SettingsStore: ObservableObject {
         let modelID = settings.defaultBackendID == profile.id ?
             settings.defaultModelID :
             profile.requiredModels.first?.id ?? settings.defaultModelID
-        guard ChatterboxModelCatalog.supportsMultilingual(modelID) else {
-            return voices
-        }
-
         let languageCode = settings.chatterboxLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard languageCode != "en",
-              ChatterboxModelCatalog.languageCodes(for: modelID).contains(languageCode) else {
-            return voices
+        guard ChatterboxModelCatalog.languageCodes(for: modelID).contains(languageCode) else {
+            return []
         }
 
-        return voices.map { voice in
-            var localized = voice
-            localized.locale = languageCode
-            localized.languageCode = languageCode
-            localized.countryFlag = nil
-            return localized
+        return voices.filter {
+            ChatterboxVoiceCatalog.voice($0, supportsOutputLanguage: languageCode)
         }
     }
 

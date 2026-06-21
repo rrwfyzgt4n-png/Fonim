@@ -80,6 +80,48 @@ public enum ChatterboxVoiceCatalog {
         return []
     }
 
+    public static func voice(_ voice: BackendCatalogVoice, supportsOutputLanguage languageCode: String) -> Bool {
+        let outputLanguage = normalizedLanguageCode(languageCode)
+        if isMultilingualVoice(voice) {
+            return true
+        }
+        if let voiceLanguage = normalizedVoiceLanguage(voice) {
+            return voiceLanguage == outputLanguage
+        }
+        return outputLanguage == "en"
+    }
+
+    private static func normalizedVoiceLanguage(_ voice: BackendCatalogVoice) -> String? {
+        if let languageCode = voice.languageCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !languageCode.isEmpty {
+            return normalizedLanguageCode(languageCode)
+        }
+        if let locale = voice.locale?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let language = locale.split(separator: "-").first {
+            return normalizedLanguageCode(String(language))
+        }
+        return nil
+    }
+
+    private static func normalizedLanguageCode(_ value: String) -> String {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "jp": return "ja"
+        case "kr": return "ko"
+        case "sp": return "es"
+        case "in": return "hi"
+        case "": return "en"
+        default: return normalized
+        }
+    }
+
+    private static func isMultilingualVoice(_ voice: BackendCatalogVoice) -> Bool {
+        voice.traits.contains { trait in
+            let normalized = trait.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return ["multilingual", "multi-lingual", "all-languages", "any-language"].contains(normalized)
+        }
+    }
+
     private static let femaleNames: Set<String> = [
         "abigail", "alice", "cora", "elena", "emily", "gianna", "jade", "layla", "olivia"
     ]

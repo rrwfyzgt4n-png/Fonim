@@ -839,6 +839,27 @@ struct VibeVoiceBatchCoreChecks {
         precondition(emily.modelIDs.contains(ChatterboxModelCatalog.turboID))
         precondition(emily.modelIDs.contains(ChatterboxModelCatalog.originalID))
         precondition(emily.modelIDs.contains(ChatterboxModelCatalog.multilingualID))
+        precondition(ChatterboxVoiceCatalog.voice(emily, supportsOutputLanguage: "en"))
+        precondition(!ChatterboxVoiceCatalog.voice(emily, supportsOutputLanguage: "hi"))
+        let hindiChatterboxVoice = BackendCatalogVoice(
+            id: "Meera.wav",
+            displayName: "Meera",
+            backendID: BackendProfiles.chatterboxTTS.id,
+            locale: "hi",
+            languageCode: "hi",
+            sourceType: .predefined
+        )
+        precondition(ChatterboxVoiceCatalog.voice(hindiChatterboxVoice, supportsOutputLanguage: "hi"))
+        precondition(!ChatterboxVoiceCatalog.voice(hindiChatterboxVoice, supportsOutputLanguage: "en"))
+        let multilingualVoice = BackendCatalogVoice(
+            id: "Omni.wav",
+            displayName: "Omni",
+            backendID: BackendProfiles.chatterboxTTS.id,
+            traits: ["multilingual"],
+            sourceType: .predefined
+        )
+        precondition(ChatterboxVoiceCatalog.voice(multilingualVoice, supportsOutputLanguage: "hi"))
+        precondition(ChatterboxVoiceCatalog.voice(multilingualVoice, supportsOutputLanguage: "en"))
         let partialChatterboxSettings = AppSettings(
             backendCatalogs: [
                 BackendProfiles.chatterboxTTS.id: BackendCatalogReport(
@@ -1920,8 +1941,13 @@ struct VibeVoiceBatchCoreChecks {
         precondition(!workspaceSections.contains("Label(\"Use Voice\""))
         precondition(!workspaceSections.contains("Label(\"Generate Sample\""))
         precondition(settingsStore.contains("func generationVoiceOptions(for profile: BackendProfile)"))
-        precondition(settingsStore.contains("ChatterboxModelCatalog.supportsMultilingual(modelID)"))
+        precondition(settingsStore.contains("ChatterboxVoiceCatalog.voice($0, supportsOutputLanguage: languageCode)"))
+        precondition(!settingsStore.contains("localized.languageCode = languageCode"))
         precondition(appStore.contains("settingsStore.generationVoiceOptions(for: selectedBackendProfile)"))
+        precondition(appStore.contains("var selectedVoiceIsAvailable"))
+        precondition(appStore.contains("selectedVoiceIsAvailable &&"))
+        precondition(inspector.contains("No compatible voices"))
+        precondition(inspector.contains("No Chatterbox voice is marked available for the selected language."))
 
         precondition(status.contains("ViewThatFits(in: .horizontal)"))
         precondition(status.contains("LazyVGrid"))

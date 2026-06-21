@@ -115,6 +115,10 @@ final class AppStore: ObservableObject {
         settingsStore.generationVoiceOptions(for: selectedBackendProfile)
     }
 
+    var selectedVoiceIsAvailable: Bool {
+        availableVoiceOptions.contains { $0.id == selectedVoice }
+    }
+
     func voiceOptions(for profile: BackendProfile) -> [BackendCatalogVoice] {
         settingsStore.voiceOptions(for: profile)
     }
@@ -128,6 +132,7 @@ final class AppStore: ObservableObject {
             backendStatus.profileID == selectedBackendProfile.id &&
             (isGenerating || backendStatus.canStartGeneration) &&
             selectedBackendHasGenerationAdapter &&
+            selectedVoiceIsAvailable &&
             !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
