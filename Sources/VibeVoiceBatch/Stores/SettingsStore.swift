@@ -54,6 +54,34 @@ final class SettingsStore: ObservableObject {
         settings.voiceOptions(for: profile)
     }
 
+    func generationVoiceOptions(for profile: BackendProfile) -> [BackendCatalogVoice] {
+        let voices = voiceOptions(for: profile)
+        guard profile.engineType == .chatterbox else {
+            return voices
+        }
+
+        let modelID = settings.defaultBackendID == profile.id ?
+            settings.defaultModelID :
+            profile.requiredModels.first?.id ?? settings.defaultModelID
+        guard ChatterboxModelCatalog.supportsMultilingual(modelID) else {
+            return voices
+        }
+
+        let languageCode = settings.chatterboxLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard languageCode != "en",
+              ChatterboxModelCatalog.languageCodes(for: modelID).contains(languageCode) else {
+            return voices
+        }
+
+        return voices.map { voice in
+            var localized = voice
+            localized.locale = languageCode
+            localized.languageCode = languageCode
+            localized.countryFlag = nil
+            return localized
+        }
+    }
+
     func update(_ edit: (inout AppSettings) -> Void) {
         var copy = settings
         edit(&copy)

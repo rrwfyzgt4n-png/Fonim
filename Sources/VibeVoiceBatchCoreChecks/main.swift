@@ -1183,6 +1183,44 @@ struct VibeVoiceBatchCoreChecks {
                 call.contains("8880:8880")
         })
 
+        let staleKokoroSpy = BackendProcessSpy { arguments in
+            if arguments.contains("info") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
+            }
+            if arguments.contains("inspect") {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "kokoro image")
+            }
+            if arguments.first == "ps" {
+                return BackendProcessResult(exitCode: 0, combinedOutput: "vibevoice_batch_kokoro_tts\n")
+            }
+            if arguments.first == "port" {
+                return BackendProcessResult(exitCode: 1, combinedOutput: "no public port '8880/tcp' published")
+            }
+            if arguments.first == "stop" || arguments.first == "rm" || arguments.first == "run" {
+                return BackendProcessResult(exitCode: 0, combinedOutput: arguments.joined(separator: " "))
+            }
+            return BackendProcessResult(exitCode: 0, combinedOutput: "")
+        }
+        let staleKokoroManager = BackendManager(
+            projectRoot: root,
+            dockerExecutableResolver: { "/usr/local/bin/docker" },
+            processRunner: { executable, arguments in
+                staleKokoroSpy.run(executable: executable, arguments: arguments)
+            },
+            httpRunner: { _ in
+                if staleKokoroSpy.calls.contains(where: { $0.first == "run" }) {
+                    return BackendHTTPResult(statusCode: 200, body: "{\"status\":\"ready\"}")
+                }
+                return BackendHTTPResult(errorDescription: "Connection refused")
+            }
+        )
+        let staleKokoroPrepare = staleKokoroManager.performOperation(.prepare, for: kokoroProfile)
+        precondition(staleKokoroPrepare.status == .succeeded)
+        precondition(staleKokoroSpy.calls.contains { $0.first == "port" && $0.contains("vibevoice_batch_kokoro_tts") })
+        precondition(staleKokoroSpy.calls.contains { $0.first == "stop" && $0.contains("vibevoice_batch_kokoro_tts") })
+        precondition(staleKokoroSpy.calls.contains { $0.first == "rm" && $0.contains("vibevoice_batch_kokoro_tts") })
+        precondition(staleKokoroSpy.calls.contains { $0.first == "run" && $0.contains("8880:8880") })
+
         let kokoroStopSpy = BackendProcessSpy { arguments in
             if arguments.contains("info") {
                 return BackendProcessResult(exitCode: 0, combinedOutput: "25.0.0")
@@ -1860,6 +1898,9 @@ struct VibeVoiceBatchCoreChecks {
         let settings = try String(contentsOf: views.appendingPathComponent("SettingsView.swift"), encoding: .utf8)
         let assistantModels = try String(contentsOf: views.appendingPathComponent("BackendSetupAssistantModelsStep.swift"), encoding: .utf8)
         let workspaceSections = try String(contentsOf: views.appendingPathComponent("WorkspaceSectionViews.swift"), encoding: .utf8)
+        let stores = root.appendingPathComponent("Sources/VibeVoiceBatch/Stores", isDirectory: true)
+        let settingsStore = try String(contentsOf: stores.appendingPathComponent("SettingsStore.swift"), encoding: .utf8)
+        let appStore = try String(contentsOf: stores.appendingPathComponent("AppStore.swift"), encoding: .utf8)
 
         precondition(sidebar.contains("Section(\"Generation\")"))
         precondition(sidebar.contains("ForEach(store.sessions)"))
@@ -1878,6 +1919,9 @@ struct VibeVoiceBatchCoreChecks {
         precondition(workspaceSections.contains("Copy Voice ID"))
         precondition(!workspaceSections.contains("Label(\"Use Voice\""))
         precondition(!workspaceSections.contains("Label(\"Generate Sample\""))
+        precondition(settingsStore.contains("func generationVoiceOptions(for profile: BackendProfile)"))
+        precondition(settingsStore.contains("ChatterboxModelCatalog.supportsMultilingual(modelID)"))
+        precondition(appStore.contains("settingsStore.generationVoiceOptions(for: selectedBackendProfile)"))
 
         precondition(status.contains("ViewThatFits(in: .horizontal)"))
         precondition(status.contains("LazyVGrid"))

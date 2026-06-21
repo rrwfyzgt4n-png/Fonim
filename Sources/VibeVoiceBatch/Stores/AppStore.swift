@@ -112,7 +112,7 @@ final class AppStore: ObservableObject {
     }
 
     var availableVoiceOptions: [BackendCatalogVoice] {
-        settingsStore.voiceOptions(for: selectedBackendProfile)
+        settingsStore.generationVoiceOptions(for: selectedBackendProfile)
     }
 
     func voiceOptions(for profile: BackendProfile) -> [BackendCatalogVoice] {

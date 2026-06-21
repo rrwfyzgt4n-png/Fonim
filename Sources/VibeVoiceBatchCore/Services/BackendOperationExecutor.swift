@@ -289,34 +289,95 @@ internal struct BackendOperationExecutor {
             )
         }
 
+        guard let hostPort = servicePort(from: healthCheckURL) else {
+            return operationResult(
+                profile: profile,
+                kind: .prepare,
+                status: .failed,
+                startedAt: startedAt,
+                message: "Kokoro service URL needs an explicit port.",
+                recoverySuggestion: "Use a service URL such as http://127.0.0.1:8880.",
+                technicalDetails: [directoryLog, inspect.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            )
+        }
+
         let containerName = kokoroContainerName(for: profile)
-        let startResult: BackendProcessResult
-        let runningContainerList = dockerContainerNames(
+        let defaultContainerName = defaultKokoroContainerName(for: profile)
+        var runningContainerList = dockerContainerNames(
             executable: docker.executablePath,
             filter: containerName,
             includeStopped: false
         )
-        let containerList = dockerContainerNames(
+        var containerList = dockerContainerNames(
             executable: docker.executablePath,
             filter: containerName,
             includeStopped: true
         )
-        if runningContainerList.contains(containerName) {
-            startResult = BackendProcessResult(exitCode: 0, combinedOutput: "\(containerName) is already running.")
-        } else if containerList.contains(containerName) {
-            startResult = processExecutor.run(executable: docker.executablePath, arguments: ["start", containerName])
-        } else {
-            guard let hostPort = servicePort(from: healthCheckURL) else {
+        let hasContainer = containerList.contains(containerName)
+        let publishesRequiredPort = hasContainer && dockerContainerPublishesPort(
+            executable: docker.executablePath,
+            containerName: containerName,
+            port: hostPort
+        )
+        var containerRepairLog: [String] = []
+
+        if hasContainer && !publishesRequiredPort {
+            guard containerName == defaultContainerName else {
                 return operationResult(
                     profile: profile,
                     kind: .prepare,
                     status: .failed,
                     startedAt: startedAt,
-                    message: "Kokoro service URL needs an explicit port.",
-                    recoverySuggestion: "Use a service URL such as http://127.0.0.1:8880.",
-                    technicalDetails: [directoryLog, inspect.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                    message: "The configured Kokoro container does not publish port \(hostPort).",
+                    recoverySuggestion: "Publish \(hostPort):\(hostPort), choose another service URL, or use the app-owned Kokoro container.",
+                    technicalDetails: [
+                        directoryLog,
+                        inspect.combinedOutput,
+                        "Container: \(containerName)",
+                        "Required port: \(hostPort)"
+                    ].filter { !$0.isEmpty }.joined(separator: "\n\n")
                 )
             }
+
+            if runningContainerList.contains(containerName) {
+                let stop = processExecutor.run(executable: docker.executablePath, arguments: ["stop", containerName])
+                guard stop.exitCode == 0 else {
+                    return operationResult(
+                        profile: profile,
+                        kind: .prepare,
+                        status: .failed,
+                        startedAt: startedAt,
+                        message: "Could not stop the stale Kokoro service container.",
+                        recoverySuggestion: "Stop \(containerName) in Docker Desktop, then prepare again.",
+                        technicalDetails: [directoryLog, inspect.combinedOutput, stop.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                    )
+                }
+                containerRepairLog.append(stop.combinedOutput)
+            }
+
+            let remove = processExecutor.run(executable: docker.executablePath, arguments: ["rm", containerName])
+            guard remove.exitCode == 0 else {
+                return operationResult(
+                    profile: profile,
+                    kind: .prepare,
+                    status: .failed,
+                    startedAt: startedAt,
+                    message: "Could not replace the stale Kokoro service container.",
+                    recoverySuggestion: "Remove \(containerName) in Docker Desktop, then prepare again.",
+                    technicalDetails: [directoryLog, inspect.combinedOutput, remove.combinedOutput].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                )
+            }
+            containerRepairLog.append(remove.combinedOutput)
+            runningContainerList = []
+            containerList = []
+        }
+
+        let startResult: BackendProcessResult
+        if runningContainerList.contains(containerName) {
+            startResult = BackendProcessResult(exitCode: 0, combinedOutput: "\(containerName) is already running.")
+        } else if containerList.contains(containerName) {
+            startResult = processExecutor.run(executable: docker.executablePath, arguments: ["start", containerName])
+        } else {
             startResult = processExecutor.run(
                 executable: docker.executablePath,
                 arguments: [
@@ -355,7 +416,10 @@ internal struct BackendOperationExecutor {
             startedAt: startedAt,
             message: ready.state == .ready ? "\(profile.displayName) is ready to generate." : "Kokoro started, but did not become ready yet.",
             recoverySuggestion: ready.state == .ready ? nil : "Wait a moment, then run Health Check. If it still fails, inspect the backend logs.",
-            technicalDetails: ready.technicalDetails
+            technicalDetails: ([containerRepairLog.joined(separator: "\n")] + [ready.technicalDetails])
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
         )
     }
 
@@ -531,6 +595,10 @@ internal struct BackendOperationExecutor {
            !configured.isEmpty {
             return configured
         }
+        return defaultKokoroContainerName(for: profile)
+    }
+
+    private func defaultKokoroContainerName(for profile: BackendProfile) -> String {
         let suffix = backendStableIdentifier(profile.id).replacingOccurrences(of: "-", with: "_")
         return "vibevoice_batch_\(suffix)"
     }
@@ -549,6 +617,19 @@ internal struct BackendOperationExecutor {
             .map(String.init)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private func dockerContainerPublishesPort(
+        executable: String,
+        containerName: String,
+        port: Int
+    ) -> Bool {
+        let result = processExecutor.run(executable: executable, arguments: ["port", containerName, "\(port)/tcp"])
+        guard result.exitCode == 0 else { return false }
+        return result.combinedOutput
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains { $0.hasSuffix(":\(port)") }
     }
 
     private func servicePort(from url: URL) -> Int? {
