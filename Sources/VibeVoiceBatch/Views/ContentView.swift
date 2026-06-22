@@ -76,6 +76,9 @@ struct ContentView: View {
                 break
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .fonimWorkspaceDidChange)) { _ in
+            workspaceStore.refresh()
+        }
         .alert("Fonim", isPresented: alertBinding) {
             Button("Copy Details") {
                 copyAlertDetails()

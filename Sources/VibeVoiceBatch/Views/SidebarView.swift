@@ -12,7 +12,7 @@ struct SidebarView: View {
                 List(selection: $selection) {
                     Section("Workspace") {
                         sidebarRow(.projects, detail: "\(workspaceStore.projects.count)")
-                        sidebarRow(.scripts, detail: "\(workspaceStore.scripts.count)")
+                        sidebarRow(.scripts, detail: "\(workspaceStore.activeScripts.count)")
                         sidebarRow(.batches, detail: batchesDetail)
                     }
 
@@ -107,7 +107,7 @@ struct SidebarView: View {
             }
 
             HStack(spacing: 8) {
-                Text("\(workspaceStore.projects.count) projects  \(store.queuedGenerations.count) queued")
+                Text("\(workspaceStore.projects.count) projects  \(activeQueueCount) queued  \(store.sessions.count) generations")
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -129,11 +129,14 @@ struct SidebarView: View {
     }
 
     private var batchesDetail: String {
-        let queuedCount = store.queuedGenerations.filter { !$0.status.isTerminal }.count
-        if queuedCount > 0 {
-            return "\(queuedCount) active"
+        if activeQueueCount > 0 {
+            return "\(activeQueueCount) active"
         }
-        return "\(workspaceStore.batches.count)"
+        return "\(workspaceStore.uncompletedBatches.count)"
+    }
+
+    private var activeQueueCount: Int {
+        store.queuedGenerations.filter { !$0.status.isTerminal }.count
     }
 
     private func selectSection(_ section: WorkstationSection) {

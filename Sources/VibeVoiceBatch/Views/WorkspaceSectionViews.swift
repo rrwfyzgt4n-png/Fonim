@@ -313,6 +313,12 @@ struct ScriptsView: View {
     @EnvironmentObject private var appStore: AppStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
     @State private var importPreview: ScriptImportPreview?
+    @State private var projectTitle = ""
+    @State private var selectedProjectID = ""
+
+    private var activeScripts: [NarrationScript] {
+        workspaceStore.activeScripts
+    }
 
     var body: some View {
         WorkspaceListShell(
@@ -323,26 +329,16 @@ struct ScriptsView: View {
             emptyTitle: "No Scripts",
             emptyMessage: "Import a text file to create script chunks."
         ) {
-            HStack {
-                Button {
-                    chooseTextFile()
-                } label: {
-                    Label("Import TXT", systemImage: "square.and.arrow.down")
-                }
-                .buttonStyle(.borderedProminent)
-                Spacer()
-                Text("\(workspaceStore.scripts.count) scripts")
-                    .foregroundStyle(.secondary)
-            }
+            scriptImportControls
 
-            if workspaceStore.scripts.isEmpty {
+            if activeScripts.isEmpty {
                 EmptyWorkspaceView(
                     systemImage: "doc.text",
                     title: "No Scripts",
                     message: "Import a text file to create script chunks."
                 )
             } else {
-                ForEach(workspaceStore.scripts) { script in
+                ForEach(activeScripts) { script in
                     WorkspaceCard {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .firstTextBaseline) {
@@ -376,6 +372,50 @@ struct ScriptsView: View {
         .navigationTitle("Scripts")
     }
 
+    private var scriptImportControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button {
+                    chooseTextFile()
+                } label: {
+                    Label("Import TXT", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Spacer()
+
+                Text("\(activeScripts.count) active scripts")
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                TextField("Project name", text: $projectTitle)
+                    .textFieldStyle(.roundedBorder)
+
+                Button {
+                    if let project = workspaceStore.createProject(title: projectTitle) {
+                        selectedProjectID = project.id
+                        projectTitle = ""
+                    }
+                } label: {
+                    Label("Create Project", systemImage: "folder.badge.plus")
+                }
+                .disabled(projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if !workspaceStore.projects.isEmpty {
+                    Picker("File into", selection: $selectedProjectID) {
+                        Text("No Project").tag("")
+                        ForEach(workspaceStore.projects) { project in
+                            Text(project.title).tag(project.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 260)
+                }
+            }
+        }
+    }
+
     private func chooseTextFile() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -399,6 +439,7 @@ struct ScriptsView: View {
 
     private func saveImport(_ preview: ScriptImportPreview, shouldQueue: Bool) {
         let result = workspaceStore.importScriptBatch(
+            projectID: selectedProjectID.isEmpty ? nil : selectedProjectID,
             title: preview.title,
             chunks: preview.chunks,
             backendID: appStore.selectedBackendProfile.id,
@@ -412,7 +453,7 @@ struct ScriptsView: View {
         importPreview = nil
         guard let result else { return }
         if shouldQueue {
-            appStore.queueImportedScripts(result.scripts)
+            appStore.queueImportedScripts(result.scripts, batch: result.batch)
         } else {
             appStore.statusMessage = "Imported \(result.scripts.count) scripts"
         }
@@ -421,9 +462,10 @@ struct ScriptsView: View {
 
 struct BatchesView: View {
     @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
 
     private var orderedQueueItems: [QueuedGenerationItem] {
-        appStore.queuedGenerations.sorted { lhs, rhs in
+        appStore.queuedGenerations.filter { !$0.status.isTerminal }.sorted { lhs, rhs in
             let lhsRank = queueRank(lhs.status)
             let rhsRank = queueRank(rhs.status)
             if lhsRank != rhsRank {
@@ -450,6 +492,7 @@ struct BatchesView: View {
 
                 BatchQueueSummaryStrip(items: orderedQueueItems)
                 BatchQueueControlRow(items: orderedQueueItems)
+                ImportedBatchCleanupSection(batches: workspaceStore.uncompletedBatches)
 
                 if orderedQueueItems.isEmpty {
                     EmptyWorkspaceView(
@@ -506,17 +549,12 @@ private struct BatchQueueSummaryStrip: View {
         items.filter { $0.status == .paused }.count
     }
 
-    private var finishedCount: Int {
-        items.filter(\.status.isTerminal).count
-    }
-
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
                 BatchQueueMetric(title: "Running", value: "\(runningCount)")
                 BatchQueueMetric(title: "Waiting", value: "\(waitingCount)")
                 BatchQueueMetric(title: "Paused", value: "\(pausedCount)")
-                BatchQueueMetric(title: "Finished", value: "\(finishedCount)")
                 Spacer(minLength: 0)
             }
 
@@ -528,7 +566,51 @@ private struct BatchQueueSummaryStrip: View {
                 BatchQueueMetric(title: "Running", value: "\(runningCount)")
                 BatchQueueMetric(title: "Waiting", value: "\(waitingCount)")
                 BatchQueueMetric(title: "Paused", value: "\(pausedCount)")
-                BatchQueueMetric(title: "Finished", value: "\(finishedCount)")
+            }
+        }
+    }
+}
+
+private struct ImportedBatchCleanupSection: View {
+    @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var workspaceStore: WorkspaceStore
+    let batches: [NarrationBatch]
+
+    var body: some View {
+        if !batches.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Imported Batches")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                ForEach(batches) { batch in
+                    WorkspaceCard {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(batch.title)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                Text("\(batch.items.count) script chunks")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            WorkspaceStatusBadge(status: batch.status)
+
+                            Button(role: .destructive) {
+                                appStore.cancelQueuedGenerations(batchID: batch.id)
+                                workspaceStore.deleteUncompletedBatch(batch)
+                            } label: {
+                                Label("Delete Batch", systemImage: "trash")
+                            }
+                            .disabled(batch.status == .completed)
+                            .help("Delete this uncompleted imported batch and remove its queued script chunks")
+                        }
+                    }
+                }
             }
         }
     }

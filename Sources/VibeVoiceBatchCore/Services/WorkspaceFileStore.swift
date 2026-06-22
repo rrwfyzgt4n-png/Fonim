@@ -344,6 +344,31 @@ public final class WorkspaceFileStore {
         try fileManager.removeItem(at: generationPresetURL(id))
     }
 
+    public func deleteUncompletedBatch(id: String, now: Date = Date()) throws {
+        let batch = try loadBatch(id: id)
+        guard batch.status != .completed else {
+            throw WorkspaceError.cannotDeleteCompletedBatch(id: batch.id, title: batch.title)
+        }
+
+        let scriptIDs = Set(batch.items.map(\.scriptID))
+        if let projectID = batch.projectID {
+            var project = try loadProject(id: projectID)
+            project.batchIDs.removeAll { $0 == batch.id }
+            project.scriptIDs.removeAll { scriptIDs.contains($0) }
+            project.updatedAt = now
+            try saveProject(project)
+        }
+
+        for scriptID in scriptIDs {
+            let url = scriptURL(scriptID)
+            if fileManager.fileExists(atPath: url.path) {
+                try fileManager.removeItem(at: url)
+            }
+        }
+
+        try fileManager.removeItem(at: batchURL(batch.id))
+    }
+
     public func updateScriptText(id: String, text: String, now: Date = Date()) throws -> NarrationScript {
         var script = try loadScript(id: id)
         script.text = text

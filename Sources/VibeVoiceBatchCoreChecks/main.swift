@@ -1376,6 +1376,32 @@ struct VibeVoiceBatchCoreChecks {
             baseTitle: "Imported File"
         )
         precondition(importedChunks.count == 2)
+        let timestampedChunks = ScriptChunker.chunks(
+            from: """
+            # Header
+
+            **[COLD OPEN — not timestamped]**
+
+            Drop this text.
+
+            **[~9:30 — exiting Candiac toward St-Philippe]**
+
+            Keep this narration.
+
+            **[~11:00 — final stretch before the trash truck]**
+
+            Keep this narration too.
+
+            ---
+
+            *[END — not narration]*
+            """,
+            baseTitle: "Timestamped File"
+        )
+        precondition(timestampedChunks.count == 2)
+        precondition(timestampedChunks[0].title.contains("~9:30"))
+        precondition(timestampedChunks[0].text == "Keep this narration.")
+        precondition(!timestampedChunks.map(\.text).joined().contains("COLD OPEN"))
         let imported = try workspaceStore.createScriptBatch(
             title: "Imported File",
             chunks: importedChunks,
@@ -1388,6 +1414,8 @@ struct VibeVoiceBatchCoreChecks {
         precondition(imported.scripts.count == 2)
         precondition(imported.scripts.first?.defaultBackendID == BackendProfiles.kokoroTTS.id)
         precondition(imported.batch.items.count == 2)
+        try workspaceStore.deleteUncompletedBatch(id: imported.batch.id)
+        precondition(!FileManager.default.fileExists(atPath: root.batchesDirectory.appendingPathComponent("\(imported.batch.id).json").path))
 
         let firstRun = try sessionStore.createDraft(
             text: script.text,
@@ -1448,15 +1476,15 @@ struct VibeVoiceBatchCoreChecks {
 
         let snapshot = try workspaceStore.loadSnapshot()
         precondition(snapshot.projects.count == 1)
-        precondition(snapshot.scripts.count == 4)
-        precondition(snapshot.batches.count == 2)
+        precondition(snapshot.scripts.count == 2)
+        precondition(snapshot.batches.count == 1)
 
         do {
             _ = try workspaceStore.createScript(projectID: "missing-project", title: "Orphan", text: "Nope")
             throw CheckError("Expected missing project to fail")
         } catch is CocoaError {
             let scriptCount = try workspaceStore.loadScripts().count
-            precondition(scriptCount == 4)
+            precondition(scriptCount == 2)
         }
 
         do {
@@ -1464,7 +1492,7 @@ struct VibeVoiceBatchCoreChecks {
             throw CheckError("Expected missing script to fail")
         } catch is CocoaError {
             let batchCount = try workspaceStore.loadBatches().count
-            precondition(batchCount == 2)
+            precondition(batchCount == 1)
         }
     }
 
@@ -1988,12 +2016,17 @@ struct VibeVoiceBatchCoreChecks {
         let app = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/App/VibeVoiceBatchApp.swift"), encoding: .utf8)
         let stores = root.appendingPathComponent("Sources/VibeVoiceBatch/Stores", isDirectory: true)
         let settingsStore = try String(contentsOf: stores.appendingPathComponent("SettingsStore.swift"), encoding: .utf8)
+        let workspaceStore = try String(contentsOf: stores.appendingPathComponent("WorkspaceStore.swift"), encoding: .utf8)
         let appStore = try String(contentsOf: stores.appendingPathComponent("AppStore.swift"), encoding: .utf8)
         let appStoreScriptQueue = try String(contentsOf: stores.appendingPathComponent("AppStore+ScriptQueue.swift"), encoding: .utf8)
+        let workspaceFileStore = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/WorkspaceFileStore.swift"), encoding: .utf8)
+        let scriptChunker = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/ScriptChunker.swift"), encoding: .utf8)
 
         precondition(sidebar.contains("Section(\"Generation\")"))
         precondition(sidebar.contains("ForEach(store.sessions)"))
         precondition(sidebar.contains("HistorySidebarRow"))
+        precondition(sidebar.contains("workspaceStore.activeScripts.count"))
+        precondition(sidebar.contains("generations"))
         precondition(!sidebar.contains("selectionBackground"))
 
         precondition(inspector.contains("private var inspectorHeader"))
@@ -2036,11 +2069,22 @@ struct VibeVoiceBatchCoreChecks {
         precondition(workspaceSections.contains("Resume Queue"))
         precondition(workspaceSections.contains("Paused"))
         precondition(workspaceSections.contains("Label(\"Import TXT\""))
+        precondition(workspaceSections.contains("TextField(\"Project name\""))
+        precondition(workspaceSections.contains("Label(\"Create Project\""))
+        precondition(workspaceSections.contains("ImportedBatchCleanupSection"))
+        precondition(workspaceSections.contains("Delete Batch"))
         precondition(workspaceSections.contains("ScriptChunker.chunks"))
         precondition(scriptImportSheet.contains("Save and Queue"))
         precondition(scriptImportSheet.contains("ScriptImportSheet"))
         precondition(appStoreScriptQueue.contains("queueImportedScripts"))
+        precondition(appStoreScriptQueue.contains("finishWorkspaceQueueItem"))
+        precondition(appStoreScriptQueue.contains("cancelQueuedGenerations"))
         precondition(appStoreScriptQueue.contains("enqueueGeneration"))
+        precondition(workspaceStore.contains("var activeScripts"))
+        precondition(workspaceStore.contains("func createProject(title: String)"))
+        precondition(workspaceStore.contains("func deleteUncompletedBatch"))
+        precondition(workspaceFileStore.contains("deleteUncompletedBatch"))
+        precondition(scriptChunker.contains("timestampMarkerTitle"))
         precondition(workspaceSections.contains("No Queued Generations"))
         precondition(!workspaceSections.contains("Saved Batches"))
         precondition(content.contains("Pause Queue"))

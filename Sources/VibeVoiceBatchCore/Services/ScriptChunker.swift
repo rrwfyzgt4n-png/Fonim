@@ -20,6 +20,11 @@ public enum ScriptChunker {
         baseTitle: String = "Imported Script",
         preferredMaxWords: Int = 220
     ) -> [ScriptChunk] {
+        let timestamped = timestampedChunks(from: text, preferredMaxWords: preferredMaxWords)
+        if !timestamped.isEmpty {
+            return timestamped
+        }
+
         let blocks = naturalBlocks(from: text)
         let expanded = blocks.flatMap { splitLargeBlock($0, preferredMaxWords: preferredMaxWords) }
         return expanded.enumerated().map { index, block in
@@ -53,6 +58,55 @@ public enum ScriptChunker {
         return blocks
     }
 
+    private static func timestampedChunks(from text: String, preferredMaxWords: Int) -> [ScriptChunk] {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        var chunks: [ScriptChunk] = []
+        var currentTitle: String?
+        var currentLines: [String] = []
+
+        func flush() {
+            guard let currentTitle else {
+                currentLines.removeAll(keepingCapacity: true)
+                return
+            }
+            let body = currentLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !body.isEmpty else {
+                currentLines.removeAll(keepingCapacity: true)
+                return
+            }
+
+            let splitBody = splitLargeBlock(body, preferredMaxWords: preferredMaxWords)
+            if splitBody.count == 1 {
+                chunks.append(ScriptChunk(title: currentTitle, text: body))
+            } else {
+                for (index, text) in splitBody.enumerated() {
+                    chunks.append(ScriptChunk(title: "\(currentTitle) \(index + 1)", text: text))
+                }
+            }
+            currentLines.removeAll(keepingCapacity: true)
+        }
+
+        for line in normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if let title = timestampMarkerTitle(from: line) {
+                flush()
+                currentTitle = title
+                continue
+            }
+            if isMarkdownMarkerLine(line) || isDelimiterLine(line) {
+                flush()
+                currentTitle = nil
+                continue
+            }
+            if currentTitle != nil {
+                currentLines.append(line)
+            }
+        }
+        flush()
+        return chunks
+    }
+
     private static func splitLargeBlock(_ block: String, preferredMaxWords: Int) -> [String] {
         guard TextMetrics.wordCount(in: block) > preferredMaxWords else { return [block] }
         let sentences = block.components(separatedBy: CharacterSet(charactersIn: ".!?"))
@@ -82,6 +136,21 @@ public enum ScriptChunker {
         guard trimmed.count >= 3 else { return false }
         let delimiterCharacters = CharacterSet(charactersIn: "-_*=")
         return trimmed.unicodeScalars.allSatisfy { delimiterCharacters.contains($0) }
+    }
+
+    private static func isMarkdownMarkerLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("**[") && trimmed.hasSuffix("]**")
+    }
+
+    private static func timestampMarkerTitle(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("**["), trimmed.hasSuffix("]**") else { return nil }
+        let inner = String(trimmed.dropFirst(3).dropLast(3))
+        guard inner.range(of: #"~?\d{1,2}:\d{2}"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return inner.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func title(for text: String, baseTitle: String, index: Int) -> String {

@@ -37,6 +37,9 @@ struct QueuedGenerationItem: Identifiable, Equatable {
     let voice: String
     let cfgScale: String
     let ddpmInferenceSteps: Int
+    var scriptID: String?
+    var batchID: String?
+    var batchItemID: String?
     var status: QueuedGenerationStatus
     var sessionID: String?
     var startedAt: Date?
@@ -49,13 +52,21 @@ struct QueuedGenerationItem: Identifiable, Equatable {
     var estimatedRemainingSeconds: TimeInterval?
     var errorMessage: String?
 
-    init(job: GenerationJob) {
+    init(
+        job: GenerationJob,
+        scriptID: String? = nil,
+        batchID: String? = nil,
+        batchItemID: String? = nil
+    ) {
         id = job.id
         createdAt = job.createdAt
         sourceText = job.inputText
         voice = job.voiceID
         cfgScale = job.settings.cfgScale
         ddpmInferenceSteps = job.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
+        self.scriptID = scriptID
+        self.batchID = batchID
+        self.batchItemID = batchItemID
         status = .queued
         sessionID = nil
         startedAt = nil

@@ -24,7 +24,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var isRefreshingBackendStatus = false
     @Published private(set) var activeBackendOperation: BackendOperationKind?
     @Published private(set) var isPreparingGeneration = false
-    @Published private(set) var queuedGenerations: [QueuedGenerationItem] = []
+    @Published var queuedGenerations: [QueuedGenerationItem] = []
     @Published private(set) var isQueuePaused = false
     @Published var selectedQueueItemID: String?
     @Published var selectedOutputSessionIDs: Set<String> = []
@@ -487,7 +487,10 @@ final class AppStore: ObservableObject {
         cfgScale: String,
         ddpmInferenceSteps: Int,
         backendID: String? = nil,
-        modelID: String? = nil
+        modelID: String? = nil,
+        scriptID: String? = nil,
+        batchID: String? = nil,
+        batchItemID: String? = nil
     ) {
         let backendProfile = backendID.map { settingsStore.backendProfile(id: $0) } ?? selectedBackendProfile
         let enqueued = generationQueueCoordinator.enqueue(
@@ -497,7 +500,10 @@ final class AppStore: ObservableObject {
             voice: voice,
             cfgScale: cfgScale,
             ddpmInferenceSteps: ddpmInferenceSteps,
-            extraParameters: settingsStore.settings.generationExtraParameters(for: backendProfile)
+            extraParameters: settingsStore.settings.generationExtraParameters(for: backendProfile),
+            scriptID: scriptID,
+            batchID: batchID,
+            batchItemID: batchItemID
         )
         let job = enqueued.job
         queuedGenerations.append(isQueuePaused ? generationQueueCoordinator.pausedItem(from: enqueued.item) : enqueued.item)
@@ -811,6 +817,7 @@ final class AppStore: ObservableObject {
     private func completeGeneration(record: GenerationRecord) {
         let finalElapsed = record.completedAt?.timeIntervalSince(record.createdAt) ?? elapsedSeconds
         let completedJobID = activeJobID
+        var completedItem: QueuedGenerationItem?
         if activeSessionID == nil {
             activeSessionID = record.id
         }
@@ -830,8 +837,10 @@ final class AppStore: ObservableObject {
                 item.elapsedSeconds = finalElapsed
                 item.statusMessage = record.status.displayName
                 item.errorMessage = record.error?.explanation
+                completedItem = item
             }
         }
+        if let completedItem { finishWorkspaceQueueItem(completedItem, record: record) }
         let logText = progressCoordinator.liveLog(sessionID: sessionID, fallback: record.logs)
         progressCoordinator.finish(
             logText: logText,

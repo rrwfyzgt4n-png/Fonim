@@ -52,6 +52,7 @@ public enum WorkspacePresetKind: String, Codable, Equatable, Sendable {
 
 public enum WorkspaceError: Error, Equatable, Sendable {
     case cannotDeleteBuiltInPreset(kind: WorkspacePresetKind, id: String, displayName: String)
+    case cannotDeleteCompletedBatch(id: String, title: String)
     case missingBatchItem(batchID: String, itemID: String)
 }
 
@@ -60,6 +61,8 @@ extension WorkspaceError: AppRecoverableError {
         switch self {
         case .cannotDeleteBuiltInPreset(let kind, _, _):
             return "Built-in \(kind.displayName) cannot be deleted"
+        case .cannotDeleteCompletedBatch:
+            return "Completed batch cannot be deleted here"
         case .missingBatchItem:
             return "Batch item not found"
         }
@@ -69,6 +72,8 @@ extension WorkspaceError: AppRecoverableError {
         switch self {
         case .cannotDeleteBuiltInPreset(_, _, let displayName):
             return "\(displayName) is included with the app and is protected."
+        case .cannotDeleteCompletedBatch(_, let title):
+            return "\(title) has completed. Use History or Outputs for generated audio housekeeping."
         case .missingBatchItem:
             return "The selected batch item no longer exists in this workspace."
         }
@@ -78,6 +83,8 @@ extension WorkspaceError: AppRecoverableError {
         switch self {
         case .cannotDeleteBuiltInPreset:
             return "Duplicate it first if you want a custom copy."
+        case .cannotDeleteCompletedBatch:
+            return "Only queued, running, failed, or cancelled batches can be removed from this workspace list."
         case .missingBatchItem:
             return "Refresh the workspace, then choose an available batch item."
         }
@@ -87,6 +94,8 @@ extension WorkspaceError: AppRecoverableError {
         switch self {
         case .cannotDeleteBuiltInPreset(let kind, let id, _):
             return "Protected \(kind.rawValue) preset id: \(id)"
+        case .cannotDeleteCompletedBatch(let id, _):
+            return "Completed batch id: \(id)"
         case .missingBatchItem(let batchID, let itemID):
             return "Batch id: \(batchID)\nItem id: \(itemID)"
         }

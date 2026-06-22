@@ -17,7 +17,10 @@ final class AppGenerationQueueCoordinator {
         voice: String,
         cfgScale: String,
         ddpmInferenceSteps: Int,
-        extraParameters: [String: String]
+        extraParameters: [String: String],
+        scriptID: String? = nil,
+        batchID: String? = nil,
+        batchItemID: String? = nil
     ) -> (job: GenerationJob, item: QueuedGenerationItem) {
         let job = GenerationJob(
             inputText: text,
@@ -31,7 +34,7 @@ final class AppGenerationQueueCoordinator {
             )
         )
         queuedJobPayloads[job.id] = job
-        return (job, QueuedGenerationItem(job: job))
+        return (job, QueuedGenerationItem(job: job, scriptID: scriptID, batchID: batchID, batchItemID: batchItemID))
     }
 
     func nextQueuedJob(from items: [QueuedGenerationItem]) -> GenerationJob? {

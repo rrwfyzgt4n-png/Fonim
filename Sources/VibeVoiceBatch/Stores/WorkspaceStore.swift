@@ -17,6 +17,14 @@ final class WorkspaceStore: ObservableObject {
         self.fileStore = fileStore
     }
 
+    var activeScripts: [NarrationScript] {
+        scripts.filter { $0.status.isActiveWorkspaceItem }
+    }
+
+    var uncompletedBatches: [NarrationBatch] {
+        batches.filter { $0.status != .completed && $0.status != .archived }
+    }
+
     func refresh() {
         guard !isRefreshing else { return }
         isRefreshing = true
@@ -46,7 +54,23 @@ final class WorkspaceStore: ObservableObject {
     }
 
     @discardableResult
+    func createProject(title: String) -> NarrationProject? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            let project = try fileStore.createProject(title: trimmed)
+            refresh()
+            alertMessage = nil
+            return project
+        } catch {
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not create project")
+            return nil
+        }
+    }
+
+    @discardableResult
     func importScriptBatch(
+        projectID: String? = nil,
         title: String,
         chunks: [ScriptChunk],
         backendID: String,
@@ -56,6 +80,7 @@ final class WorkspaceStore: ObservableObject {
     ) -> ScriptImportResult? {
         do {
             let result = try fileStore.createScriptBatch(
+                projectID: projectID,
                 title: title,
                 chunks: chunks,
                 backendID: backendID,
@@ -70,6 +95,16 @@ final class WorkspaceStore: ObservableObject {
         } catch {
             alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not import script")
             return nil
+        }
+    }
+
+    func deleteUncompletedBatch(_ batch: NarrationBatch) {
+        do {
+            try fileStore.deleteUncompletedBatch(id: batch.id)
+            refresh()
+            alertMessage = nil
+        } catch {
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not delete batch")
         }
     }
 
@@ -209,5 +244,11 @@ final class WorkspaceStore: ObservableObject {
         } catch {
             alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not delete preset")
         }
+    }
+}
+
+private extension WorkspaceItemStatus {
+    var isActiveWorkspaceItem: Bool {
+        self != .completed && self != .cancelled && self != .archived
     }
 }
