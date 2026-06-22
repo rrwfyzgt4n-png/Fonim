@@ -3,6 +3,7 @@ import VibeVoiceBatchCore
 
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
     @Binding var selection: WorkstationSelection?
 
@@ -17,7 +18,7 @@ struct SidebarView: View {
                     }
 
                     Section("Library") {
-                        sidebarRow(.voices, detail: "\(workspaceStore.voicePresets.count)")
+                        sidebarRow(.voices, detail: "\(VoiceLibrarySummary.catalogVoiceCount(settingsStore: settingsStore))")
                         sidebarRow(.presets, detail: "\(workspaceStore.generationPresets.count)")
                     }
 

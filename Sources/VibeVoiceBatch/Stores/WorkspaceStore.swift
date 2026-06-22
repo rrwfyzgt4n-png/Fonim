@@ -98,6 +98,40 @@ final class WorkspaceStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func createProjectRebatch(
+        project: NarrationProject,
+        scripts: [NarrationScript],
+        backendID: String,
+        modelID: String,
+        voice: String,
+        settings: GenerationSettings
+    ) -> ScriptImportResult? {
+        let chunks = scripts
+            .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { ScriptChunk(title: $0.title, text: $0.text) }
+        guard !chunks.isEmpty else { return nil }
+
+        do {
+            let result = try fileStore.createScriptBatch(
+                projectID: project.id,
+                title: "\(project.title) Re-batch",
+                chunks: chunks,
+                backendID: backendID,
+                modelID: modelID,
+                voice: voice,
+                settings: settings,
+                notes: "Re-batched from project scripts using current generation settings."
+            )
+            refresh()
+            alertMessage = nil
+            return result
+        } catch {
+            alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not re-batch project")
+            return nil
+        }
+    }
+
     func deleteUncompletedBatch(_ batch: NarrationBatch) {
         do {
             try fileStore.deleteUncompletedBatch(id: batch.id)

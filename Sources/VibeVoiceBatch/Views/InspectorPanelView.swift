@@ -101,7 +101,8 @@ struct InspectorPanelView: View {
     private var voiceLibraryInspectorContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             InspectorGroup(title: "Voice Library") {
-                InspectorValue(label: "Saved profiles", value: "\(workspaceStore.voicePresets.count)")
+                InspectorValue(label: "Catalog voices", value: "\(VoiceLibrarySummary.catalogVoiceCount(settingsStore: settingsStore))")
+                InspectorValue(label: "Saved voice profiles", value: "\(workspaceStore.voicePresets.count)")
                 InspectorValue(label: "VibeVoice voices", value: "\(settingsStore.voiceOptions(for: BackendProfiles.vibeVoiceTTS).count)")
                 InspectorValue(label: "Kokoro voices", value: "\(settingsStore.voiceOptions(for: BackendProfiles.kokoroTTS).count)")
                 InspectorValue(label: "Chatterbox voices", value: "\(settingsStore.voiceOptions(for: BackendProfiles.chatterboxTTS).count)")
@@ -298,7 +299,8 @@ struct InspectorPanelView: View {
             }
         case .section(.voices):
             InspectorGroup(title: "Voices") {
-                InspectorValue(label: "Available", value: "\(workspaceStore.voicePresets.count)")
+                InspectorValue(label: "Catalog voices", value: "\(VoiceLibrarySummary.catalogVoiceCount(settingsStore: settingsStore))")
+                InspectorValue(label: "Saved voice profiles", value: "\(workspaceStore.voicePresets.count)")
                 InspectorVoiceValue(label: "Selected", voiceID: store.selectedVoice)
             }
         case .section(.presets):

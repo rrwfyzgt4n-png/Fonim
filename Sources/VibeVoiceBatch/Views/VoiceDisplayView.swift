@@ -70,7 +70,12 @@ enum VoiceDisplayFormatter {
         var parts = rawParts
         var inferredLanguageCode: String?
         var explicitGender = genderTrait(in: traits)
-        if let first = parts.first?.lowercased(), let kokoro = kokoroVoicePrefix(first) {
+        if let vibeVoiceLanguage = AppDefaults.languageCode(forVibeVoiceVoiceID: filenameStem) {
+            inferredLanguageCode = vibeVoiceLanguage
+            if let first = parts.first?.lowercased(), isLanguageCode(first) || ["in", "jp", "kr", "sp"].contains(first) {
+                parts.removeFirst()
+            }
+        } else if let first = parts.first?.lowercased(), let kokoro = kokoroVoicePrefix(first) {
             inferredLanguageCode = kokoro.languageCode
             explicitGender = kokoro.gender
             parts.removeFirst()

@@ -42,7 +42,10 @@ extension AppStore {
 
         do {
             if record.status == .completed, let scriptID = item.scriptID {
-                _ = try workspaceFileStore.appendGenerationSession(record.id, toScript: scriptID)
+                let script = try workspaceFileStore.appendGenerationSession(record.id, toScript: scriptID)
+                if let projectID = script.projectID {
+                    _ = try workspaceFileStore.attachGenerationSessions([record.id], toProject: projectID)
+                }
                 didUpdateWorkspace = true
             }
 

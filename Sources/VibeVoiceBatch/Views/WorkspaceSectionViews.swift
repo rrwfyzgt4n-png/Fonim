@@ -157,6 +157,25 @@ private struct ProjectDetailPane: View {
             Text(project.notes.isEmpty ? "No notes." : project.notes)
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
+
+            HStack {
+                Button {
+                    rebatchProject(project)
+                } label: {
+                    Label("Re-batch Current Settings", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(scripts.isEmpty)
+                .help("Create and queue a new batch from this project's scripts using the current generation settings.")
+
+                Spacer()
+
+                if !scripts.isEmpty {
+                    VoiceInlineLabel(voiceID: appStore.selectedVoice, compact: true)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 4)
         }
     }
 
@@ -237,6 +256,24 @@ private struct ProjectDetailPane: View {
             }
             return total + UInt64(max(0, fileSize))
         }
+    }
+
+    private func rebatchProject(_ project: NarrationProject) {
+        let settings = GenerationSettings(
+            cfgScale: appStore.cfgScale,
+            ddpmInferenceSteps: appStore.ddpmInferenceSteps
+        )
+        guard let result = workspaceStore.createProjectRebatch(
+            project: project,
+            scripts: scripts,
+            backendID: appStore.selectedBackendProfile.id,
+            modelID: appStore.selectedModelID,
+            voice: appStore.selectedVoice,
+            settings: settings
+        ) else {
+            return
+        }
+        appStore.queueImportedScripts(result.scripts, batch: result.batch)
     }
 }
 
@@ -928,7 +965,7 @@ struct VoicesView: View {
 
     private var footer: some View {
         HStack {
-            Text("\(voiceItems.filter { !$0.isSavedProfile }.count) voices")
+            Text(VoiceLibrarySummary.label(settingsStore: settingsStore))
                 .foregroundStyle(.secondary)
 
             Spacer()
@@ -937,7 +974,7 @@ struct VoicesView: View {
                 guard let selectedItem else { return }
                 saveVoiceProfile(selectedItem)
             } label: {
-                Label("Save Profile", systemImage: "plus")
+                Label("Save Voice Profile", systemImage: "plus")
             }
             .disabled(selectedItem == nil)
         }
@@ -1213,7 +1250,7 @@ private struct VoiceLibraryDetailPane: View {
                                 Button {
                                     saveProfile(item)
                                 } label: {
-                                    Label("Save Profile", systemImage: "plus")
+                                    Label("Save Voice Profile", systemImage: "plus")
                                 }
                                 .buttonStyle(.borderedProminent)
                             }
