@@ -158,24 +158,8 @@ private struct ProjectDetailPane: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
 
-            HStack {
-                Button {
-                    rebatchProject(project)
-                } label: {
-                    Label("Re-batch Current Settings", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .disabled(scripts.isEmpty)
-                .help("Create and queue a new batch from this project's scripts using the current generation settings.")
-
-                Spacer()
-
-                if !scripts.isEmpty {
-                    VoiceInlineLabel(voiceID: appStore.selectedVoice, compact: true)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.top, 4)
+            ProjectRebatchControls(project: project, scripts: scripts)
+                .padding(.top, 4)
         }
     }
 
@@ -258,23 +242,6 @@ private struct ProjectDetailPane: View {
         }
     }
 
-    private func rebatchProject(_ project: NarrationProject) {
-        let settings = GenerationSettings(
-            cfgScale: appStore.cfgScale,
-            ddpmInferenceSteps: appStore.ddpmInferenceSteps
-        )
-        guard let result = workspaceStore.createProjectRebatch(
-            project: project,
-            scripts: scripts,
-            backendID: appStore.selectedBackendProfile.id,
-            modelID: appStore.selectedModelID,
-            voice: appStore.selectedVoice,
-            settings: settings
-        ) else {
-            return
-        }
-        appStore.queueImportedScripts(result.scripts, batch: result.batch)
-    }
 }
 
 private struct ProjectOutputRow: View {
@@ -1430,6 +1397,8 @@ struct PresetsView: View {
 
                     Button {
                         if let preset = workspaceStore.saveGenerationPreset(
+                            backendID: appStore.selectedBackendProfile.id,
+                            modelID: appStore.selectedModelID,
                             voiceID: appStore.selectedVoice,
                             cfgScale: appStore.cfgScale,
                             ddpmInferenceSteps: appStore.ddpmInferenceSteps,

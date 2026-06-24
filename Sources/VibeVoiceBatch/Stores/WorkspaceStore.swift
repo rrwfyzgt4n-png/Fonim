@@ -185,6 +185,8 @@ final class WorkspaceStore: ObservableObject {
 
     @discardableResult
     func saveGenerationPreset(
+        backendID: String,
+        modelID: String,
         voiceID: String,
         cfgScale: String,
         ddpmInferenceSteps: Int,
@@ -195,6 +197,8 @@ final class WorkspaceStore: ObservableObject {
             let voicePresetID = voicePresets.first { $0.voiceID == voiceID }?.id
             let preset = try fileStore.createGenerationPreset(
                 title: title,
+                backendID: backendID,
+                modelID: modelID,
                 voicePresetID: voicePresetID,
                 voiceID: voiceID,
                 settings: GenerationSettings(
