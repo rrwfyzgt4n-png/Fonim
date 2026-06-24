@@ -190,7 +190,8 @@ final class WorkspaceStore: ObservableObject {
         voiceID: String,
         cfgScale: String,
         ddpmInferenceSteps: Int,
-        outputFormat: AudioOutputFormat
+        outputFormat: AudioOutputFormat,
+        extraParameters: [String: String] = [:]
     ) -> NarrationGenerationPreset? {
         do {
             let title = "Preset \(SessionFormatters.sessionIDDateFormatter.string(from: Date()))"
@@ -203,7 +204,8 @@ final class WorkspaceStore: ObservableObject {
                 voiceID: voiceID,
                 settings: GenerationSettings(
                     cfgScale: cfgScale,
-                    ddpmInferenceSteps: ddpmInferenceSteps
+                    ddpmInferenceSteps: ddpmInferenceSteps,
+                    extraParameters: extraParameters
                 ),
                 outputFormat: outputFormat
             )

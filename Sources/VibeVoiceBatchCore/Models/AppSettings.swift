@@ -293,6 +293,35 @@ public struct AppSettings: Codable, Equatable, Sendable {
         return parameters
     }
 
+    public mutating func applyGenerationExtraParameters(_ parameters: [String: String], for profile: BackendProfile) {
+        guard profile.engineType == .chatterbox else { return }
+        if let value = Self.doubleParameter("temperature", in: parameters) { chatterboxTemperature = value }
+        if let value = Self.doubleParameter("exaggeration", in: parameters) { chatterboxExaggeration = value }
+        if let value = Self.doubleParameter("cfg_weight", in: parameters) { chatterboxCFGWeight = value }
+        if let value = Self.integerParameter("seed", in: parameters) { chatterboxSeed = value }
+        if let value = Self.doubleParameter("speed_factor", in: parameters) { chatterboxSpeedFactor = value }
+        if let value = parameters["language"]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            chatterboxLanguage = value.lowercased()
+        }
+        if let value = Self.booleanParameter("split_text", in: parameters) { chatterboxSplitText = value }
+        if let value = Self.integerParameter("chunk_size", in: parameters) { chatterboxChunkSize = value }
+    }
+
+    private static func doubleParameter(_ key: String, in parameters: [String: String]) -> Double? {
+        parameters[key].flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    private static func integerParameter(_ key: String, in parameters: [String: String]) -> Int? {
+        parameters[key].flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    private static func booleanParameter(_ key: String, in parameters: [String: String]) -> Bool? {
+        guard let value = parameters[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else { return nil }
+        if ["true", "yes", "1"].contains(value) { return true }
+        if ["false", "no", "0"].contains(value) { return false }
+        return nil
+    }
+
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
         case defaultBackendID

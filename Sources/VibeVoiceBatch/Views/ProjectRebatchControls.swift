@@ -3,6 +3,7 @@ import VibeVoiceBatchCore
 
 struct ProjectRebatchControls: View {
     @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
     @State private var settingsSource = ProjectRebatchSettingsSource.current
     @State private var selectedPresetID: String?
@@ -112,7 +113,8 @@ struct ProjectRebatchControls: View {
                 voiceID: appStore.selectedVoice,
                 settings: GenerationSettings(
                     cfgScale: appStore.cfgScale,
-                    ddpmInferenceSteps: appStore.ddpmInferenceSteps
+                    ddpmInferenceSteps: appStore.ddpmInferenceSteps,
+                    extraParameters: settingsStore.settings.generationExtraParameters(for: appStore.selectedBackendProfile)
                 )
             )
         case .generationPreset:

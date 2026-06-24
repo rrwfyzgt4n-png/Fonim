@@ -1402,7 +1402,8 @@ struct PresetsView: View {
                             voiceID: appStore.selectedVoice,
                             cfgScale: appStore.cfgScale,
                             ddpmInferenceSteps: appStore.ddpmInferenceSteps,
-                            outputFormat: settingsStore.settings.exportFormat
+                            outputFormat: settingsStore.settings.exportFormat,
+                            extraParameters: settingsStore.settings.generationExtraParameters(for: appStore.selectedBackendProfile)
                         ) {
                             selectedPresetID = preset.id
                             appStore.statusMessage = "Saved generation preset: \(preset.displayName)"
@@ -1558,6 +1559,21 @@ private struct GenerationPresetDetailPane: View {
                                 DetailGridRow("DDPM steps", preset.settings.ddpmInferenceSteps.map(String.init) ?? "n/a")
                                 DetailGridRow("Format", preset.outputFormat.rawValue.uppercased())
                                 DetailGridRow("Updated", SessionFormatters.displayDateFormatter.string(from: preset.updatedAt))
+                            }
+
+                            if !preset.settings.extraParameters.isEmpty {
+                                Divider()
+
+                                Text("Advanced Parameters")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .textCase(.uppercase)
+
+                                DetailGrid {
+                                    ForEach(preset.settings.extraParameters.sorted { $0.key < $1.key }, id: \.key) { parameter in
+                                        DetailGridRow(parameter.key, parameter.value)
+                                    }
+                                }
                             }
                         }
                     }

@@ -1600,7 +1600,15 @@ struct VibeVoiceBatchCoreChecks {
             title: "Long Form Warm",
             voicePresetID: voicePreset.id,
             voiceID: voicePreset.voiceID,
-            settings: GenerationSettings(cfgScale: "1.9", ddpmInferenceSteps: 9),
+            settings: GenerationSettings(
+                cfgScale: "1.9",
+                ddpmInferenceSteps: 9,
+                extraParameters: [
+                    "temperature": "1.15",
+                    "exaggeration": "1.4",
+                    "split_text": "false"
+                ]
+            ),
             outputFormat: .wav,
             now: createdAt
         )
@@ -1608,6 +1616,8 @@ struct VibeVoiceBatchCoreChecks {
         precondition(generationPreset.voicePresetID == voicePreset.id)
         precondition(generationPreset.settings.cfgScale == "1.9")
         precondition(generationPreset.settings.ddpmInferenceSteps == 9)
+        precondition(generationPreset.settings.extraParameters["temperature"] == "1.15")
+        precondition(generationPreset.settings.extraParameters["split_text"] == "false")
         precondition(FileManager.default.fileExists(atPath: root.generationPresetsDirectory.appendingPathComponent("\(generationPreset.id).json").path))
 
         let reloaded = try workspaceStore.loadSnapshot()
@@ -1874,6 +1884,29 @@ struct VibeVoiceBatchCoreChecks {
         precondition(multilingualSettings.generationExtraParameters(for: multilingualSettings.selectedBackendProfile)["language"] == "en")
         precondition(multilingualSettings.generationExtraParameters(for: multilingualSettings.selectedBackendProfile)["model_repo_id"] == ChatterboxModelCatalog.turboID)
 
+        var restoredChatterbox = AppSettings(defaultBackendID: BackendProfiles.chatterboxTTS.id)
+        restoredChatterbox.applyGenerationExtraParameters(
+            [
+                "temperature": "1.25",
+                "exaggeration": "1.55",
+                "cfg_weight": "0.85",
+                "seed": "42",
+                "speed_factor": "1.10",
+                "language": "EN",
+                "split_text": "false",
+                "chunk_size": "180"
+            ],
+            for: BackendProfiles.chatterboxTTS
+        )
+        precondition(restoredChatterbox.chatterboxTemperature == 1.25)
+        precondition(restoredChatterbox.chatterboxExaggeration == 1.55)
+        precondition(restoredChatterbox.chatterboxCFGWeight == 0.85)
+        precondition(restoredChatterbox.chatterboxSeed == 42)
+        precondition(restoredChatterbox.chatterboxSpeedFactor == 1.10)
+        precondition(restoredChatterbox.chatterboxLanguage == "en")
+        precondition(restoredChatterbox.chatterboxSplitText == false)
+        precondition(restoredChatterbox.chatterboxChunkSize == 180)
+
         let validResult = AppSettings.defaults.normalizationResult()
         precondition(!validResult.didRecover)
         precondition(validResult.settings.schemaVersion == AppSettingsKeys.currentSchemaVersion)
@@ -2059,6 +2092,9 @@ struct VibeVoiceBatchCoreChecks {
         precondition(projectRebatchControls.contains("selectedPreset"))
         precondition(projectRebatchControls.contains("backendID: preset.backendID"))
         precondition(projectRebatchControls.contains("backendID: appStore.selectedBackendProfile.id"))
+        precondition(projectRebatchControls.contains("extraParameters: settingsStore.settings.generationExtraParameters"))
+        precondition(workspaceSections.contains("Advanced Parameters"))
+        precondition(workspaceSections.contains("preset.settings.extraParameters"))
         precondition(workspaceSections.contains("Save Voice Profile"))
         precondition(voiceLibrarySummary.contains("BackendProfiles.all.reduce"))
         precondition(sidebar.contains("VoiceLibrarySummary.catalogVoiceCount"))
@@ -2070,6 +2106,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(appStore.contains("settingsStore.generationVoiceOptions(for: selectedBackendProfile)"))
         precondition(appStore.contains("var selectedVoiceIsAvailable"))
         precondition(appStore.contains("selectedVoiceIsAvailable &&"))
+        precondition(appStore.contains("applyGenerationExtraParameters(preset.settings.extraParameters"))
         precondition(inspector.contains("No compatible voices"))
         precondition(inspector.contains("No Chatterbox voice is marked available for the selected language."))
 
@@ -2105,6 +2142,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(workspaceStore.contains("func createProject(title: String)"))
         precondition(workspaceStore.contains("func createProjectRebatch"))
         precondition(workspaceStore.contains("func saveGenerationPreset(\n        backendID: String,\n        modelID: String,"))
+        precondition(workspaceStore.contains("extraParameters: [String: String] = [:]"))
         precondition(workspaceStore.contains("func deleteUncompletedBatch"))
         precondition(workspaceFileStore.contains("deleteUncompletedBatch"))
         precondition(scriptChunker.contains("timestampMarkerTitle"))

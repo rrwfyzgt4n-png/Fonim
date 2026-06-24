@@ -416,6 +416,7 @@ final class AppStore: ObservableObject {
             $0.defaultCFGScale = preset.settings.cfgScale
             $0.defaultDDPMInferenceSteps = preset.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
             $0.exportFormat = preset.outputFormat
+            $0.applyGenerationExtraParameters(preset.settings.extraParameters, for: $0.backendProfile(id: preset.backendID))
         }
         backendStatus = BackendStatusSnapshot.unknown(profile: selectedBackendProfile)
         refreshBackendStatus()
