@@ -730,7 +730,8 @@ public final class KokoroHTTPAdapter: EngineAdapter {
             metadata: metadata,
             inputText: job.inputText,
             logText: finalLog,
-            metadataJSON: ""
+            metadataJSON: "",
+            hasOutputWAV: outputURL != nil
         )
         return generationRecord(from: reloaded, job: job, errorMessage: errorMessage)
     }

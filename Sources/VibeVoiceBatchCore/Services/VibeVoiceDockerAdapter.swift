@@ -315,7 +315,8 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
             metadata: metadata,
             inputText: job.inputText,
             logText: currentLogText + finalLog,
-            metadataJSON: ""
+            metadataJSON: "",
+            hasOutputWAV: metadata.outputFile != nil
         )
         return generationRecord(from: session, job: job)
     }

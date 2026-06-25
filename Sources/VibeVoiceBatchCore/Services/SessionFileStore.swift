@@ -32,7 +32,7 @@ public final class SessionFileStore {
             guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
                 return nil
             }
-            return try? loadRecord(folderURL: folder)
+            return try? loadRecord(folderURL: folder, includeLogText: false)
         }
 
         return records.sorted {
@@ -43,15 +43,16 @@ public final class SessionFileStore {
         }
     }
 
-    public func loadRecord(folderURL: URL) throws -> SessionRecord {
+    public func loadRecord(folderURL: URL, includeLogText: Bool = true) throws -> SessionRecord {
         let metadataURL = folderURL.appendingPathComponent("metadata.json", isDirectory: false)
         let inputURL = folderURL.appendingPathComponent("input.txt", isDirectory: false)
         let logURL = folderURL.appendingPathComponent("log.txt", isDirectory: false)
+        let outputURL = folderURL.appendingPathComponent("output.wav", isDirectory: false)
 
         let metadataData = try Data(contentsOf: metadataURL)
         let metadata = try JSONCodecs.metadataDecoder.decode(SessionMetadata.self, from: metadataData)
         let inputText = (try? String(contentsOf: inputURL, encoding: .utf8)) ?? ""
-        let logText = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        let logText = includeLogText ? ((try? String(contentsOf: logURL, encoding: .utf8)) ?? "") : ""
         let metadataJSON = String(data: metadataData, encoding: .utf8) ?? ""
 
         return SessionRecord(
@@ -59,8 +60,14 @@ public final class SessionFileStore {
             metadata: metadata,
             inputText: inputText,
             logText: logText,
-            metadataJSON: metadataJSON
+            metadataJSON: metadataJSON,
+            hasOutputWAV: fileManager.fileExists(atPath: outputURL.path)
         )
+    }
+
+    public func loadLogText(folderURL: URL) throws -> String {
+        let logURL = folderURL.appendingPathComponent("log.txt", isDirectory: false)
+        return try String(contentsOf: logURL, encoding: .utf8)
     }
 
     public func createDraft(

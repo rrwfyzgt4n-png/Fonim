@@ -709,7 +709,7 @@ final class AppStore: ObservableObject {
     }
 
     func logText(for record: SessionRecord) -> String {
-        progressCoordinator.logText(for: record)
+        let cached = progressCoordinator.logText(for: record); return cached.isEmpty ? ((try? fileStore.loadLogText(folderURL: record.folderURL)) ?? "") : cached
     }
 
     func clearPendingScrollRequest() {

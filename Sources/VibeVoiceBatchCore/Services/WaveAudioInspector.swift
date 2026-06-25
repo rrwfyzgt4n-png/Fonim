@@ -2,33 +2,40 @@ import Foundation
 
 public enum WaveAudioInspector {
     public static func durationSeconds(for url: URL) throws -> Double? {
-        let data = try Data(contentsOf: url)
-        guard data.count >= 12,
-              data.asciiString(in: 0..<4) == "RIFF",
-              data.asciiString(in: 8..<12) == "WAVE" else {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        guard let header = try handle.read(upToCount: 12),
+              header.count == 12,
+              header.asciiString(in: 0..<4) == "RIFF",
+              header.asciiString(in: 8..<12) == "WAVE" else {
             return nil
         }
 
-        var offset = 12
+        var offset: UInt64 = 12
         var byteRate: UInt32?
-        var dataSize: UInt32?
+        var dataSize: UInt64?
 
-        while offset + 8 <= data.count {
-            let chunkID = data.asciiString(in: offset..<(offset + 4))
-            let chunkSize = Int(data.littleEndianUInt32(at: offset + 4))
+        while let chunkHeader = try handle.read(upToCount: 8), chunkHeader.count == 8 {
+            let chunkID = chunkHeader.asciiString(in: 0..<4)
+            let chunkSize = UInt64(chunkHeader.littleEndianUInt32(at: 4))
             let chunkStart = offset + 8
-            let chunkEnd = chunkStart + chunkSize
-
-            guard chunkEnd <= data.count else { break }
 
             if chunkID == "fmt ", chunkSize >= 16 {
-                byteRate = data.littleEndianUInt32(at: chunkStart + 8)
+                let readCount = Int(min(chunkSize, 16))
+                if let formatData = try handle.read(upToCount: readCount), formatData.count >= 12 {
+                    byteRate = formatData.littleEndianUInt32(at: 8)
+                }
             } else if chunkID == "data" {
-                dataSize = UInt32(chunkSize)
-                break
+                dataSize = chunkSize
             }
 
-            offset = chunkEnd + (chunkSize % 2)
+            if let byteRate, byteRate > 0, let dataSize {
+                return Double(dataSize) / Double(byteRate)
+            }
+
+            offset = chunkStart + chunkSize + (chunkSize % 2)
+            try handle.seek(toOffset: offset)
         }
 
         guard let byteRate, byteRate > 0, let dataSize else {

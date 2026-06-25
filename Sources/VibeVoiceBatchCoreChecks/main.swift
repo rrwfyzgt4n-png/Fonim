@@ -12,6 +12,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkArchiveDeletedSessionMovesToRecovery()
         try checkArchiveDeletedSessionNeverOverwritesRecoveryFolder()
         try checkReadsPCMDuration()
+        try checkSessionHistoryLoadsLightweightRecords()
         try checkGeneratedAudioLibrarySummary()
         try checkMediaRuntimeCatalog()
         try checkParsesLiveProgressAndFinalSummary()
@@ -207,6 +208,31 @@ struct VibeVoiceBatchCoreChecks {
             throw CheckError("Expected WAV duration")
         }
         precondition(abs(duration - 2.0) < 0.001)
+    }
+
+    private static func checkSessionHistoryLoadsLightweightRecords() throws {
+        try withStore { _, store in
+            let record = try store.createDraft(
+                text: "The sidebar needs this input, not every log.",
+                voice: "en-carter",
+                cfgScale: "1.8"
+            )
+            try store.appendLog("large log payload\n" + String(repeating: "x", count: 10_000), to: record.folderURL)
+            try makePCM16MonoWav(durationSeconds: 1.0, sampleRate: 8_000)
+                .write(to: record.folderURL.appendingPathComponent("output.wav", isDirectory: false))
+
+            guard let listed = try store.loadSessions().first else {
+                throw CheckError("Expected lightweight history session")
+            }
+
+            precondition(listed.inputText == "The sidebar needs this input, not every log.")
+            precondition(listed.logText.isEmpty)
+            precondition(listed.outputURL?.lastPathComponent == "output.wav")
+
+            let fullRecord = try store.loadRecord(folderURL: record.folderURL)
+            precondition(fullRecord.logText.contains("large log payload"))
+            precondition(fullRecord.outputURL?.lastPathComponent == "output.wav")
+        }
     }
 
     private static func checkGeneratedAudioLibrarySummary() throws {
@@ -2465,9 +2491,11 @@ struct VibeVoiceBatchCoreChecks {
         precondition(session.metadata.inputWordCount == 3)
         precondition(session.metadata.audioDurationSeconds == 1.5)
         precondition(session.metadata.outputFile?.hasSuffix("/output.wav") == true)
-        precondition(session.logText.contains("Runtime: Kokoro HTTP service"))
-        precondition(session.logText.contains("Processing chunk 1/2"))
-        precondition(session.logText.contains("Saved output:"))
+        precondition(session.logText.isEmpty)
+        let fullSession = try fileStore.loadRecord(folderURL: session.folderURL)
+        precondition(fullSession.logText.contains("Runtime: Kokoro HTTP service"))
+        precondition(fullSession.logText.contains("Processing chunk 1/2"))
+        precondition(fullSession.logText.contains("Saved output:"))
         precondition(session.outputURL?.lastPathComponent == "output.wav")
 
         let recoveredFiles = try FileManager.default.contentsOfDirectory(
@@ -2597,9 +2625,11 @@ struct VibeVoiceBatchCoreChecks {
         precondition(session.metadata.inputWordCount == 3)
         precondition(session.metadata.audioDurationSeconds == 2.0)
         precondition(session.metadata.outputFile?.hasSuffix("/output.wav") == true)
-        precondition(session.logText.contains("Runtime: Chatterbox HTTP service"))
-        precondition(session.logText.contains("Voice mode: clone"))
-        precondition(session.logText.contains("Synthesizing chunk 1/2"))
+        precondition(session.logText.isEmpty)
+        let fullSession = try fileStore.loadRecord(folderURL: session.folderURL)
+        precondition(fullSession.logText.contains("Runtime: Chatterbox HTTP service"))
+        precondition(fullSession.logText.contains("Voice mode: clone"))
+        precondition(fullSession.logText.contains("Synthesizing chunk 1/2"))
         precondition(session.outputURL?.lastPathComponent == "output.wav")
 
         let recoveredFiles = try FileManager.default.contentsOfDirectory(
