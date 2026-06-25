@@ -85,6 +85,9 @@ chmod +x "$APP_BINARY"
 if [[ -f "$ROOT_DIR/Resources/AppIcon.icns" ]]; then
   cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
 fi
+if [[ -f "$ROOT_DIR/Resources/media_runtimes.csv" ]]; then
+  cp "$ROOT_DIR/Resources/media_runtimes.csv" "$APP_RESOURCES/media_runtimes.csv"
+fi
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

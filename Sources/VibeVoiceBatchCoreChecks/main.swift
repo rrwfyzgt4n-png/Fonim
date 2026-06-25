@@ -13,6 +13,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkArchiveDeletedSessionNeverOverwritesRecoveryFolder()
         try checkReadsPCMDuration()
         try checkGeneratedAudioLibrarySummary()
+        try checkMediaRuntimeCatalog()
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
         try await checkBackendProfilesAndAdapterContracts()
@@ -255,6 +256,15 @@ struct VibeVoiceBatchCoreChecks {
             fallbackMetadata.outputFile = fallbackOutput.path
             try store.writeMetadata(fallbackMetadata, in: durationFallback.folderURL)
 
+            let draftWithOutput = try store.createDraft(
+                text: "Draft output should not count.",
+                voice: "en-carter_man",
+                cfgScale: "1.8",
+                now: firstDate.addingTimeInterval(8)
+            )
+            let draftOutput = draftWithOutput.folderURL.appendingPathComponent("output.wav", isDirectory: false)
+            try makePCM16MonoWav(durationSeconds: 10.0, sampleRate: 8_000).write(to: draftOutput)
+
             let summary = GeneratedAudioLibrarySummary(sessions: try store.loadSessions())
             precondition(summary.generatedSessionCount == 4)
             precondition(summary.sessionsWithKnownDurationCount == 3)
@@ -266,8 +276,34 @@ struct VibeVoiceBatchCoreChecks {
             precondition(GeneratedAudioReference.defaultReferences.contains { $0.title == "The Wizard of Oz" && $0.durationSeconds == 6_120 })
 
             let heyJude = GeneratedAudioReference(title: "Hey Jude", creator: "The Beatles", durationSeconds: 431)
-            precondition(heyJude.equivalentText(for: summary.totalAudioDurationSeconds) == "9 plays of Hey Jude by The Beatles")
+            precondition(heyJude.equivalentText(for: summary.totalAudioDurationSeconds) == "9 Hey Jude by The Beatles")
         }
+    }
+
+    private static func checkMediaRuntimeCatalog() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let csvURL = root.appendingPathComponent("Resources/media_runtimes.csv", isDirectory: false)
+        let csvText = try String(contentsOf: csvURL, encoding: .utf8)
+        let catalog = MediaRuntimeCatalog.parse(csvText: csvText, sourceDescription: "test")
+
+        precondition(catalog.references.count == 22)
+        precondition(catalog.sourceDescription == "test")
+        precondition(MediaRuntimeCatalog.durationSeconds(from: "1:04:03") == 3_843)
+        precondition(MediaRuntimeCatalog.durationSeconds(from: "07:11") == 431)
+        precondition(MediaRuntimeCatalog.durationSeconds(from: "not-a-runtime") == nil)
+        precondition(MediaRuntimeCatalog.bundled.sourceDescription == "media_runtimes.csv")
+        precondition(MediaRuntimeCatalog.bundled.references.count == 22)
+
+        guard let heyJude = catalog.references.first(where: { $0.title == "Hey Jude" }) else {
+            throw CheckError("Expected Hey Jude in media runtime catalog")
+        }
+        precondition(heyJude.durationSeconds == 431)
+        precondition(heyJude.wholeEquivalentCount(for: 3_843) == 9)
+        precondition(heyJude.equivalentText(for: 3_843) == "9 Hey Jude by The Beatles")
+
+        let readable = catalog.readableReferences(for: 3_843)
+        precondition(readable.contains { $0.title == "Hey Jude" })
+        precondition(readable.allSatisfy { $0.wholeEquivalentCount(for: 3_843) >= 1 })
     }
 
     private static func checkParsesLiveProgressAndFinalSummary() throws {
@@ -2079,7 +2115,11 @@ struct VibeVoiceBatchCoreChecks {
         precondition(sidebar.contains("ForEach(store.sessions)"))
         precondition(sidebar.contains("HistorySidebarRow"))
         precondition(sidebar.contains("workspaceStore.activeScripts.count"))
-        precondition(sidebar.contains("generations"))
+        precondition(sidebar.contains("Generations:"))
+        precondition(sidebar.contains("Projects: \\(workspaceStore.projects.count)"))
+        precondition(sidebar.contains("Queued: \\(activeQueueCount)"))
+        precondition(sidebar.contains("Generations: \\(store.sessions.count)"))
+        precondition(sidebar.contains("store.queuedGenerations.filter { !$0.status.isTerminal }.count"))
         precondition(!sidebar.contains("selectionBackground"))
 
         precondition(inspector.contains("private var inspectorHeader"))
@@ -2206,16 +2246,21 @@ struct VibeVoiceBatchCoreChecks {
         precondition(app.contains("Window(\"About Fonim\", id: \"fonim-info\")"))
         precondition(app.contains("OpenFonimInfoButton"))
         precondition(infoView.contains("GeneratedAudioLibrarySummary"))
-        precondition(infoView.contains("GeneratedAudioReference.defaultReferences"))
+        precondition(infoView.contains("MediaRuntimeCatalog.bundled"))
+        precondition(infoView.contains("randomReadableReference"))
         precondition(infoView.contains("pickReference()"))
         precondition(infoView.contains("New Comparison"))
         precondition(iconData.count > 1_000_000)
         precondition(buildScript.contains("APP_NAME=\"Fonim\""))
         precondition(buildScript.contains("PRODUCT_NAME=\"Fonim\""))
         precondition(buildScript.contains("BUNDLE_ID=\"local.vibevoice.batch\""))
+        precondition(buildScript.contains("Resources/media_runtimes.csv"))
+        precondition(buildScript.contains("media_runtimes.csv"))
         precondition(packageScript.contains("APP_NAME=\"Fonim\""))
         precondition(packageScript.contains("PRODUCT_NAME=\"Fonim\""))
         precondition(packageScript.contains("<string>Fonim</string>"))
+        precondition(packageScript.contains("Resources/media_runtimes.csv"))
+        precondition(packageScript.contains("media_runtimes.csv"))
         precondition(smokeScript.contains("APP_NAME=\"Fonim\""))
         precondition(packaging.contains("dist/Fonim.app"))
         precondition(qaChecklist.contains("dist/Fonim.app"))

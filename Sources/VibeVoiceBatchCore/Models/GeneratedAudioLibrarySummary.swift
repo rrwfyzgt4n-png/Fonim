@@ -7,12 +7,7 @@ public struct GeneratedAudioLibrarySummary: Equatable, Sendable {
     public var missingDurationCount: Int
 
     public init(sessions: [SessionRecord]) {
-        let generatedSessions = sessions.filter { session in
-            session.metadata.status == .completed ||
-                session.metadata.outputFile != nil ||
-                session.metadata.audioDurationSeconds != nil ||
-                session.outputURL != nil
-        }
+        let generatedSessions = sessions.filter { $0.metadata.status == .completed }
         let durations = generatedSessions.compactMap(Self.durationSeconds)
 
         generatedSessionCount = generatedSessions.count
@@ -74,46 +69,17 @@ public struct GeneratedAudioReference: Equatable, Identifiable, Sendable {
         return max(0, seconds / durationSeconds)
     }
 
+    public func wholeEquivalentCount(for seconds: Double) -> Int {
+        guard seconds > 0, durationSeconds > 0 else { return 0 }
+        return max(1, Int(equivalentCount(for: seconds).rounded()))
+    }
+
     public func equivalentText(for seconds: Double) -> String {
         guard seconds > 0, durationSeconds > 0 else {
             return "no comparison yet"
         }
-        let count = equivalentCount(for: seconds)
-        let countText = Self.formattedCount(count)
-        let playText = countText == "1" ? "play" : "plays"
-        return "\(countText) \(playText) of \(title) by \(creator)"
+        return "\(wholeEquivalentCount(for: seconds)) \(title) by \(creator)"
     }
 
-    public static let defaultReferences: [GeneratedAudioReference] = [
-        GeneratedAudioReference(title: "The Great Train Robbery", creator: "Edwin S. Porter", durationSeconds: 720),
-        GeneratedAudioReference(title: "The Wizard of Oz", creator: "MGM", durationSeconds: 6_120),
-        GeneratedAudioReference(title: "Citizen Kane", creator: "Orson Welles", durationSeconds: 7_140),
-        GeneratedAudioReference(title: "White Christmas", creator: "Bing Crosby", durationSeconds: 182),
-        GeneratedAudioReference(title: "Singin' in the Rain", creator: "MGM", durationSeconds: 6_180),
-        GeneratedAudioReference(title: "Johnny B. Goode", creator: "Chuck Berry", durationSeconds: 161),
-        GeneratedAudioReference(title: "Psycho", creator: "Alfred Hitchcock", durationSeconds: 6_540),
-        GeneratedAudioReference(title: "Hey Jude", creator: "The Beatles", durationSeconds: 431),
-        GeneratedAudioReference(title: "2001: A Space Odyssey", creator: "Stanley Kubrick", durationSeconds: 8_940),
-        GeneratedAudioReference(title: "Stairway to Heaven", creator: "Led Zeppelin", durationSeconds: 482),
-        GeneratedAudioReference(title: "The Godfather", creator: "Francis Ford Coppola", durationSeconds: 10_500),
-        GeneratedAudioReference(title: "Bohemian Rhapsody", creator: "Queen", durationSeconds: 355),
-        GeneratedAudioReference(title: "Star Wars", creator: "George Lucas", durationSeconds: 7_260),
-        GeneratedAudioReference(title: "Thriller", creator: "Michael Jackson", durationSeconds: 822),
-        GeneratedAudioReference(title: "Never Gonna Give You Up", creator: "Rick Astley", durationSeconds: 213),
-        GeneratedAudioReference(title: "Titanic", creator: "James Cameron", durationSeconds: 11_700),
-        GeneratedAudioReference(title: "The Lord of the Rings: The Return of the King", creator: "Peter Jackson", durationSeconds: 12_060),
-        GeneratedAudioReference(title: "Charlie Bit My Finger", creator: "HDCYT", durationSeconds: 56),
-        GeneratedAudioReference(title: "Gangnam Style", creator: "PSY", durationSeconds: 253),
-        GeneratedAudioReference(title: "Hamilton", creator: "Lin-Manuel Miranda", durationSeconds: 9_900),
-        GeneratedAudioReference(title: "Baby Shark Dance", creator: "Pinkfong", durationSeconds: 136),
-        GeneratedAudioReference(title: "Despacito", creator: "Luis Fonsi ft. Daddy Yankee", durationSeconds: 227)
-    ]
-
-    private static func formattedCount(_ count: Double) -> String {
-        if count >= 2 {
-            return String(format: "%.0f", count)
-        }
-        let value = String(format: "%.1f", count)
-        return value.hasSuffix(".0") ? String(value.dropLast(2)) : value
-    }
+    public static let defaultReferences: [GeneratedAudioReference] = MediaRuntimeCatalog.bundled.references
 }

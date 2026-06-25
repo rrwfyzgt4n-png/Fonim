@@ -108,7 +108,7 @@ struct SidebarView: View {
             }
 
             HStack(spacing: 8) {
-                Text("\(workspaceStore.projects.count) projects  \(activeQueueCount) queued  \(store.sessions.count) generations")
+                Text("Projects: \(workspaceStore.projects.count)  Queued: \(activeQueueCount)  Generations: \(store.sessions.count)")
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()

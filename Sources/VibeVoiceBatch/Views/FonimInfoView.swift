@@ -4,7 +4,9 @@ import VibeVoiceBatchCore
 
 struct FonimInfoView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var reference = GeneratedAudioReference.defaultReferences[0]
+    @State private var reference = MediaRuntimeCatalog.bundled.randomReadableReference(for: 3_843)
+
+    private let runtimeCatalog = MediaRuntimeCatalog.bundled
 
     private var summary: GeneratedAudioLibrarySummary {
         GeneratedAudioLibrarySummary(sessions: store.sessions)
@@ -81,8 +83,10 @@ struct FonimInfoView: View {
     }
 
     private func pickReference() {
-        let choices = GeneratedAudioReference.defaultReferences.filter { $0 != reference }
-        reference = choices.randomElement() ?? GeneratedAudioReference.defaultReferences[0]
+        reference = runtimeCatalog.randomReadableReference(
+            for: summary.totalAudioDurationSeconds,
+            excluding: reference
+        )
     }
 }
 
