@@ -10,9 +10,10 @@ public struct GeneratedAudioLibrarySummary: Equatable, Sendable {
         let generatedSessions = sessions.filter { session in
             session.metadata.status == .completed ||
                 session.metadata.outputFile != nil ||
-                session.metadata.audioDurationSeconds != nil
+                session.metadata.audioDurationSeconds != nil ||
+                session.outputURL != nil
         }
-        let durations = generatedSessions.compactMap(\.metadata.audioDurationSeconds)
+        let durations = generatedSessions.compactMap(Self.durationSeconds)
 
         generatedSessionCount = generatedSessions.count
         sessionsWithKnownDurationCount = durations.count
@@ -22,6 +23,37 @@ public struct GeneratedAudioLibrarySummary: Equatable, Sendable {
 
     public var hasGeneratedAudioDuration: Bool {
         totalAudioDurationSeconds > 0
+    }
+
+    private static func durationSeconds(for session: SessionRecord) -> Double? {
+        if let duration = session.metadata.audioDurationSeconds, duration > 0 {
+            return duration
+        }
+        if let outputURL = session.outputURL,
+           let duration = inspectedDurationSeconds(at: outputURL) {
+            return duration
+        }
+        if let outputFile = session.metadata.outputFile {
+            let url = URL(fileURLWithPath: outputFile)
+            if let duration = inspectedDurationSeconds(at: url) {
+                return duration
+            }
+        }
+        return nil
+    }
+
+    private static func inspectedDurationSeconds(at url: URL) -> Double? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        do {
+            guard let duration = try WaveAudioInspector.durationSeconds(for: url), duration > 0 else {
+                return nil
+            }
+            return duration
+        } catch {
+            return nil
+        }
     }
 }
 
@@ -53,14 +85,28 @@ public struct GeneratedAudioReference: Equatable, Identifiable, Sendable {
     }
 
     public static let defaultReferences: [GeneratedAudioReference] = [
+        GeneratedAudioReference(title: "The Great Train Robbery", creator: "Edwin S. Porter", durationSeconds: 720),
+        GeneratedAudioReference(title: "The Wizard of Oz", creator: "MGM", durationSeconds: 6_120),
+        GeneratedAudioReference(title: "Citizen Kane", creator: "Orson Welles", durationSeconds: 7_140),
+        GeneratedAudioReference(title: "White Christmas", creator: "Bing Crosby", durationSeconds: 182),
+        GeneratedAudioReference(title: "Singin' in the Rain", creator: "MGM", durationSeconds: 6_180),
+        GeneratedAudioReference(title: "Johnny B. Goode", creator: "Chuck Berry", durationSeconds: 161),
+        GeneratedAudioReference(title: "Psycho", creator: "Alfred Hitchcock", durationSeconds: 6_540),
         GeneratedAudioReference(title: "Hey Jude", creator: "The Beatles", durationSeconds: 431),
+        GeneratedAudioReference(title: "2001: A Space Odyssey", creator: "Stanley Kubrick", durationSeconds: 8_940),
+        GeneratedAudioReference(title: "Stairway to Heaven", creator: "Led Zeppelin", durationSeconds: 482),
+        GeneratedAudioReference(title: "The Godfather", creator: "Francis Ford Coppola", durationSeconds: 10_500),
         GeneratedAudioReference(title: "Bohemian Rhapsody", creator: "Queen", durationSeconds: 355),
-        GeneratedAudioReference(title: "Clair de Lune", creator: "Claude Debussy", durationSeconds: 300),
-        GeneratedAudioReference(title: "Bolero", creator: "Maurice Ravel", durationSeconds: 900),
-        GeneratedAudioReference(title: "Rhapsody in Blue", creator: "George Gershwin", durationSeconds: 1_020),
-        GeneratedAudioReference(title: "A Love Supreme", creator: "John Coltrane", durationSeconds: 1_976),
-        GeneratedAudioReference(title: "The Rite of Spring", creator: "Igor Stravinsky", durationSeconds: 2_100),
-        GeneratedAudioReference(title: "Abbey Road", creator: "The Beatles", durationSeconds: 2_823)
+        GeneratedAudioReference(title: "Star Wars", creator: "George Lucas", durationSeconds: 7_260),
+        GeneratedAudioReference(title: "Thriller", creator: "Michael Jackson", durationSeconds: 822),
+        GeneratedAudioReference(title: "Never Gonna Give You Up", creator: "Rick Astley", durationSeconds: 213),
+        GeneratedAudioReference(title: "Titanic", creator: "James Cameron", durationSeconds: 11_700),
+        GeneratedAudioReference(title: "The Lord of the Rings: The Return of the King", creator: "Peter Jackson", durationSeconds: 12_060),
+        GeneratedAudioReference(title: "Charlie Bit My Finger", creator: "HDCYT", durationSeconds: 56),
+        GeneratedAudioReference(title: "Gangnam Style", creator: "PSY", durationSeconds: 253),
+        GeneratedAudioReference(title: "Hamilton", creator: "Lin-Manuel Miranda", durationSeconds: 9_900),
+        GeneratedAudioReference(title: "Baby Shark Dance", creator: "Pinkfong", durationSeconds: 136),
+        GeneratedAudioReference(title: "Despacito", creator: "Luis Fonsi ft. Daddy Yankee", durationSeconds: 227)
     ]
 
     private static func formattedCount(_ count: Double) -> String {

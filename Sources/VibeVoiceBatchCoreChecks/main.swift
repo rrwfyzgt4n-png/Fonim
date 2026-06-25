@@ -241,13 +241,29 @@ struct VibeVoiceBatchCoreChecks {
             metadata.completedAt = firstDate.addingTimeInterval(5)
             try store.writeMetadata(metadata, in: missingDuration.folderURL)
 
+            let durationFallback = try store.createDraft(
+                text: "Completed with WAV but without duration metadata.",
+                voice: "en-carter_man",
+                cfgScale: "1.8",
+                now: firstDate.addingTimeInterval(6)
+            )
+            let fallbackOutput = durationFallback.folderURL.appendingPathComponent("output.wav", isDirectory: false)
+            try makePCM16MonoWav(durationSeconds: 2.0, sampleRate: 8_000).write(to: fallbackOutput)
+            var fallbackMetadata = durationFallback.metadata
+            fallbackMetadata.status = .completed
+            fallbackMetadata.completedAt = firstDate.addingTimeInterval(7)
+            fallbackMetadata.outputFile = fallbackOutput.path
+            try store.writeMetadata(fallbackMetadata, in: durationFallback.folderURL)
+
             let summary = GeneratedAudioLibrarySummary(sessions: try store.loadSessions())
-            precondition(summary.generatedSessionCount == 3)
-            precondition(summary.sessionsWithKnownDurationCount == 2)
-            precondition(summary.totalAudioDurationSeconds == 3_843)
+            precondition(summary.generatedSessionCount == 4)
+            precondition(summary.sessionsWithKnownDurationCount == 3)
+            precondition(summary.totalAudioDurationSeconds == 3_845)
             precondition(summary.missingDurationCount == 1)
             precondition(summary.hasGeneratedAudioDuration)
-            precondition(SessionFormatters.longDuration(summary.totalAudioDurationSeconds) == "1 hour 4 minutes and 3 seconds")
+            precondition(SessionFormatters.longDuration(summary.totalAudioDurationSeconds) == "1 hour 4 minutes and 5 seconds")
+            precondition(GeneratedAudioReference.defaultReferences.count >= 20)
+            precondition(GeneratedAudioReference.defaultReferences.contains { $0.title == "The Wizard of Oz" && $0.durationSeconds == 6_120 })
 
             let heyJude = GeneratedAudioReference(title: "Hey Jude", creator: "The Beatles", durationSeconds: 431)
             precondition(heyJude.equivalentText(for: summary.totalAudioDurationSeconds) == "9 plays of Hey Jude by The Beatles")
@@ -2180,6 +2196,7 @@ struct VibeVoiceBatchCoreChecks {
         let smokeScript = try String(contentsOf: root.appendingPathComponent("script/smoke_test_release.sh"), encoding: .utf8)
         let packaging = try String(contentsOf: root.appendingPathComponent("PACKAGING.md"), encoding: .utf8)
         let qaChecklist = try String(contentsOf: root.appendingPathComponent("QA_RELEASE_CHECKLIST.md"), encoding: .utf8)
+        let iconData = try Data(contentsOf: root.appendingPathComponent("Resources/AppIcon.icns"))
 
         precondition(package.contains("name: \"Fonim\""))
         precondition(package.contains(".executable(name: \"Fonim\", targets: [\"VibeVoiceBatch\"])"))
@@ -2190,7 +2207,9 @@ struct VibeVoiceBatchCoreChecks {
         precondition(app.contains("OpenFonimInfoButton"))
         precondition(infoView.contains("GeneratedAudioLibrarySummary"))
         precondition(infoView.contains("GeneratedAudioReference.defaultReferences"))
+        precondition(infoView.contains("pickReference()"))
         precondition(infoView.contains("New Comparison"))
+        precondition(iconData.count > 1_000_000)
         precondition(buildScript.contains("APP_NAME=\"Fonim\""))
         precondition(buildScript.contains("PRODUCT_NAME=\"Fonim\""))
         precondition(buildScript.contains("BUNDLE_ID=\"local.vibevoice.batch\""))
