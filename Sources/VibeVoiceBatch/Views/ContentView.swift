@@ -17,6 +17,10 @@ struct ContentView: View {
             SidebarView(selection: $selection)
                 .navigationTitle("Narration")
                 .frame(minWidth: 280, idealWidth: 330)
+        } content: {
+            GenerationListView(selection: $selection)
+                .navigationTitle("Generations")
+                .frame(minWidth: 260, idealWidth: 300)
         } detail: {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
