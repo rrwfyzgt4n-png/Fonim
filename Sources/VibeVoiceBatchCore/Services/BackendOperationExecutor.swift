@@ -202,10 +202,7 @@ internal struct BackendOperationExecutor {
             )
         }
 
-        let names = list.combinedOutput
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let names = backendTrimmedOutputLines(list.combinedOutput)
         if names.isEmpty {
             return operationResult(
                 profile: profile,
@@ -591,8 +588,7 @@ internal struct BackendOperationExecutor {
     }
 
     private func kokoroContainerName(for profile: BackendProfile) -> String {
-        if let configured = profile.containerName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configured.isEmpty {
+        if let configured = backendTrimmedNonEmpty(profile.containerName) {
             return configured
         }
         return defaultKokoroContainerName(for: profile)
@@ -612,11 +608,7 @@ internal struct BackendOperationExecutor {
         arguments += ["--filter", "name=\(filter)", "--format", "{{.Names}}"]
         let result = processExecutor.run(executable: executable, arguments: arguments)
         guard result.exitCode == 0 else { return [] }
-        return result.combinedOutput
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        return backendTrimmedOutputLines(result.combinedOutput)
     }
 
     private func dockerContainerPublishesPort(
@@ -626,9 +618,7 @@ internal struct BackendOperationExecutor {
     ) -> Bool {
         let result = processExecutor.run(executable: executable, arguments: ["port", containerName, "\(port)/tcp"])
         guard result.exitCode == 0 else { return false }
-        return result.combinedOutput
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return backendTrimmedOutputLines(result.combinedOutput)
             .contains { $0.hasSuffix(":\(port)") }
     }
 

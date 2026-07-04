@@ -324,3 +324,14 @@ internal func backendStableIdentifier(_ value: String) -> String {
 internal func backendTrimmedNonEmpty(_ value: String?) -> String? {
     value?.trimmedOrNil
 }
+
+internal func backendTrimmedOutputLines(_ output: String) -> [String] {
+    output
+        .split(whereSeparator: \.isNewline)
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+}
+
+internal func backendDockerTableRows(_ output: String) -> [String] {
+    backendTrimmedOutputLines(output).filter { $0.contains("\t") }
+}

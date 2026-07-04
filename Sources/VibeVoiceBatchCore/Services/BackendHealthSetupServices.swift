@@ -234,13 +234,13 @@ internal struct BackendHealthChecker {
                 "{{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}"
             ]
         )
-        rows.append(contentsOf: dockerOutputRows(imageResult.combinedOutput))
+        rows.append(contentsOf: backendDockerTableRows(imageResult.combinedOutput))
 
         let candidateNames = [
-            profile.containerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+            backendTrimmedNonEmpty(profile.containerName),
             defaultKokoroContainerName(for: profile)
         ]
-        for name in candidateNames.compactMap({ $0 }).filter({ !$0.isEmpty }) {
+        for name in candidateNames.compactMap({ $0 }) {
             let nameResult = processExecutor.run(
                 executable: dockerExecutable,
                 arguments: [
@@ -251,17 +251,10 @@ internal struct BackendHealthChecker {
                     "{{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}"
                 ]
             )
-            rows.append(contentsOf: dockerOutputRows(nameResult.combinedOutput))
+            rows.append(contentsOf: backendDockerTableRows(nameResult.combinedOutput))
         }
 
         return Array(Set(rows)).sorted()
-    }
-
-    private func dockerOutputRows(_ output: String) -> [String] {
-        output
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0.contains("\t") }
     }
 
     private func defaultKokoroContainerName(for profile: BackendProfile) -> String {
