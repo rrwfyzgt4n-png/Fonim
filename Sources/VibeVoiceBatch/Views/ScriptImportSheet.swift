@@ -3,6 +3,11 @@ import VibeVoiceBatchCore
 
 struct ScriptImportSheet: View {
     let preview: ScriptImportPreview
+    let projectName: String
+    let backendName: String
+    let modelID: String
+    let voiceID: String
+    let settingsSummary: String
     let onCancel: () -> Void
     let onSave: (Bool) -> Void
 
@@ -14,6 +19,8 @@ struct ScriptImportSheet: View {
                 Text("\(preview.chunks.count) chunks  \(preview.totalWordCount) words")
                     .foregroundStyle(.secondary)
             }
+
+            importSummary
 
             List(preview.chunks.indices, id: \.self) { index in
                 let chunk = preview.chunks[index]
@@ -53,5 +60,37 @@ struct ScriptImportSheet: View {
         }
         .padding(20)
         .frame(width: 620, height: 480)
+    }
+
+    private var importSummary: some View {
+        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
+            GridRow {
+                summaryLabel("Project")
+                Text(projectName)
+                summaryLabel("Settings")
+                Text(settingsSummary)
+            }
+            GridRow {
+                summaryLabel("Backend")
+                Text(backendName)
+                summaryLabel("Model")
+                Text(modelID)
+            }
+            GridRow {
+                summaryLabel("Voice")
+                VoiceInlineLabel(voiceID: voiceID, compact: true)
+                summaryLabel("Material")
+                Text(preview.materialDescription)
+            }
+        }
+        .font(.caption)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func summaryLabel(_ text: String) -> some View {
+        Text(text)
+            .foregroundStyle(.secondary)
     }
 }

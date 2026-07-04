@@ -104,7 +104,8 @@ final class WorkspaceStore: ObservableObject {
         backendID: String,
         modelID: String,
         voice: String,
-        settings: GenerationSettings
+        settings: GenerationSettings,
+        settingsSourceDescription: String = "current generation settings"
     ) -> ScriptImportResult? {
         let chunks = scripts
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -120,7 +121,7 @@ final class WorkspaceStore: ObservableObject {
                 modelID: modelID,
                 voice: voice,
                 settings: settings,
-                notes: "Re-batched from project scripts using current generation settings."
+                notes: "Re-batched from project scripts using \(settingsSourceDescription)."
             )
             refresh()
             alertMessage = nil

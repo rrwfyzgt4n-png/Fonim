@@ -189,7 +189,7 @@ private struct ProjectDetailPane: View {
                 EmptyWorkspaceView(
                     systemImage: "archivebox",
                     title: "No Filed Outputs",
-                    message: "Use Outputs to file completed generations into this project."
+                    message: "Completed generations from this project's batches are filed here automatically."
                 )
                 .frame(maxWidth: .infinity, minHeight: 160)
             } else {
@@ -203,25 +203,11 @@ private struct ProjectDetailPane: View {
     }
 
     private var sourceSections: some View {
-        Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
-            GridRow {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Scripts")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                    Text(scripts.isEmpty ? "No scripts filed." : scripts.map(\.title).joined(separator: "\n"))
-                        .foregroundStyle(.secondary)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Batches")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                    Text(batches.isEmpty ? "No batches filed." : batches.map(\.title).joined(separator: "\n"))
-                        .foregroundStyle(.secondary)
-                }
-            }
+        VStack(alignment: .leading, spacing: 14) {
+            ProjectAssetSection(title: "Scripts", emptyMessage: "No scripts filed.", items: scripts.map(\.title))
+            ProjectAssetSection(title: "Batches", emptyMessage: "No batches filed.", items: batches.map { batch in
+                "\(batch.title) • \(batch.items.count) chunks • \(batch.status.rawValue.capitalized)"
+            })
         }
     }
 
@@ -241,7 +227,43 @@ private struct ProjectDetailPane: View {
             return total + UInt64(max(0, fileSize))
         }
     }
+}
 
+private struct ProjectAssetSection: View {
+    let title: String
+    let emptyMessage: String
+    let items: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            if items.isEmpty {
+                Text(emptyMessage)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(items, id: \.self) { item in
+                        HStack(spacing: 8) {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 5))
+                                .foregroundStyle(.secondary)
+                            Text(item)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
 }
 
 private struct ProjectOutputRow: View {
@@ -315,6 +337,7 @@ private struct ProjectMetric: View {
 
 struct ScriptsView: View {
     @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
     @State private var importPreview: ScriptImportPreview?
     @State private var projectTitle = ""
@@ -367,6 +390,11 @@ struct ScriptsView: View {
         .sheet(item: $importPreview) { preview in
             ScriptImportSheet(
                 preview: preview,
+                projectName: selectedProjectTitle,
+                backendName: appStore.selectedBackendProfile.displayName,
+                modelID: appStore.selectedModelID,
+                voiceID: appStore.selectedVoice,
+                settingsSummary: currentSettingsSummary,
                 onCancel: { importPreview = nil },
                 onSave: { shouldQueue in
                     saveImport(preview, shouldQueue: shouldQueue)
@@ -404,7 +432,7 @@ struct ScriptsView: View {
                 } label: {
                     Label("Create Project", systemImage: "folder.badge.plus")
                 }
-                .disabled(projectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(projectTitle.trimmedOrNil == nil)
 
                 if !workspaceStore.projects.isEmpty {
                     Picker("File into", selection: $selectedProjectID) {
@@ -418,6 +446,18 @@ struct ScriptsView: View {
                 }
             }
         }
+    }
+
+    private var selectedProjectTitle: String {
+        guard !selectedProjectID.isEmpty,
+              let project = workspaceStore.projects.first(where: { $0.id == selectedProjectID }) else {
+            return "No Project"
+        }
+        return project.title
+    }
+
+    private var currentSettingsSummary: String {
+        "Current Settings • CFG \(appStore.cfgScale) • \(appStore.ddpmInferenceSteps) steps"
     }
 
     private func chooseTextFile() {
@@ -434,7 +474,8 @@ struct ScriptsView: View {
             importPreview = ScriptImportPreview(
                 sourceURL: url,
                 title: title,
-                chunks: ScriptChunker.chunks(from: text, baseTitle: title)
+                chunks: ScriptChunker.chunks(from: text, baseTitle: title),
+                usesTimestampMarkers: ScriptChunker.containsTimestampMarkers(in: text)
             )
         } catch {
             workspaceStore.alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not read text file")
@@ -451,7 +492,8 @@ struct ScriptsView: View {
             voice: appStore.selectedVoice,
             settings: GenerationSettings(
                 cfgScale: appStore.cfgScale,
-                ddpmInferenceSteps: appStore.ddpmInferenceSteps
+                ddpmInferenceSteps: appStore.ddpmInferenceSteps,
+                extraParameters: settingsStore.settings.generationExtraParameters(for: appStore.selectedBackendProfile)
             )
         )
         importPreview = nil
@@ -1332,7 +1374,7 @@ struct PresetsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 SectionHeader(
                     title: "Presets",
-                    subtitle: "Reusable generation settings."
+                    subtitle: "Reusable generation recipes: backend, model, voice, settings, and export format."
                 )
                 .padding([.horizontal, .top])
 
@@ -1390,7 +1432,7 @@ struct PresetsView: View {
                 }
 
                 HStack {
-                    Text("\(workspaceStore.generationPresets.count) presets")
+                    Text("\(workspaceStore.generationPresets.count) generation recipes")
                         .foregroundStyle(.secondary)
 
                     Spacer()
@@ -1409,7 +1451,7 @@ struct PresetsView: View {
                             appStore.statusMessage = "Saved generation preset: \(preset.displayName)"
                         }
                     } label: {
-                        Label("Save Current Preset", systemImage: "plus")
+                        Label("Save Generation Recipe", systemImage: "plus")
                     }
                 }
                 .padding([.horizontal, .bottom])
@@ -1484,7 +1526,19 @@ private struct GenerationPresetRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text("CFG \(preset.settings.cfgScale)  \(preset.settings.ddpmInferenceSteps.map(String.init) ?? "--") steps")
+                Text("\(backendName(preset.backendID))  \(preset.modelID)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let voiceID = preset.voiceID {
+                        VoiceInlineLabel(voiceID: voiceID, compact: true)
+                    } else {
+                        Text("Current voice")
+                    }
+                    Text("CFG \(preset.settings.cfgScale)")
+                    Text("\(preset.settings.ddpmInferenceSteps.map(String.init) ?? "--") steps")
+                }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1533,6 +1587,11 @@ private struct GenerationPresetDetailPane: View {
                     WorkspaceCard {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .firstTextBaseline) {
+                                Text("Generation Recipe")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .textCase(.uppercase)
+
                                 Text(preset.displayName)
                                     .font(.title3.weight(.semibold))
                                 if preset.isBuiltIn {

@@ -78,9 +78,13 @@ struct ProjectRebatchControls: View {
     @ViewBuilder
     private var summary: some View {
         if canRebatch {
-            VoiceInlineLabel(voiceID: resolvedVoiceID, compact: true)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text(settingsSource.summaryLabel)
+                VoiceInlineLabel(voiceID: resolvedVoiceID, compact: true)
+                Text("• \(resolvedConfiguration?.settings.cfgScale ?? "--") CFG")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -136,7 +140,8 @@ struct ProjectRebatchControls: View {
             backendID: configuration.backendID,
             modelID: configuration.modelID,
             voice: configuration.voiceID,
-            settings: configuration.settings
+            settings: configuration.settings,
+            settingsSourceDescription: settingsSource.notesDescription(preset: selectedPreset)
         ) else {
             return
         }
@@ -171,6 +176,24 @@ private enum ProjectRebatchSettingsSource: String, CaseIterable, Identifiable {
             return "Current Settings"
         case .generationPreset:
             return "Generation Preset"
+        }
+    }
+
+    var summaryLabel: String {
+        switch self {
+        case .current:
+            return "Current editor recipe"
+        case .generationPreset:
+            return "Preset recipe"
+        }
+    }
+
+    func notesDescription(preset: NarrationGenerationPreset?) -> String {
+        switch self {
+        case .current:
+            return "current editor settings"
+        case .generationPreset:
+            return preset.map { "generation preset \($0.displayName)" } ?? "a generation preset"
         }
     }
 }

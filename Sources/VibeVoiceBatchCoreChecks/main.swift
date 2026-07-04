@@ -1485,9 +1485,15 @@ struct VibeVoiceBatchCoreChecks {
             baseTitle: "Timestamped File"
         )
         precondition(timestampedChunks.count == 2)
+        precondition(ScriptChunker.containsTimestampMarkers(in: """
+        **[~9:30 — marker]**
+        Narration.
+        """))
+        precondition(!ScriptChunker.containsTimestampMarkers(in: "Plain narration without markers."))
         precondition(timestampedChunks[0].title.contains("~9:30"))
         precondition(timestampedChunks[0].text == "Keep this narration.")
         precondition(!timestampedChunks.map(\.text).joined().contains("COLD OPEN"))
+        precondition(!timestampedChunks.map(\.text).joined().contains("Drop this text"))
         let imported = try workspaceStore.createScriptBatch(
             title: "Imported File",
             chunks: importedChunks,
@@ -1502,6 +1508,24 @@ struct VibeVoiceBatchCoreChecks {
         precondition(imported.batch.items.count == 2)
         try workspaceStore.deleteUncompletedBatch(id: imported.batch.id)
         precondition(!FileManager.default.fileExists(atPath: root.batchesDirectory.appendingPathComponent("\(imported.batch.id).json").path))
+
+        let projectImport = try workspaceStore.createScriptBatch(
+            projectID: project.id,
+            title: "Project Import",
+            chunks: [ScriptChunk(title: "Project Segment", text: "Narration filed into a project.")],
+            backendID: BackendProfiles.vibeVoiceTTS.id,
+            modelID: AppDefaults.modelPath,
+            voice: "en-carter_man",
+            settings: GenerationSettings(cfgScale: "1.4", ddpmInferenceSteps: 6),
+            now: createdAt.addingTimeInterval(30)
+        )
+        let projectAfterImport = try workspaceStore.loadProject(id: project.id)
+        precondition(projectAfterImport.scriptIDs.contains(projectImport.scripts[0].id))
+        precondition(projectAfterImport.batchIDs.contains(projectImport.batch.id))
+        try workspaceStore.deleteUncompletedBatch(id: projectImport.batch.id)
+        let projectAfterImportCleanup = try workspaceStore.loadProject(id: project.id)
+        precondition(!projectAfterImportCleanup.scriptIDs.contains(projectImport.scripts[0].id))
+        precondition(!projectAfterImportCleanup.batchIDs.contains(projectImport.batch.id))
 
         let firstRun = try sessionStore.createDraft(
             text: script.text,
@@ -2279,6 +2303,7 @@ struct VibeVoiceBatchCoreChecks {
         let workspaceStore = try String(contentsOf: stores.appendingPathComponent("WorkspaceStore.swift"), encoding: .utf8)
         let appStore = try String(contentsOf: stores.appendingPathComponent("AppStore.swift"), encoding: .utf8)
         let appStoreScriptQueue = try String(contentsOf: stores.appendingPathComponent("AppStore+ScriptQueue.swift"), encoding: .utf8)
+        let scriptImportPreview = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Models/ScriptImportPreview.swift"), encoding: .utf8)
         let workspaceFileStore = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/WorkspaceFileStore.swift"), encoding: .utf8)
         let scriptChunker = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/ScriptChunker.swift"), encoding: .utf8)
         let workstationNavigation = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Models/WorkstationNavigation.swift"), encoding: .utf8)
@@ -2337,18 +2362,28 @@ struct VibeVoiceBatchCoreChecks {
         precondition(!workspaceSections.contains("Label(\"Use Voice\""))
         precondition(!workspaceSections.contains("Label(\"Generate Sample\""))
         precondition(workspaceSections.contains("ProjectRebatchControls(project: project, scripts: scripts)"))
+        precondition(workspaceSections.contains("Completed generations from this project's batches are filed here automatically."))
+        precondition(workspaceSections.contains("ProjectAssetSection(title: \"Scripts\""))
+        precondition(workspaceSections.contains("ProjectAssetSection(title: \"Batches\""))
         precondition(projectRebatchControls.contains("ProjectRebatchSettingsSource"))
         precondition(projectRebatchControls.contains("Current Settings"))
         precondition(projectRebatchControls.contains("Generation Preset"))
+        precondition(projectRebatchControls.contains("Current editor recipe"))
+        precondition(projectRebatchControls.contains("Preset recipe"))
         precondition(projectRebatchControls.contains("Queue Re-batch"))
         precondition(projectRebatchControls.contains("func rebatchProject"))
         precondition(projectRebatchControls.contains("selectedPreset"))
         precondition(projectRebatchControls.contains("backendID: preset.backendID"))
         precondition(projectRebatchControls.contains("backendID: appStore.selectedBackendProfile.id"))
         precondition(projectRebatchControls.contains("extraParameters: settingsStore.settings.generationExtraParameters"))
+        precondition(projectRebatchControls.contains("settingsSourceDescription: settingsSource.notesDescription"))
         precondition(workspaceSections.contains("Advanced Parameters"))
         precondition(workspaceSections.contains("preset.settings.extraParameters"))
         precondition(workspaceSections.contains("Save Voice Profile"))
+        precondition(workspaceSections.contains("Save Generation Recipe"))
+        precondition(workspaceSections.contains("Reusable generation recipes: backend, model, voice, settings, and export format."))
+        precondition(workspaceSections.contains("Text(\"Generation Recipe\")"))
+        precondition(workspaceSections.contains("VoiceInlineLabel(voiceID: voiceID, compact: true)"))
         precondition(voiceLibrarySummary.contains("BackendProfiles.all.reduce"))
         precondition(sidebar.contains("VoiceLibrarySummary.catalogVoiceCount"))
         precondition(inspector.contains("Catalog voices"))
@@ -2384,6 +2419,14 @@ struct VibeVoiceBatchCoreChecks {
         precondition(workspaceSections.contains("ImportedBatchCleanupSection"))
         precondition(workspaceSections.contains("Delete Batch"))
         precondition(workspaceSections.contains("ScriptChunker.chunks"))
+        precondition(workspaceSections.contains("currentSettingsSummary"))
+        precondition(workspaceSections.contains("selectedProjectTitle"))
+        precondition(workspaceSections.contains("usesTimestampMarkers: ScriptChunker.containsTimestampMarkers(in: text)"))
+        precondition(scriptImportPreview.contains("Timestamped narration only"))
+        precondition(scriptImportPreview.contains("Natural text blocks"))
+        precondition(scriptImportSheet.contains("preview.materialDescription"))
+        precondition(scriptImportSheet.contains("VoiceInlineLabel(voiceID: voiceID, compact: true)"))
+        precondition(scriptImportSheet.contains("settingsSummary"))
         precondition(scriptImportSheet.contains("Save and Queue"))
         precondition(scriptImportSheet.contains("ScriptImportSheet"))
         precondition(appStoreScriptQueue.contains("queueImportedScripts"))

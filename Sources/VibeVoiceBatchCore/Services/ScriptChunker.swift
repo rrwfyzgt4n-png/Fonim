@@ -32,6 +32,16 @@ public enum ScriptChunker {
         }
     }
 
+    public static func containsTimestampMarkers(in text: String) -> Bool {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        return normalized
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .contains { timestampMarkerTitle(from: $0) != nil }
+    }
+
     private static func naturalBlocks(from text: String) -> [String] {
         let normalized = text
             .replacingOccurrences(of: "\r\n", with: "\n")
