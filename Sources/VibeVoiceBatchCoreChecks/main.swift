@@ -2342,6 +2342,8 @@ struct VibeVoiceBatchCoreChecks {
         precondition(!generationList.contains("return lhs.metadata.createdAt < rhs.metadata.createdAt"))
         precondition(generationList.contains("return lhs.metadata.createdAt > rhs.metadata.createdAt"))
         precondition(generationList.contains("return lhs.sortDate > rhs.sortDate"))
+        precondition(generationList.contains("newestBatchSectionFirst"))
+        precondition(generationList.contains("return lhs.position > rhs.position"))
         precondition(generationList.contains("selection = .queuedGeneration(item.id)"))
         precondition(!generationList.contains("selection = .section(.batches)"))
         precondition(generationList.contains("proxy.scrollTo(sessionID, anchor: .center)"))

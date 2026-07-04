@@ -269,6 +269,12 @@ private struct GenerationListDisplayModel {
         self.items = (activeQueuedItems.map(GenerationListItem.queued) + sortedSessions.map(GenerationListItem.session))
             .sorted { lhs, rhs in
                 if lhs.sortDate == rhs.sortDate {
+                    if let markerOrder = Self.newestBatchSectionFirst(
+                        lhs: lhs.marker(sessionMarkers: markersBySessionID, queueMarkers: queueMarkers),
+                        rhs: rhs.marker(sessionMarkers: markersBySessionID, queueMarkers: queueMarkers)
+                    ) {
+                        return markerOrder
+                    }
                     return lhs.stableID > rhs.stableID
                 }
                 return lhs.sortDate > rhs.sortDate
@@ -302,6 +308,14 @@ private struct GenerationListDisplayModel {
         }
         return lhs.metadata.createdAt > rhs.metadata.createdAt
     }
+
+    private static func newestBatchSectionFirst(lhs: ScriptSectionMarker?, rhs: ScriptSectionMarker?) -> Bool? {
+        guard let lhs, let rhs, lhs.batchID == rhs.batchID else { return nil }
+        if lhs.position != rhs.position {
+            return lhs.position > rhs.position
+        }
+        return nil
+    }
 }
 
 private enum GenerationListItem: Identifiable {
@@ -327,6 +341,18 @@ private enum GenerationListItem: Identifiable {
             return item.startedAt ?? item.createdAt
         case .session(let record):
             return record.metadata.createdAt
+        }
+    }
+
+    func marker(
+        sessionMarkers: [String: ScriptSectionMarker],
+        queueMarkers: [String: ScriptSectionMarker]
+    ) -> ScriptSectionMarker? {
+        switch self {
+        case .queued(let item):
+            return queueMarkers[item.id]
+        case .session(let record):
+            return sessionMarkers[record.id]
         }
     }
 }
