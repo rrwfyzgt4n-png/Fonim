@@ -27,7 +27,7 @@ public enum WorkstationSection: String, CaseIterable, Identifiable, Sendable {
         case .batches: "Batches"
         case .voices: "Voices"
         case .presets: "Presets"
-        case .history: "History"
+        case .history: "Generations"
         case .outputs: "Outputs"
         case .backends: "Backends"
         }

@@ -61,11 +61,22 @@ struct SidebarView: View {
         }
     }
 
+    private func isFocused(_ section: WorkstationSection) -> Bool {
+        switch selection {
+        case .section(let selectedSection):
+            return selectedSection == section
+        case .historySession:
+            return section == .history
+        case .none:
+            return false
+        }
+    }
+
     private func sidebarRow(_ section: WorkstationSection, detail: String?) -> some View {
         SidebarSectionRow(
             section: section,
             detail: detail,
-            isSelected: selection == .section(section)
+            isSelected: isFocused(section)
         )
         .tag(WorkstationSelection.section(section) as WorkstationSelection?)
         .contentShape(Rectangle())
@@ -133,6 +144,10 @@ private struct SidebarSectionRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(isSelected ? Color.accentColor : Color.clear)
+                .frame(width: 3)
+
             Image(systemName: section.systemImage)
                 .foregroundStyle(isSelected ? Color.accentColor : .secondary)
                 .frame(width: 16)
@@ -150,10 +165,14 @@ private struct SidebarSectionRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 5)
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: 30)
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+        )
     }
 }
 

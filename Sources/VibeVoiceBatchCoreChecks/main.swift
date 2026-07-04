@@ -792,7 +792,7 @@ struct VibeVoiceBatchCoreChecks {
             "Batches",
             "Voices",
             "Presets",
-            "History",
+            "Generations",
             "Outputs",
             "Backends"
         ])
@@ -2120,6 +2120,7 @@ struct VibeVoiceBatchCoreChecks {
         let outputs = try String(contentsOf: views.appendingPathComponent("OutputBrowserView.swift"), encoding: .utf8)
         let editor = try String(contentsOf: views.appendingPathComponent("EditorView.swift"), encoding: .utf8)
         let content = try String(contentsOf: views.appendingPathComponent("ContentView.swift"), encoding: .utf8)
+        let generationWorkspace = try String(contentsOf: views.appendingPathComponent("GenerationWorkspaceView.swift"), encoding: .utf8)
         let assistantWelcome = try String(contentsOf: views.appendingPathComponent("BackendSetupAssistantWelcomeChecks.swift"), encoding: .utf8)
         let settings = try String(contentsOf: views.appendingPathComponent("SettingsView.swift"), encoding: .utf8)
         let assistantModels = try String(contentsOf: views.appendingPathComponent("BackendSetupAssistantModelsStep.swift"), encoding: .utf8)
@@ -2137,15 +2138,23 @@ struct VibeVoiceBatchCoreChecks {
         let appStoreScriptQueue = try String(contentsOf: stores.appendingPathComponent("AppStore+ScriptQueue.swift"), encoding: .utf8)
         let workspaceFileStore = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/WorkspaceFileStore.swift"), encoding: .utf8)
         let scriptChunker = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/ScriptChunker.swift"), encoding: .utf8)
+        let workstationNavigation = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Models/WorkstationNavigation.swift"), encoding: .utf8)
 
-        precondition(content.contains("} content: {"))
-        precondition(content.contains("GenerationListView(selection: $selection)"))
+        precondition(!content.contains("} content: {"))
+        precondition(content.contains("GenerationWorkspaceView(selection: $selection)"))
         precondition(content.contains(".navigationSplitViewColumnWidth(min: 170"))
-        precondition(content.contains(".navigationSplitViewColumnWidth(min: 230"))
+        precondition(generationWorkspace.contains("HSplitView"))
+        precondition(generationWorkspace.contains("GenerationListView(selection: $selection)"))
+        precondition(generationWorkspace.contains("SessionDetailView(record: session)"))
+        precondition(generationWorkspace.contains("EditorView()"))
+        precondition(workstationNavigation.contains("case .history: \"Generations\""))
         precondition(sidebar.contains("Section(\"Generation\")"))
         precondition(sidebar.contains("sidebarRow(.history"))
         precondition(!sidebar.contains("ForEach(store.sessions)"))
         precondition(!sidebar.contains("HistorySidebarRow"))
+        precondition(sidebar.contains("case .historySession:"))
+        precondition(sidebar.contains("return section == .history"))
+        precondition(sidebar.contains("Color.accentColor.opacity(0.14)"))
         precondition(sidebar.contains("SidebarFooter("))
         precondition(sidebar.contains("ViewThatFits(in: .horizontal)"))
         precondition(sidebar.contains("SidebarFooterMetric(label: \"Projects\""))

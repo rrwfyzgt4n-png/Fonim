@@ -17,10 +17,6 @@ struct ContentView: View {
             SidebarView(selection: $selection)
                 .navigationTitle("Narration")
                 .navigationSplitViewColumnWidth(min: 170, ideal: 220, max: 320)
-        } content: {
-            GenerationListView(selection: $selection)
-                .navigationTitle("Generations")
-                .navigationSplitViewColumnWidth(min: 230, ideal: 280, max: 380)
         } detail: {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
@@ -112,15 +108,11 @@ struct ContentView: View {
         case .section(.outputs):
             OutputBrowserView()
         case .section(.history):
-            EditorView()
+            GenerationWorkspaceView(selection: $selection)
         case .section(.backends):
             BackendsView()
-        case .historySession(let sessionID):
-            if let session = store.session(id: sessionID) {
-                SessionDetailView(record: session)
-            } else {
-                MissingHistorySelectionView(sessionID: sessionID)
-            }
+        case .historySession:
+            GenerationWorkspaceView(selection: $selection)
         }
     }
 
