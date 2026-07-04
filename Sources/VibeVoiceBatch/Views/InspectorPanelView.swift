@@ -71,7 +71,7 @@ struct InspectorPanelView: View {
                 backendSection
                 exportSection
                 metadataSection
-            case .section(.history):
+            case .section(.history), .queuedGeneration:
                 generationSection
                 backendSection
                 exportSection
@@ -126,6 +126,8 @@ struct InspectorPanelView: View {
         switch selection ?? .section(.history) {
         case .section(let section):
             return section.title
+        case .queuedGeneration:
+            return "Queued Generation"
         case .historySession:
             return "Session"
         }
@@ -149,6 +151,8 @@ struct InspectorPanelView: View {
             return store.hasUnsavedEditorText ? "Unsaved editor text" : "Editor defaults"
         case .section(.backends):
             return store.backendStatus.state.displayName
+        case .queuedGeneration(let itemID):
+            return store.queuedGenerations.first(where: { $0.id == itemID })?.status.displayName ?? "Queued"
         case .historySession(let sessionID):
             return sessionID
         }
@@ -158,6 +162,8 @@ struct InspectorPanelView: View {
         switch selection ?? .section(.history) {
         case .section(let section):
             return section.systemImage
+        case .queuedGeneration:
+            return "waveform.circle"
         case .historySession:
             return "doc.text.magnifyingglass"
         }
@@ -318,7 +324,7 @@ struct InspectorPanelView: View {
                 InspectorValue(label: "Runtime", value: store.selectedBackendProfile.runtime.displayName)
                 InspectorValue(label: "Image", value: store.selectedBackendProfile.dockerImage ?? "Not required")
             }
-        case .section(.history):
+        case .section(.history), .queuedGeneration:
             if let session = store.selectedSession {
                 sessionMetadata(session)
             } else {

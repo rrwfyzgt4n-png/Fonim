@@ -65,6 +65,8 @@ struct SidebarView: View {
         switch selection {
         case .section(let selectedSection):
             return selectedSection == section
+        case .queuedGeneration:
+            return section == .history
         case .historySession:
             return section == .history
         case .none:

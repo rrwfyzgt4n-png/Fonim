@@ -62,12 +62,15 @@ public enum WorkstationSection: String, CaseIterable, Identifiable, Sendable {
 
 public enum WorkstationSelection: Hashable, Identifiable, Sendable {
     case section(WorkstationSection)
+    case queuedGeneration(String)
     case historySession(String)
 
     public var id: String {
         switch self {
         case .section(let section):
             return "section-\(section.rawValue)"
+        case .queuedGeneration(let itemID):
+            return "queued-\(itemID)"
         case .historySession(let sessionID):
             return "history-\(sessionID)"
         }
@@ -77,6 +80,8 @@ public enum WorkstationSelection: Hashable, Identifiable, Sendable {
         switch self {
         case .section(let section):
             return section.toolbarKind
+        case .queuedGeneration:
+            return .editor
         case .historySession:
             return .session
         }

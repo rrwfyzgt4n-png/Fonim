@@ -27,71 +27,67 @@ struct GenerationListView: View {
                     if model.isEmpty {
                         GenerationListEmptyView()
                     } else {
-                        if !model.queuedItems.isEmpty {
-                            Section("Queued") {
-                                ForEach(model.queuedItems) { item in
-                                    QueuedGenerationListRow(
-                                        item: item,
-                                        marker: model.queueMarker(for: item)
-                                    )
-                                    .id(item.id)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { selectQueued(item) }
-                                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                        Button {
-                                            store.duplicateQueuedGenerationAsNew(item)
-                                            selection = .section(.history)
-                                        } label: {
-                                            Label("Duplicate", systemImage: "doc.on.doc")
-                                        }
-                                        .tint(.blue)
+                        ForEach(model.items) { item in
+                            switch item {
+                            case .queued(let queued):
+                                QueuedGenerationListRow(
+                                    item: queued,
+                                    marker: model.queueMarker(for: queued),
+                                    isSelected: selection == .queuedGeneration(queued.id)
+                                )
+                                .id(queued.id)
+                                .tag(WorkstationSelection.queuedGeneration(queued.id) as WorkstationSelection?)
+                                .contentShape(Rectangle())
+                                .onTapGesture { selectQueued(queued) }
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    Button {
+                                        store.duplicateQueuedGenerationAsNew(queued)
+                                        selection = .section(.history)
+                                    } label: {
+                                        Label("Duplicate", systemImage: "doc.on.doc")
                                     }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                        Button(role: .destructive) {
-                                            store.cancelQueuedGeneration(item)
-                                        } label: {
-                                            Label("Cancel", systemImage: "xmark.circle")
-                                        }
-                                    }
-                                    .contextMenu {
-                                        queuedGenerationMenu(for: item)
+                                    .tint(.blue)
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        store.cancelQueuedGeneration(queued)
+                                    } label: {
+                                        Label("Cancel", systemImage: "xmark.circle")
                                     }
                                 }
-                            }
-                        }
+                                .contextMenu {
+                                    queuedGenerationMenu(for: queued)
+                                }
 
-                        if !model.sessions.isEmpty {
-                            Section("History") {
-                                ForEach(model.sessions) { record in
-                                    GenerationListRow(
-                                        record: record,
-                                        marker: model.sessionMarker(for: record),
-                                        isSelected: selection == .historySession(record.id)
-                                    )
-                                    .id(record.id)
-                                    .tag(WorkstationSelection.historySession(record.id) as WorkstationSelection?)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { selectHistory(record) }
-                                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                        Button {
-                                            store.duplicateAsNew(record)
-                                            selection = .section(.history)
-                                        } label: {
-                                            Label("Duplicate", systemImage: "doc.on.doc")
-                                        }
-                                        .tint(.blue)
+                            case .session(let record):
+                                GenerationListRow(
+                                    record: record,
+                                    marker: model.sessionMarker(for: record),
+                                    isSelected: selection == .historySession(record.id)
+                                )
+                                .id(record.id)
+                                .tag(WorkstationSelection.historySession(record.id) as WorkstationSelection?)
+                                .contentShape(Rectangle())
+                                .onTapGesture { selectHistory(record) }
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    Button {
+                                        store.duplicateAsNew(record)
+                                        selection = .section(.history)
+                                    } label: {
+                                        Label("Duplicate", systemImage: "doc.on.doc")
                                     }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                        Button(role: .destructive) {
-                                            store.archiveDeleteSession(record)
-                                            selection = .section(.history)
-                                        } label: {
-                                            Label("Archive", systemImage: "archivebox")
-                                        }
+                                    .tint(.blue)
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        store.archiveDeleteSession(record)
+                                        selection = .section(.history)
+                                    } label: {
+                                        Label("Archive", systemImage: "archivebox")
                                     }
-                                    .contextMenu {
-                                        generationMenu(for: record)
-                                    }
+                                }
+                                .contextMenu {
+                                    generationMenu(for: record)
                                 }
                             }
                         }
@@ -140,7 +136,7 @@ struct GenerationListView: View {
         if queuedCount > 0 {
             return "\(queuedCount) queued, \(sessionCount) saved"
         }
-        return "\(sessionCount) saved, chronological"
+        return "\(sessionCount) saved, newest first"
     }
 
     @ViewBuilder
@@ -200,7 +196,8 @@ struct GenerationListView: View {
 
     private func selectQueued(_ item: QueuedGenerationItem) {
         store.selectedQueueItemID = item.id
-        selection = .section(.batches)
+        store.selectedSessionID = nil
+        selection = .queuedGeneration(item.id)
     }
 
     private func selectHistory(_ record: SessionRecord) {
@@ -222,6 +219,7 @@ struct GenerationListView: View {
 private struct GenerationListDisplayModel {
     let sessions: [SessionRecord]
     let queuedItems: [QueuedGenerationItem]
+    let items: [GenerationListItem]
     private let sessionMarkers: [String: ScriptSectionMarker]
     private let queueMarkers: [String: ScriptSectionMarker]
 
@@ -258,36 +256,23 @@ private struct GenerationListDisplayModel {
 
         self.sessionMarkers = markersBySessionID
         self.queueMarkers = queueMarkers
-        self.queuedItems = queuedItems
+        let activeQueuedItems = queuedItems
             .filter { !$0.status.isTerminal }
             .sorted { lhs, rhs in
-                if let markerOrder = Self.scriptOrder(
-                    lhs: queueMarkers[lhs.id],
-                    rhs: queueMarkers[rhs.id]
-                ) {
-                    return markerOrder
-                }
-
-                let lhsRank = Self.queueRank(lhs.status)
-                let rhsRank = Self.queueRank(rhs.status)
-                if lhsRank != rhsRank {
-                    return lhsRank < rhsRank
-                }
-                return lhs.createdAt < rhs.createdAt
+                Self.newestQueuedFirst(lhs, rhs)
             }
-        self.sessions = sessions.sorted { lhs, rhs in
-            if let markerOrder = Self.scriptOrder(
-                lhs: markersBySessionID[lhs.id],
-                rhs: markersBySessionID[rhs.id]
-            ) {
-                return markerOrder
-            }
-
-            if lhs.metadata.createdAt == rhs.metadata.createdAt {
-                return lhs.id < rhs.id
-            }
-            return lhs.metadata.createdAt < rhs.metadata.createdAt
+        let sortedSessions = sessions.sorted { lhs, rhs in
+            Self.newestSessionFirst(lhs, rhs)
         }
+        self.queuedItems = activeQueuedItems
+        self.sessions = sortedSessions
+        self.items = (activeQueuedItems.map(GenerationListItem.queued) + sortedSessions.map(GenerationListItem.session))
+            .sorted { lhs, rhs in
+                if lhs.sortDate == rhs.sortDate {
+                    return lhs.stableID > rhs.stableID
+                }
+                return lhs.sortDate > rhs.sortDate
+            }
     }
 
     var isEmpty: Bool {
@@ -302,24 +287,46 @@ private struct GenerationListDisplayModel {
         queueMarkers[item.id]
     }
 
-    private static func scriptOrder(lhs: ScriptSectionMarker?, rhs: ScriptSectionMarker?) -> Bool? {
-        guard let lhs, let rhs, lhs.batchID == rhs.batchID else { return nil }
-        if lhs.position != rhs.position {
-            return lhs.position < rhs.position
+    private static func newestQueuedFirst(_ lhs: QueuedGenerationItem, _ rhs: QueuedGenerationItem) -> Bool {
+        let lhsDate = lhs.startedAt ?? lhs.createdAt
+        let rhsDate = rhs.startedAt ?? rhs.createdAt
+        if lhsDate == rhsDate {
+            return lhs.id > rhs.id
         }
-        return lhs.batchCreatedAt < rhs.batchCreatedAt
+        return lhsDate > rhsDate
     }
 
-    private static func queueRank(_ status: QueuedGenerationStatus) -> Int {
-        switch status {
-        case .running:
-            return 0
-        case .queued:
-            return 1
-        case .paused:
-            return 2
-        case .completed, .failed, .cancelled:
-            return 3
+    private static func newestSessionFirst(_ lhs: SessionRecord, _ rhs: SessionRecord) -> Bool {
+        if lhs.metadata.createdAt == rhs.metadata.createdAt {
+            return lhs.id > rhs.id
+        }
+        return lhs.metadata.createdAt > rhs.metadata.createdAt
+    }
+}
+
+private enum GenerationListItem: Identifiable {
+    case queued(QueuedGenerationItem)
+    case session(SessionRecord)
+
+    var id: String {
+        stableID
+    }
+
+    var stableID: String {
+        switch self {
+        case .queued(let item):
+            return "queued-\(item.id)"
+        case .session(let record):
+            return "session-\(record.id)"
+        }
+    }
+
+    var sortDate: Date {
+        switch self {
+        case .queued(let item):
+            return item.startedAt ?? item.createdAt
+        case .session(let record):
+            return record.metadata.createdAt
         }
     }
 }
@@ -342,6 +349,7 @@ private struct ScriptSectionMarker: Equatable {
 private struct QueuedGenerationListRow: View {
     let item: QueuedGenerationItem
     let marker: ScriptSectionMarker?
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -351,7 +359,7 @@ private struct QueuedGenerationListRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .fontWeight(item.status == .running ? .semibold : .regular)
+                    .fontWeight(isSelected || item.status == .running ? .semibold : .regular)
                     .lineLimit(1)
 
                 HStack(spacing: 5) {

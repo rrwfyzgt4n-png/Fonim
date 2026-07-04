@@ -68,6 +68,9 @@ struct ContentView: View {
         }
         .onChange(of: selection) { newValue in
             switch newValue {
+            case .queuedGeneration(let itemID):
+                store.selectedQueueItemID = itemID
+                store.selectedSessionID = nil
             case .historySession(let sessionID):
                 store.selectedSessionID = sessionID
             case .section(.history):
@@ -107,7 +110,7 @@ struct ContentView: View {
             PresetsView()
         case .section(.outputs):
             OutputBrowserView()
-        case .section(.history):
+        case .section(.history), .queuedGeneration:
             GenerationWorkspaceView(selection: $selection)
         case .section(.backends):
             BackendsView()
