@@ -19,7 +19,6 @@ struct VibeVoiceBatchCoreChecks {
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
         try await checkBackendProfilesAndAdapterContracts()
-        try checkEngineAdapterRegistry()
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
         try checkAssistantStageLockingAndCheckPresentation()
@@ -36,12 +35,12 @@ struct VibeVoiceBatchCoreChecks {
         try checkMultiSelectArchiveMovesAllSessions()
         try checkWorkspacePresets()
         try checkAppSpecificErrors()
+        try checkStabilizationSourceAudit()
         try checkAppSettingsNormalizeInvalidValues()
         try checkDockerShimDocumentation()
         try checkAssistantViewDecomposition()
         try checkAppStoreResponsibilitySplit()
         try checkPostRefactorUXPolish()
-        try checkSpotlightIndexingIntegration()
         try checkAppIdentityAndPackaging()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
@@ -541,39 +540,6 @@ struct VibeVoiceBatchCoreChecks {
         let chatterboxAdapter = ChatterboxHTTPAdapter(projectRoot: FileManager.default.temporaryDirectory)
         let chatterboxHealth = await chatterboxAdapter.healthCheck()
         precondition(chatterboxHealth.profileID == BackendProfiles.chatterboxTTS.id)
-    }
-
-    private static func checkEngineAdapterRegistry() throws {
-        let registry = EngineAdapterRegistry.default
-        let projectRoot = FileManager.default.temporaryDirectory
-
-        precondition(registry.hasSupportedAdapter(for: BackendProfiles.vibeVoiceTTS))
-        precondition(registry.hasSupportedAdapter(for: BackendProfiles.kokoroTTS))
-        precondition(registry.hasSupportedAdapter(for: BackendProfiles.chatterboxTTS))
-        precondition(registry.adapter(for: BackendProfiles.vibeVoiceTTS, projectRoot: projectRoot) is VibeVoiceDockerAdapter)
-        precondition(registry.adapter(for: BackendProfiles.kokoroTTS, projectRoot: projectRoot) is KokoroHTTPAdapter)
-        precondition(registry.adapter(for: BackendProfiles.chatterboxTTS, projectRoot: projectRoot) is ChatterboxHTTPAdapter)
-        precondition(registry.adapters(for: BackendProfiles.all, projectRoot: projectRoot).map { $0.profile.id } == BackendProfiles.all.map(\.id))
-        precondition(registry.supportedBackendIDs(for: BackendProfiles.all) == Set(BackendProfiles.all.map(\.id)))
-
-        let futureProfile = BackendProfile(
-            id: "future-backend",
-            displayName: "Future Backend",
-            engineType: .custom,
-            installMethod: .manual,
-            runtime: .externalService,
-            requiredModels: [],
-            supportedArchitectures: [.appleSilicon, .intel],
-            progressParser: "future.progress",
-            logParser: "future.log",
-            outputFormatSupport: [.wav],
-            licenseNotes: "Future backend test profile.",
-            role: "Future backend",
-            strengths: [],
-            risks: []
-        )
-        precondition(!registry.hasSupportedAdapter(for: futureProfile))
-        precondition(registry.adapter(for: futureProfile, projectRoot: projectRoot) is UnavailableEngineAdapter)
     }
 
     private static func checkBackendStatusSnapshots() throws {
@@ -1841,6 +1807,133 @@ struct VibeVoiceBatchCoreChecks {
         precondition(backendMessage.contains("The selected backend action could not be completed."))
         precondition(backendMessage.contains("Check backend status"))
         precondition(backendMessage.contains("backend=kokoro"))
+
+        let unavailable = BackendError.backendUnavailable(
+            GenerationErrorRecord(
+                title: "Backend unavailable",
+                explanation: "Kokoro TTS could not be reached.",
+                recoverySuggestion: "Start the local service, then refresh backend status.",
+                technicalDetails: "url=http://127.0.0.1:8880/health"
+            )
+        )
+        let unavailableMessage = AppErrorPresenter.message(for: unavailable, includeTechnicalDetails: true)
+        precondition(unavailableMessage.contains("Kokoro TTS could not be reached."))
+        precondition(unavailableMessage.contains("Start the local service"))
+        precondition(unavailableMessage.contains("127.0.0.1:8880"))
+
+        let generationFailure = BackendError.generationFailed(
+            GenerationErrorRecord(
+                title: "Generation failed",
+                explanation: "The backend did not produce a WAV file.",
+                recoverySuggestion: "Keep the failed session for logs, then retry with a shorter script.",
+                technicalDetails: "session=failed-session"
+            )
+        )
+        let failureMessage = AppErrorPresenter.message(for: generationFailure, includeTechnicalDetails: true)
+        precondition(failureMessage.contains("The backend did not produce a WAV file."))
+        precondition(failureMessage.contains("retry with a shorter script"))
+        precondition(failureMessage.contains("failed-session"))
+    }
+
+    private static func checkStabilizationSourceAudit() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let coreServices = root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services", isDirectory: true)
+        let appStores = root.appendingPathComponent("Sources/VibeVoiceBatch/Stores", isDirectory: true)
+        let appStore = try String(contentsOf: appStores.appendingPathComponent("AppStore.swift"), encoding: .utf8)
+        let workspaceStore = try String(contentsOf: appStores.appendingPathComponent("WorkspaceStore.swift"), encoding: .utf8)
+        let backendManager = try String(contentsOf: coreServices.appendingPathComponent("BackendManager.swift"), encoding: .utf8)
+        let healthSetup = try String(contentsOf: coreServices.appendingPathComponent("BackendHealthSetupServices.swift"), encoding: .utf8)
+        let operationExecutor = try String(contentsOf: coreServices.appendingPathComponent("BackendOperationExecutor.swift"), encoding: .utf8)
+        let runtimeServices = try String(contentsOf: coreServices.appendingPathComponent("BackendRuntimeServices.swift"), encoding: .utf8)
+        let catalogDiscovery = try String(contentsOf: coreServices.appendingPathComponent("BackendCatalogDiscoveryServices.swift"), encoding: .utf8)
+        let backendProfile = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Models/BackendProfile.swift"),
+            encoding: .utf8
+        )
+        let appErrors = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Models/AppErrors.swift"),
+            encoding: .utf8
+        )
+        let stringExtensions = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Support/StringExtensions.swift"),
+            encoding: .utf8
+        )
+        let sessionFileStore = try String(contentsOf: coreServices.appendingPathComponent("SessionFileStore.swift"), encoding: .utf8)
+        let workspaceFileStore = try String(contentsOf: coreServices.appendingPathComponent("WorkspaceFileStore.swift"), encoding: .utf8)
+        let kokoroAdapter = try String(contentsOf: coreServices.appendingPathComponent("KokoroHTTPAdapter.swift"), encoding: .utf8)
+        let chatterboxAdapter = try String(contentsOf: coreServices.appendingPathComponent("ChatterboxHTTPAdapter.swift"), encoding: .utf8)
+        let backendRuntimeServices = try String(contentsOf: coreServices.appendingPathComponent("BackendRuntimeServices.swift"), encoding: .utf8)
+        let backendVoiceTestRunner = try String(contentsOf: coreServices.appendingPathComponent("BackendVoiceTestRunner.swift"), encoding: .utf8)
+        let allSources = try sourceTextUnder(root.appendingPathComponent("Sources", isDirectory: true))
+        let deferredRegistryName = ["Engine", "Adapter", "Registry"].joined()
+        let deferredSpotlightName = ["Spotlight", "Indexer"].joined()
+        let misleadingUserCancelledError = ["CocoaError", "(.userCancelled)"].joined()
+
+        precondition(stringExtensions.contains("public extension String"))
+        precondition(stringExtensions.contains("var trimmedOrNil: String?"))
+        precondition(backendProfile.contains("value.trimmedOrNil"))
+        precondition(backendRuntimeServices.contains("value?.trimmedOrNil"))
+        precondition(workspaceStore.contains("guard let trimmed = title.trimmedOrNil"))
+        precondition(kokoroAdapter.contains(".trimmedOrNil"))
+        precondition(chatterboxAdapter.contains(".trimmedOrNil"))
+
+        precondition(backendManager.contains("private let healthChecker: BackendHealthChecker"))
+        precondition(backendManager.contains("private let setupReporter: BackendSetupReporter"))
+        precondition(backendManager.contains("private let operationExecutor: BackendOperationExecutor"))
+        precondition(backendManager.contains("private let catalogReporter: BackendCatalogReporter"))
+        precondition(backendManager.contains("private let discoveryReporter: BackendDiscoveryReporter"))
+        precondition(healthSetup.contains("internal struct BackendHealthChecker"))
+        precondition(healthSetup.contains("internal struct BackendSetupReporter"))
+        precondition(operationExecutor.contains("internal struct BackendOperationExecutor"))
+        precondition(runtimeServices.contains("internal struct BackendDockerRuntimeInspector"))
+        precondition(runtimeServices.contains("internal struct BackendHTTPClient"))
+        precondition(runtimeServices.contains("internal struct BackendDiskUsageAnalyzer"))
+        precondition(catalogDiscovery.contains("internal struct BackendCatalogParser"))
+        precondition(catalogDiscovery.contains("internal struct BackendCatalogReporter"))
+        precondition(catalogDiscovery.contains("internal struct BackendDiscoveryReporter"))
+
+        precondition(appErrors.contains("public protocol AppRecoverableError"))
+        precondition(appErrors.contains("public enum WorkspaceError"))
+        precondition(appErrors.contains("public enum AppErrorPresenter"))
+        precondition(workspaceFileStore.contains("WorkspaceError.cannotDeleteBuiltInPreset"))
+        precondition(workspaceFileStore.contains("WorkspaceError.missingBatchItem"))
+        precondition(workspaceStore.contains("AppErrorPresenter.message(for: error"))
+        precondition(!allSources.contains(misleadingUserCancelledError))
+        precondition(sessionFileStore.contains("CocoaError(.fileWriteFileExists)"))
+
+        precondition(appStore.contains("let adapters: [any EngineAdapter] = ["))
+        precondition(appStore.contains("VibeVoiceDockerAdapter()"))
+        precondition(appStore.contains("KokoroHTTPAdapter()"))
+        precondition(appStore.contains("ChatterboxHTTPAdapter()"))
+        precondition(backendVoiceTestRunner.contains("switch profile.engineType"))
+        precondition(backendVoiceTestRunner.contains("UnavailableEngineAdapter"))
+        precondition(!fileExists(coreServices.appendingPathComponent("\(deferredRegistryName).swift")))
+        precondition(!allSources.contains(deferredRegistryName))
+        precondition(!allSources.contains(deferredSpotlightName))
+    }
+
+    private static func sourceTextUnder(_ directory: URL) throws -> String {
+        let fileManager = FileManager.default
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return ""
+        }
+
+        var combined = ""
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else { continue }
+            combined += try String(contentsOf: url, encoding: .utf8)
+            combined += "\n"
+        }
+        return combined
+    }
+
+    private static func fileExists(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
     }
 
     private static func checkAppSettingsNormalizeInvalidValues() throws {
@@ -2181,7 +2274,6 @@ struct VibeVoiceBatchCoreChecks {
         let workspaceFileStore = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/WorkspaceFileStore.swift"), encoding: .utf8)
         let scriptChunker = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/ScriptChunker.swift"), encoding: .utf8)
         let workstationNavigation = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Models/WorkstationNavigation.swift"), encoding: .utf8)
-        let engineAdapterRegistry = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/EngineAdapterRegistry.swift"), encoding: .utf8)
 
         precondition(!content.contains("} content: {"))
         precondition(content.contains("GenerationWorkspaceView(selection: $selection)"))
@@ -2214,12 +2306,10 @@ struct VibeVoiceBatchCoreChecks {
         precondition(sidebar.contains("workspaceStore.activeScripts.count"))
         precondition(sidebar.contains("store.queuedGenerations.filter { !$0.status.isTerminal }.count"))
         precondition(!sidebar.contains("selectionBackground"))
-        precondition(appStore.contains("EngineAdapterRegistry.default"))
-        precondition(appStore.contains("adapterRegistry.adapters()"))
-        precondition(!appStore.contains("let adapters: [any EngineAdapter] = ["))
-        precondition(engineAdapterRegistry.contains("struct EngineAdapterRegistry"))
-        precondition(engineAdapterRegistry.contains("UnavailableEngineAdapter"))
-        precondition(engineAdapterRegistry.contains("supportedBackendIDs"))
+        precondition(appStore.contains("let adapters: [any EngineAdapter] = ["))
+        precondition(appStore.contains("VibeVoiceDockerAdapter()"))
+        precondition(appStore.contains("KokoroHTTPAdapter()"))
+        precondition(appStore.contains("ChatterboxHTTPAdapter()"))
 
         precondition(inspector.contains("private var inspectorHeader"))
         precondition(inspector.contains("private var inspectorContent"))
@@ -2313,44 +2403,6 @@ struct VibeVoiceBatchCoreChecks {
         precondition(editor.contains(".labelStyle(.iconOnly)"))
         precondition(assistantWelcome.contains("AssistantWelcomePoint"))
         precondition(assistantWelcome.contains("BackendModeSummary"))
-    }
-
-    private static func checkSpotlightIndexingIntegration() throws {
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-        let services = root.appendingPathComponent("Sources/VibeVoiceBatch/Services", isDirectory: true)
-        let app = try String(
-            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/App/VibeVoiceBatchApp.swift"),
-            encoding: .utf8
-        )
-        let appStore = try String(
-            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Stores/AppStore.swift"),
-            encoding: .utf8
-        )
-        let workspaceStore = try String(
-            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Stores/WorkspaceStore.swift"),
-            encoding: .utf8
-        )
-        let spotlight = try String(
-            contentsOf: services.appendingPathComponent("SpotlightIndexer.swift"),
-            encoding: .utf8
-        )
-
-        precondition(spotlight.contains("import CoreSpotlight"))
-        precondition(spotlight.contains("final class SpotlightIndexer"))
-        precondition(spotlight.contains("CSSearchableIndex.default()"))
-        precondition(spotlight.contains("WorkspaceFileStore(projectRoot: projectRoot)"))
-        precondition(spotlight.contains("SessionFileStore(projectRoot: projectRoot)"))
-        precondition(spotlight.contains("snapshot.projects.map"))
-        precondition(spotlight.contains("snapshot.scripts.map"))
-        precondition(spotlight.contains("snapshot.batches.map"))
-        precondition(spotlight.contains(".filter { $0.metadata.status == .completed }"))
-        precondition(spotlight.contains("domainIdentifier = \"local.vibevoice.batch\""))
-        precondition(app.contains("let spotlightIndexer = SpotlightIndexer()"))
-        precondition(app.contains("spotlightIndexer.scheduleIndex()"))
-        precondition(appStore.contains("private let spotlightIndexer: SpotlightIndexer"))
-        precondition(appStore.contains("spotlightIndexer.scheduleIndex()"))
-        precondition(workspaceStore.contains("private let spotlightIndexer: SpotlightIndexer"))
-        precondition(workspaceStore.contains("spotlightIndexer.scheduleIndex()"))
     }
 
     private static func checkAppIdentityAndPackaging() throws {

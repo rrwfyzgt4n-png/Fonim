@@ -42,31 +42,32 @@ final class AppStore: ObservableObject {
     private let outputActionCoordinator: AppOutputActionCoordinator
     private let backendStatusCoordinator: AppBackendStatusCoordinator
     private let generationQueueCoordinator: AppGenerationQueueCoordinator
-    private let spotlightIndexer: SpotlightIndexer
     private let progressCoordinator = AppGenerationProgressCoordinator()
     private var activeTask: Task<Void, Never>?
     private var activeJobID: String?
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
-    init(settingsStore: SettingsStore, spotlightIndexer: SpotlightIndexer = SpotlightIndexer()) {
+
+    init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
-        self.spotlightIndexer = spotlightIndexer
         let fileStore = SessionFileStore()
         let quickLookPreviewer = QuickLookPreviewer()
         let playbackCoordinator = AppAudioPlaybackCoordinator()
-        let adapterRegistry = EngineAdapterRegistry.default
-        let adapters = adapterRegistry.adapters()
+        let adapters: [any EngineAdapter] = [
+            VibeVoiceDockerAdapter(),
+            KokoroHTTPAdapter(),
+            ChatterboxHTTPAdapter()
+        ]
+
         self.fileStore = fileStore
         self.playbackCoordinator = playbackCoordinator
         outputActionCoordinator = AppOutputActionCoordinator(
             fileStore: fileStore,
             quickLookPreviewer: quickLookPreviewer
         )
-        backendStatusCoordinator = AppBackendStatusCoordinator(
-            adapterRegistry: adapterRegistry,
-            adapters: adapters
-        )
+        backendStatusCoordinator = AppBackendStatusCoordinator(adapters: adapters)
         generationQueueCoordinator = AppGenerationQueueCoordinator(adapters: adapters)
+
         selectedVoice = settingsStore.settings.preferredVoiceID(for: settingsStore.selectedBackendProfile)
         cfgScale = settingsStore.settings.defaultCFGScale
         ddpmInferenceSteps = settingsStore.settings.defaultDDPMInferenceSteps
@@ -150,7 +151,6 @@ final class AppStore: ObservableObject {
             sessions = try fileStore.loadSessions()
             let validOutputIDs = Set(outputSessions.map(\.id))
             selectedOutputSessionIDs = selectedOutputSessionIDs.intersection(validOutputIDs)
-            spotlightIndexer.scheduleIndex()
         } catch {
             alertMessage = "Could not load history: \(error.localizedDescription)"
         }

@@ -59,8 +59,6 @@ Packaging is handled by `script/package_app.sh`. The script builds the SwiftPM a
 
 Projects, scripts, batches, voices, and presets are represented by `NarrationProject`, `NarrationScript`, `NarrationBatch`, `NarrationBatchItem`, `NarrationVoicePreset`, and `NarrationGenerationPreset`. `WorkspaceFileStore` persists them under `workspace/projects`, `workspace/scripts`, `workspace/batches`, and `workspace/presets`. A script can reference multiple `history/<session_id>` generations, which lets one editable script produce many immutable generation records without overwriting earlier input, audio, logs, or metadata.
 
-Spotlight indexing is represented by `SpotlightIndexer` in the app service layer. It indexes projects, scripts, batches, custom presets, and completed generation sessions as native macOS searchable records. Indexing is best-effort, debounced, and reads durable file-backed records through `WorkspaceFileStore` and `SessionFileStore`; it does not participate in generation, queue execution, backend health, or session mutation.
-
 ## Migration Rule
 
 Do not add new model-specific behavior to SwiftUI views. New backend-specific behavior belongs in an `EngineAdapter` implementation or a parser owned by the backend layer.
