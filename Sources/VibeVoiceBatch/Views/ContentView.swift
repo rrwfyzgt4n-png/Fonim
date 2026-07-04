@@ -16,11 +16,11 @@ struct ContentView: View {
         NavigationSplitView {
             SidebarView(selection: $selection)
                 .navigationTitle("Narration")
-                .frame(minWidth: 280, idealWidth: 330)
+                .navigationSplitViewColumnWidth(min: 170, ideal: 220, max: 320)
         } content: {
             GenerationListView(selection: $selection)
                 .navigationTitle("Generations")
-                .frame(minWidth: 260, idealWidth: 300)
+                .navigationSplitViewColumnWidth(min: 230, ideal: 280, max: 380)
         } detail: {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {

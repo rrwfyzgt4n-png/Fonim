@@ -32,25 +32,14 @@ struct SidebarView: View {
             }
             .listStyle(.sidebar)
 
-            HStack(spacing: 8) {
-                Text("Projects: \(workspaceStore.projects.count)  Queued: \(activeQueueCount)  Generations: \(store.sessions.count)")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
-                Button {
-                    workspaceStore.refresh()
-                    store.refreshHistory()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh Workspace")
-                .accessibilityLabel("Refresh workspace")
+            SidebarFooter(
+                projects: workspaceStore.projects.count,
+                queued: activeQueueCount,
+                generations: store.sessions.count
+            ) {
+                workspaceStore.refresh()
+                store.refreshHistory()
             }
-            .font(.caption)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
         }
     }
 
@@ -81,6 +70,59 @@ struct SidebarView: View {
         .tag(WorkstationSelection.section(section) as WorkstationSelection?)
         .contentShape(Rectangle())
         .onTapGesture { selectSection(section) }
+    }
+}
+
+private struct SidebarFooter: View {
+    let projects: Int
+    let queued: Int
+    let generations: Int
+    let refresh: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    SidebarFooterMetric(label: "Projects", value: projects)
+                    SidebarFooterMetric(label: "Queued", value: queued)
+                    SidebarFooterMetric(label: "Generations", value: generations)
+                }
+
+                HStack(spacing: 7) {
+                    SidebarFooterMetric(label: "P", value: projects)
+                    SidebarFooterMetric(label: "Q", value: queued)
+                    SidebarFooterMetric(label: "G", value: generations)
+                }
+            }
+            .layoutPriority(-1)
+
+            Spacer(minLength: 4)
+
+            Button {
+                refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.borderless)
+            .help("Refresh Workspace")
+            .accessibilityLabel("Refresh workspace")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+}
+
+private struct SidebarFooterMetric: View {
+    let label: String
+    let value: Int
+
+    var body: some View {
+        Text("\(label): \(value)")
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 }
 
