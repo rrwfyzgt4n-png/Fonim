@@ -4,8 +4,10 @@ import VibeVoiceBatchCore
 extension AppStore {
     func queueImportedScripts(_ scripts: [NarrationScript], batch: NarrationBatch?) {
         let batchItemsByScriptID = Dictionary(uniqueKeysWithValues: (batch?.items ?? []).map { ($0.scriptID, $0) })
+        var firstQueuedJobID: String?
         for script in scripts {
             let batchItem = batchItemsByScriptID[script.id]
+            let queuedBefore = queuedGenerations.count
             enqueueGeneration(
                 text: script.text,
                 voice: script.defaultVoice,
@@ -15,9 +17,15 @@ extension AppStore {
                 modelID: script.defaultModelID,
                 scriptID: script.id,
                 batchID: batch?.id,
-                batchItemID: batchItem?.id
+                batchItemID: batchItem?.id,
+                selectQueuedItem: false
             )
+            if firstQueuedJobID == nil, queuedGenerations.indices.contains(queuedBefore) {
+                firstQueuedJobID = queuedGenerations[queuedBefore].id
+            }
         }
+        selectedQueueItemID = firstQueuedJobID
+        requestSelection(.section(.batches))
         statusMessage = "Queued \(scripts.count) imported scripts"
     }
 

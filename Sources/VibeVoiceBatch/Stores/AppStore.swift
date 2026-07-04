@@ -58,7 +58,6 @@ final class AppStore: ObservableObject {
             KokoroHTTPAdapter(),
             ChatterboxHTTPAdapter()
         ]
-
         self.fileStore = fileStore
         self.playbackCoordinator = playbackCoordinator
         outputActionCoordinator = AppOutputActionCoordinator(
@@ -67,7 +66,6 @@ final class AppStore: ObservableObject {
         )
         backendStatusCoordinator = AppBackendStatusCoordinator(adapters: adapters)
         generationQueueCoordinator = AppGenerationQueueCoordinator(adapters: adapters)
-
         selectedVoice = settingsStore.settings.preferredVoiceID(for: settingsStore.selectedBackendProfile)
         cfgScale = settingsStore.settings.defaultCFGScale
         ddpmInferenceSteps = settingsStore.settings.defaultDDPMInferenceSteps
@@ -491,7 +489,8 @@ final class AppStore: ObservableObject {
         modelID: String? = nil,
         scriptID: String? = nil,
         batchID: String? = nil,
-        batchItemID: String? = nil
+        batchItemID: String? = nil,
+        selectQueuedItem: Bool = true
     ) {
         let backendProfile = backendID.map { settingsStore.backendProfile(id: $0) } ?? selectedBackendProfile
         let enqueued = generationQueueCoordinator.enqueue(
@@ -508,7 +507,9 @@ final class AppStore: ObservableObject {
         )
         let job = enqueued.job
         queuedGenerations.append(isQueuePaused ? generationQueueCoordinator.pausedItem(from: enqueued.item) : enqueued.item)
-        selectedQueueItemID = job.id
+        if selectQueuedItem {
+            selectedQueueItemID = job.id
+        }
         selectedSessionID = nil
         hasUnsavedEditorText = false
         statusMessage = isQueuePaused ? "Queued while paused" : (isGenerating ? "Queued for generation" : "Queued")
@@ -712,13 +713,9 @@ final class AppStore: ObservableObject {
         let cached = progressCoordinator.logText(for: record); return cached.isEmpty ? ((try? fileStore.loadLogText(folderURL: record.folderURL)) ?? "") : cached
     }
 
-    func clearPendingScrollRequest() {
-        pendingScrollSessionID = nil
-    }
-
-    func clearRequestedSelection() {
-        requestedSelection = nil
-    }
+    func clearPendingScrollRequest() { pendingScrollSessionID = nil }
+    func clearRequestedSelection() { requestedSelection = nil }
+    func requestSelection(_ selection: WorkstationSelection?) { requestedSelection = selection }
 
     private func handleGenerationEvent(_ event: GenerationEvent) {
         switch event {
