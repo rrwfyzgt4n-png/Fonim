@@ -12,9 +12,11 @@ final class WorkspaceStore: ObservableObject {
     @Published var alertMessage: String?
 
     private let fileStore: WorkspaceFileStore
+    private let spotlightIndexer: SpotlightIndexer
 
-    init(fileStore: WorkspaceFileStore = WorkspaceFileStore()) {
+    init(fileStore: WorkspaceFileStore = WorkspaceFileStore(), spotlightIndexer: SpotlightIndexer = SpotlightIndexer()) {
         self.fileStore = fileStore
+        self.spotlightIndexer = spotlightIndexer
     }
 
     var activeScripts: [NarrationScript] {
@@ -35,6 +37,7 @@ final class WorkspaceStore: ObservableObject {
             batches = snapshot.batches
             voicePresets = snapshot.voicePresets
             generationPresets = snapshot.generationPresets
+            spotlightIndexer.scheduleIndex()
         } catch {
             alertMessage = AppErrorPresenter.message(for: error, fallbackTitle: "Could not load workspace")
         }

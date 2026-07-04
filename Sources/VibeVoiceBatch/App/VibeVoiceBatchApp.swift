@@ -18,9 +18,11 @@ struct FonimApp: App {
 
     init() {
         let settingsStore = SettingsStore()
+        let spotlightIndexer = SpotlightIndexer()
         _settingsStore = StateObject(wrappedValue: settingsStore)
-        _store = StateObject(wrappedValue: AppStore(settingsStore: settingsStore))
-        _workspaceStore = StateObject(wrappedValue: WorkspaceStore())
+        _store = StateObject(wrappedValue: AppStore(settingsStore: settingsStore, spotlightIndexer: spotlightIndexer))
+        _workspaceStore = StateObject(wrappedValue: WorkspaceStore(spotlightIndexer: spotlightIndexer))
+        spotlightIndexer.scheduleIndex()
     }
 
     var body: some Scene {

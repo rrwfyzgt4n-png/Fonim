@@ -112,6 +112,7 @@ Current implementation:
 - Generated audio can be played in app.
 - Generated audio can be dragged out of the output browser.
 - Quick Look is available from output rows and details through the native macOS preview panel.
+- Projects, scripts, batches, custom presets, and completed generations are indexed for Spotlight so workspace records remain discoverable through standard macOS search.
 - History and Outputs archive sessions by moving folders into `recovered/deleted_sessions`; recovery language tells the user how to restore them.
 - Project filing links session IDs only and does not move or mutate generation session folders.
 

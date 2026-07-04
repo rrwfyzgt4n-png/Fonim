@@ -42,20 +42,20 @@ final class AppStore: ObservableObject {
     private let outputActionCoordinator: AppOutputActionCoordinator
     private let backendStatusCoordinator: AppBackendStatusCoordinator
     private let generationQueueCoordinator: AppGenerationQueueCoordinator
+    private let spotlightIndexer: SpotlightIndexer
     private let progressCoordinator = AppGenerationProgressCoordinator()
     private var activeTask: Task<Void, Never>?
     private var activeJobID: String?
     private var elapsedTimer: Timer?
     private var activeStartedAt: Date?
-
-    init(settingsStore: SettingsStore) {
+    init(settingsStore: SettingsStore, spotlightIndexer: SpotlightIndexer = SpotlightIndexer()) {
         self.settingsStore = settingsStore
+        self.spotlightIndexer = spotlightIndexer
         let fileStore = SessionFileStore()
         let quickLookPreviewer = QuickLookPreviewer()
         let playbackCoordinator = AppAudioPlaybackCoordinator()
         let adapterRegistry = EngineAdapterRegistry.default
         let adapters = adapterRegistry.adapters()
-
         self.fileStore = fileStore
         self.playbackCoordinator = playbackCoordinator
         outputActionCoordinator = AppOutputActionCoordinator(
@@ -67,7 +67,6 @@ final class AppStore: ObservableObject {
             adapters: adapters
         )
         generationQueueCoordinator = AppGenerationQueueCoordinator(adapters: adapters)
-
         selectedVoice = settingsStore.settings.preferredVoiceID(for: settingsStore.selectedBackendProfile)
         cfgScale = settingsStore.settings.defaultCFGScale
         ddpmInferenceSteps = settingsStore.settings.defaultDDPMInferenceSteps
@@ -151,6 +150,7 @@ final class AppStore: ObservableObject {
             sessions = try fileStore.loadSessions()
             let validOutputIDs = Set(outputSessions.map(\.id))
             selectedOutputSessionIDs = selectedOutputSessionIDs.intersection(validOutputIDs)
+            spotlightIndexer.scheduleIndex()
         } catch {
             alertMessage = "Could not load history: \(error.localizedDescription)"
         }

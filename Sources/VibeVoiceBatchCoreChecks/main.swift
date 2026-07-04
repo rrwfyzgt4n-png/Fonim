@@ -41,6 +41,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkAssistantViewDecomposition()
         try checkAppStoreResponsibilitySplit()
         try checkPostRefactorUXPolish()
+        try checkSpotlightIndexingIntegration()
         try checkAppIdentityAndPackaging()
         try await checkVibeVoiceAdapterGeneratesThroughSessionStore()
         try await checkKokoroHTTPAdapterGeneratesThroughSessionStore()
@@ -2312,6 +2313,44 @@ struct VibeVoiceBatchCoreChecks {
         precondition(editor.contains(".labelStyle(.iconOnly)"))
         precondition(assistantWelcome.contains("AssistantWelcomePoint"))
         precondition(assistantWelcome.contains("BackendModeSummary"))
+    }
+
+    private static func checkSpotlightIndexingIntegration() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let services = root.appendingPathComponent("Sources/VibeVoiceBatch/Services", isDirectory: true)
+        let app = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/App/VibeVoiceBatchApp.swift"),
+            encoding: .utf8
+        )
+        let appStore = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Stores/AppStore.swift"),
+            encoding: .utf8
+        )
+        let workspaceStore = try String(
+            contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Stores/WorkspaceStore.swift"),
+            encoding: .utf8
+        )
+        let spotlight = try String(
+            contentsOf: services.appendingPathComponent("SpotlightIndexer.swift"),
+            encoding: .utf8
+        )
+
+        precondition(spotlight.contains("import CoreSpotlight"))
+        precondition(spotlight.contains("final class SpotlightIndexer"))
+        precondition(spotlight.contains("CSSearchableIndex.default()"))
+        precondition(spotlight.contains("WorkspaceFileStore(projectRoot: projectRoot)"))
+        precondition(spotlight.contains("SessionFileStore(projectRoot: projectRoot)"))
+        precondition(spotlight.contains("snapshot.projects.map"))
+        precondition(spotlight.contains("snapshot.scripts.map"))
+        precondition(spotlight.contains("snapshot.batches.map"))
+        precondition(spotlight.contains(".filter { $0.metadata.status == .completed }"))
+        precondition(spotlight.contains("domainIdentifier = \"local.vibevoice.batch\""))
+        precondition(app.contains("let spotlightIndexer = SpotlightIndexer()"))
+        precondition(app.contains("spotlightIndexer.scheduleIndex()"))
+        precondition(appStore.contains("private let spotlightIndexer: SpotlightIndexer"))
+        precondition(appStore.contains("spotlightIndexer.scheduleIndex()"))
+        precondition(workspaceStore.contains("private let spotlightIndexer: SpotlightIndexer"))
+        precondition(workspaceStore.contains("spotlightIndexer.scheduleIndex()"))
     }
 
     private static func checkAppIdentityAndPackaging() throws {
