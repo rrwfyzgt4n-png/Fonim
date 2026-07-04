@@ -322,8 +322,5 @@ internal func backendStableIdentifier(_ value: String) -> String {
 }
 
 internal func backendTrimmedNonEmpty(_ value: String?) -> String? {
-    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
-        return nil
-    }
-    return trimmed
+    value?.trimmedOrNil
 }

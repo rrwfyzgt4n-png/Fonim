@@ -4,6 +4,7 @@ import VibeVoiceBatchCore
 @main
 struct VibeVoiceBatchCoreChecks {
     static func main() async throws {
+        try checkStringTrimmingHelper()
         try checkDraftCreatesPermanentSessionFiles()
         try checkSessionIDsNeverCollide()
         try checkRecoverExistingGeneratedWAVMovesToRecovered()
@@ -18,6 +19,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
         try await checkBackendProfilesAndAdapterContracts()
+        try checkEngineAdapterRegistry()
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
         try checkAssistantStageLockingAndCheckPresentation()
@@ -46,6 +48,12 @@ struct VibeVoiceBatchCoreChecks {
         try await checkBackendVoiceTestRunnerUsesAdapterQueue()
         try await checkJobQueueCancellationReachesAdapter()
         print("VibeVoiceBatchCoreChecks passed")
+    }
+
+    private static func checkStringTrimmingHelper() throws {
+        precondition("  value \n".trimmedOrNil == "value")
+        precondition(" \t\n ".trimmedOrNil == nil)
+        precondition("already-clean".trimmedOrNil == "already-clean")
     }
 
     private static func checkDraftCreatesPermanentSessionFiles() throws {
@@ -532,6 +540,39 @@ struct VibeVoiceBatchCoreChecks {
         let chatterboxAdapter = ChatterboxHTTPAdapter(projectRoot: FileManager.default.temporaryDirectory)
         let chatterboxHealth = await chatterboxAdapter.healthCheck()
         precondition(chatterboxHealth.profileID == BackendProfiles.chatterboxTTS.id)
+    }
+
+    private static func checkEngineAdapterRegistry() throws {
+        let registry = EngineAdapterRegistry.default
+        let projectRoot = FileManager.default.temporaryDirectory
+
+        precondition(registry.hasSupportedAdapter(for: BackendProfiles.vibeVoiceTTS))
+        precondition(registry.hasSupportedAdapter(for: BackendProfiles.kokoroTTS))
+        precondition(registry.hasSupportedAdapter(for: BackendProfiles.chatterboxTTS))
+        precondition(registry.adapter(for: BackendProfiles.vibeVoiceTTS, projectRoot: projectRoot) is VibeVoiceDockerAdapter)
+        precondition(registry.adapter(for: BackendProfiles.kokoroTTS, projectRoot: projectRoot) is KokoroHTTPAdapter)
+        precondition(registry.adapter(for: BackendProfiles.chatterboxTTS, projectRoot: projectRoot) is ChatterboxHTTPAdapter)
+        precondition(registry.adapters(for: BackendProfiles.all, projectRoot: projectRoot).map { $0.profile.id } == BackendProfiles.all.map(\.id))
+        precondition(registry.supportedBackendIDs(for: BackendProfiles.all) == Set(BackendProfiles.all.map(\.id)))
+
+        let futureProfile = BackendProfile(
+            id: "future-backend",
+            displayName: "Future Backend",
+            engineType: .custom,
+            installMethod: .manual,
+            runtime: .externalService,
+            requiredModels: [],
+            supportedArchitectures: [.appleSilicon, .intel],
+            progressParser: "future.progress",
+            logParser: "future.log",
+            outputFormatSupport: [.wav],
+            licenseNotes: "Future backend test profile.",
+            role: "Future backend",
+            strengths: [],
+            risks: []
+        )
+        precondition(!registry.hasSupportedAdapter(for: futureProfile))
+        precondition(registry.adapter(for: futureProfile, projectRoot: projectRoot) is UnavailableEngineAdapter)
     }
 
     private static func checkBackendStatusSnapshots() throws {
@@ -2139,6 +2180,7 @@ struct VibeVoiceBatchCoreChecks {
         let workspaceFileStore = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/WorkspaceFileStore.swift"), encoding: .utf8)
         let scriptChunker = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/ScriptChunker.swift"), encoding: .utf8)
         let workstationNavigation = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Models/WorkstationNavigation.swift"), encoding: .utf8)
+        let engineAdapterRegistry = try String(contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatchCore/Services/EngineAdapterRegistry.swift"), encoding: .utf8)
 
         precondition(!content.contains("} content: {"))
         precondition(content.contains("GenerationWorkspaceView(selection: $selection)"))
@@ -2171,6 +2213,12 @@ struct VibeVoiceBatchCoreChecks {
         precondition(sidebar.contains("workspaceStore.activeScripts.count"))
         precondition(sidebar.contains("store.queuedGenerations.filter { !$0.status.isTerminal }.count"))
         precondition(!sidebar.contains("selectionBackground"))
+        precondition(appStore.contains("EngineAdapterRegistry.default"))
+        precondition(appStore.contains("adapterRegistry.adapters()"))
+        precondition(!appStore.contains("let adapters: [any EngineAdapter] = ["))
+        precondition(engineAdapterRegistry.contains("struct EngineAdapterRegistry"))
+        precondition(engineAdapterRegistry.contains("UnavailableEngineAdapter"))
+        precondition(engineAdapterRegistry.contains("supportedBackendIDs"))
 
         precondition(inspector.contains("private var inspectorHeader"))
         precondition(inspector.contains("private var inspectorContent"))

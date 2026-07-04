@@ -244,13 +244,11 @@ public final class KokoroDockerLogFollower: KokoroLogFollowing {
             return candidate
         }
         return commandOutput(executablePath: "/usr/bin/which", arguments: ["docker"])?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nonEmpty
+            .trimmedOrNil
     }
 
     private func containerName(for profile: BackendProfile, endpoint: URL?, docker: String) -> String? {
-        if let containerName = profile.containerName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !containerName.isEmpty {
+        if let containerName = profile.containerName?.trimmedOrNil {
             return containerName
         }
 
@@ -265,7 +263,7 @@ public final class KokoroDockerLogFollower: KokoroLogFollowing {
         let rows = output
             .split(separator: "\n")
             .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .filter { $0.trimmedOrNil != nil }
 
         if let port,
            let match = rows.first(where: { row in
@@ -804,12 +802,6 @@ private extension Data {
 private extension Dictionary where Key == String, Value == String {
     func double(_ key: String) -> Double? {
         self[key].flatMap(Double.init)
-    }
-}
-
-private extension String {
-    var nonEmpty: String? {
-        isEmpty ? nil : self
     }
 }
 

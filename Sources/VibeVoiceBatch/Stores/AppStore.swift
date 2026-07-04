@@ -53,11 +53,8 @@ final class AppStore: ObservableObject {
         let fileStore = SessionFileStore()
         let quickLookPreviewer = QuickLookPreviewer()
         let playbackCoordinator = AppAudioPlaybackCoordinator()
-        let adapters: [any EngineAdapter] = [
-            VibeVoiceDockerAdapter(),
-            KokoroHTTPAdapter(),
-            ChatterboxHTTPAdapter()
-        ]
+        let adapterRegistry = EngineAdapterRegistry.default
+        let adapters = adapterRegistry.adapters()
 
         self.fileStore = fileStore
         self.playbackCoordinator = playbackCoordinator
@@ -65,7 +62,10 @@ final class AppStore: ObservableObject {
             fileStore: fileStore,
             quickLookPreviewer: quickLookPreviewer
         )
-        backendStatusCoordinator = AppBackendStatusCoordinator(adapters: adapters)
+        backendStatusCoordinator = AppBackendStatusCoordinator(
+            adapterRegistry: adapterRegistry,
+            adapters: adapters
+        )
         generationQueueCoordinator = AppGenerationQueueCoordinator(adapters: adapters)
 
         selectedVoice = settingsStore.settings.preferredVoiceID(for: settingsStore.selectedBackendProfile)
@@ -134,11 +134,11 @@ final class AppStore: ObservableObject {
             (isGenerating || backendStatus.canStartGeneration) &&
             selectedBackendHasGenerationAdapter &&
             selectedVoiceIsAvailable &&
-            !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            editorText.trimmedOrNil != nil
     }
 
     var canSaveDraft: Bool {
-        !isGenerating && !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !isGenerating && editorText.trimmedOrNil != nil
     }
 
     var playbackProgressFraction: Double? {
@@ -232,12 +232,12 @@ final class AppStore: ObservableObject {
 
     func updateEditorText(_ value: String) {
         editorText = value
-        hasUnsavedEditorText = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        hasUnsavedEditorText = value.trimmedOrNil != nil
         selectedSessionID = nil
     }
 
     func newDocument() {
-        if hasUnsavedEditorText, !editorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if hasUnsavedEditorText, editorText.trimmedOrNil != nil {
             _ = saveDraft(selectAfterSave: false, messagePrefix: "Saved previous text as draft")
         }
 
@@ -256,7 +256,7 @@ final class AppStore: ObservableObject {
     @discardableResult
     func saveDraft(selectAfterSave: Bool = true, messagePrefix: String = "Draft saved") -> SessionRecord? {
         let text = editorText
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard text.trimmedOrNil != nil else {
             statusMessage = "No text to save"
             return nil
         }
@@ -284,7 +284,7 @@ final class AppStore: ObservableObject {
 
     func generate() {
         let text = editorText
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard text.trimmedOrNil != nil else {
             statusMessage = "No text to generate"
             return
         }
@@ -381,7 +381,7 @@ final class AppStore: ObservableObject {
         selectedVoice = item.voice
         cfgScale = item.cfgScale
         ddpmInferenceSteps = item.ddpmInferenceSteps
-        hasUnsavedEditorText = !item.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        hasUnsavedEditorText = item.sourceText.trimmedOrNil != nil
         selectedSessionID = nil
         statusMessage = "Duplicated queued item as new unsaved text"
         requestedSelection = .section(.history)
@@ -593,7 +593,7 @@ final class AppStore: ObservableObject {
         selectedVoice = record.metadata.voice
         cfgScale = record.metadata.cfgScale
         ddpmInferenceSteps = record.metadata.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
-        hasUnsavedEditorText = !record.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        hasUnsavedEditorText = record.inputText.trimmedOrNil != nil
         selectedSessionID = nil
         statusMessage = "Duplicated \(record.id) as new unsaved text"
         requestedSelection = .section(.history)

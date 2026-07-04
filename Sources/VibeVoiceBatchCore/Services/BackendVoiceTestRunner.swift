@@ -99,20 +99,7 @@ public final class BackendVoiceTestRunner {
     }
 
     public static func defaultAdapterFactory(profile: BackendProfile, projectRoot: URL) -> any EngineAdapter {
-        switch profile.engineType {
-        case .vibeVoiceTTS:
-            return VibeVoiceDockerAdapter(projectRoot: projectRoot)
-        case .kokoro:
-            return KokoroHTTPAdapter(profile: profile, projectRoot: projectRoot)
-        case .chatterbox:
-            return ChatterboxHTTPAdapter(profile: profile, projectRoot: projectRoot)
-        case .comfyUITTS, .f5TTS, .cosyVoice, .custom:
-            return UnavailableEngineAdapter(
-                profile: profile,
-                explanation: "\(profile.displayName) can be configured, but test generation is not connected yet.",
-                recoverySuggestion: "Choose VibeVoice, Kokoro, or Chatterbox for the current setup test."
-            )
-        }
+        EngineAdapterRegistry.default.adapter(for: profile, projectRoot: projectRoot)
     }
 }
 

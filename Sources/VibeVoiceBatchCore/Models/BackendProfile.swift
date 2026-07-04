@@ -503,6 +503,5 @@ public extension BackendProfile {
 }
 
 private func nonEmpty(_ value: String) -> String? {
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
+    value.trimmedOrNil
 }

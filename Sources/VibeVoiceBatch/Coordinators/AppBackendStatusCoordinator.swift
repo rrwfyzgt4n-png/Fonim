@@ -5,17 +5,23 @@ import VibeVoiceBatchCore
 final class AppBackendStatusCoordinator {
     private let backendManager: BackendManager
     private let adaptersByBackendID: [String: any EngineAdapter]
+    private let supportedBackendIDs: Set<String>
 
     init(
         backendManager: BackendManager = BackendManager(),
-        adapters: [any EngineAdapter]
+        adapterRegistry: EngineAdapterRegistry = .default,
+        profiles: [BackendProfile] = BackendProfiles.all,
+        projectRoot: URL = AppDefaults.projectRoot,
+        adapters: [any EngineAdapter]? = nil
     ) {
         self.backendManager = backendManager
-        adaptersByBackendID = Dictionary(uniqueKeysWithValues: adapters.map { ($0.profile.id, $0) })
+        let resolvedAdapters = adapters ?? adapterRegistry.adapters(for: profiles, projectRoot: projectRoot)
+        adaptersByBackendID = Dictionary(uniqueKeysWithValues: resolvedAdapters.map { ($0.profile.id, $0) })
+        supportedBackendIDs = adapterRegistry.supportedBackendIDs(for: profiles)
     }
 
     func hasGenerationAdapter(for profile: BackendProfile) -> Bool {
-        adaptersByBackendID[profile.id] != nil
+        supportedBackendIDs.contains(profile.id)
     }
 
     func refreshStatus(for profile: BackendProfile) async -> BackendStatusSnapshot {

@@ -55,8 +55,7 @@ final class WorkspaceStore: ObservableObject {
 
     @discardableResult
     func createProject(title: String) -> NarrationProject? {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard let trimmed = title.trimmedOrNil else { return nil }
         do {
             let project = try fileStore.createProject(title: trimmed)
             refresh()
