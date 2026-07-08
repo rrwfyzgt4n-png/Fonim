@@ -713,6 +713,8 @@ final class AppStore: ObservableObject {
         let cached = progressCoordinator.logText(for: record); return cached.isEmpty ? ((try? fileStore.loadLogText(folderURL: record.folderURL)) ?? "") : cached
     }
 
+    func cachedLogText(for record: SessionRecord) -> String { progressCoordinator.logText(for: record) }
+
     func clearPendingScrollRequest() { pendingScrollSessionID = nil }
     func clearRequestedSelection() { requestedSelection = nil }
     func requestSelection(_ selection: WorkstationSelection?) { requestedSelection = selection }

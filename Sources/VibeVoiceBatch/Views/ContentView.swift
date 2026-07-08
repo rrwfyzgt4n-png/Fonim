@@ -67,19 +67,7 @@ struct ContentView: View {
             store.clearRequestedSelection()
         }
         .onChange(of: selection) { newValue in
-            switch newValue {
-            case .queuedGeneration(let itemID):
-                store.selectedQueueItemID = itemID
-                store.selectedSessionID = nil
-            case .historySession(let sessionID):
-                store.selectedQueueItemID = nil
-                store.selectedSessionID = sessionID
-            case .section(.history):
-                store.selectedQueueItemID = nil
-                store.selectedSessionID = nil
-            case .section(_), .none:
-                break
-            }
+            syncStoreSelectionAfterPaint(newValue)
         }
         .onReceive(NotificationCenter.default.publisher(for: .fonimWorkspaceDidChange)) { _ in
             workspaceStore.refresh()
@@ -94,6 +82,26 @@ struct ContentView: View {
             }
         } message: {
             Text(currentAlertMessage)
+        }
+    }
+
+    private func syncStoreSelectionAfterPaint(_ newValue: WorkstationSelection?) {
+        Task { @MainActor in
+            await Task.yield()
+            guard selection == newValue else { return }
+            switch newValue {
+            case .queuedGeneration(let itemID):
+                store.selectedQueueItemID = itemID
+                store.selectedSessionID = nil
+            case .historySession(let sessionID):
+                store.selectedQueueItemID = nil
+                store.selectedSessionID = sessionID
+            case .section(.history):
+                store.selectedQueueItemID = nil
+                store.selectedSessionID = nil
+            case .section(_), .none:
+                break
+            }
         }
     }
 

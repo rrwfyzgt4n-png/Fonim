@@ -6,6 +6,9 @@ struct SessionDetailView: View {
     @EnvironmentObject private var store: AppStore
     let record: SessionRecord
     @State private var selectedPane: SessionDetailPane = .input
+    @State private var loadedLogSessionID: String?
+    @State private var loadedLogText = ""
+    @State private var isLoadingLog = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,6 +42,13 @@ struct SessionDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(record.id)
+        .task(id: logLoadTaskID) {
+            await loadLogIfNeeded()
+        }
+    }
+
+    private var logLoadTaskID: String {
+        "\(record.id)-\(selectedPane.rawValue)"
     }
 
     private var header: some View {
@@ -85,15 +95,65 @@ struct SessionDetailView: View {
     }
 
     private var logPane: some View {
-        let logText = store.logText(for: record)
         return VStack(alignment: .leading, spacing: 8) {
             CopyPaneHeader(title: "Log") {
-                copyToPasteboard(logText)
+                copyToPasteboard(currentLogText)
             }
 
-            LargeLogTextView(text: logText.isEmpty ? "No log yet." : logText)
+            LargeLogTextView(text: logDisplayText)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
         }
+    }
+
+    private var currentLogText: String {
+        if record.id == store.activeSessionID {
+            return store.cachedLogText(for: record)
+        }
+
+        guard loadedLogSessionID == record.id else {
+            return record.logText
+        }
+
+        return loadedLogText
+    }
+
+    private var logDisplayText: String {
+        let text = currentLogText
+        if !text.isEmpty {
+            return text
+        }
+        if isLoadingLog {
+            return "Loading log..."
+        }
+        return "No log yet."
+    }
+
+    @MainActor
+    private func loadLogIfNeeded() async {
+        guard selectedPane == .log else {
+            isLoadingLog = false
+            return
+        }
+        guard record.id != store.activeSessionID else {
+            isLoadingLog = false
+            return
+        }
+        guard loadedLogSessionID != record.id else {
+            isLoadingLog = false
+            return
+        }
+
+        let requestedSessionID = record.id
+        isLoadingLog = true
+        let logURL = record.logURL
+        let text = await Task.detached(priority: .utility) {
+            (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        }.value
+
+        guard !Task.isCancelled, selectedPane == .log else { return }
+        loadedLogSessionID = requestedSessionID
+        loadedLogText = text
+        isLoadingLog = false
     }
 
     private var metadataPane: some View {
