@@ -30,15 +30,18 @@ struct GenerationListView: View {
                         ForEach(model.items) { item in
                             switch item {
                             case .queued(let queued):
-                                QueuedGenerationListRow(
-                                    item: queued,
-                                    marker: model.queueMarker(for: queued),
-                                    isSelected: selection == .queuedGeneration(queued.id)
-                                )
+                                let isSelected = selection == .queuedGeneration(queued.id)
+                                GenerationListSelectableRow(isSelected: isSelected) {
+                                    selectQueued(queued)
+                                } content: {
+                                    QueuedGenerationListRow(
+                                        item: queued,
+                                        marker: model.queueMarker(for: queued),
+                                        isSelected: isSelected
+                                    )
+                                }
                                 .id(queued.id)
                                 .tag(WorkstationSelection.queuedGeneration(queued.id) as WorkstationSelection?)
-                                .contentShape(Rectangle())
-                                .onTapGesture { selectQueued(queued) }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                     Button {
                                         store.duplicateQueuedGenerationAsNew(queued)
@@ -60,15 +63,18 @@ struct GenerationListView: View {
                                 }
 
                             case .session(let record):
-                                GenerationListRow(
-                                    record: record,
-                                    marker: model.sessionMarker(for: record),
-                                    isSelected: selection == .historySession(record.id)
-                                )
+                                let isSelected = selection == .historySession(record.id)
+                                GenerationListSelectableRow(isSelected: isSelected) {
+                                    selectHistory(record)
+                                } content: {
+                                    GenerationListRow(
+                                        record: record,
+                                        marker: model.sessionMarker(for: record),
+                                        isSelected: isSelected
+                                    )
+                                }
                                 .id(record.id)
                                 .tag(WorkstationSelection.historySession(record.id) as WorkstationSelection?)
-                                .contentShape(Rectangle())
-                                .onTapGesture { selectHistory(record) }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                     Button {
                                         store.duplicateAsNew(record)
@@ -195,14 +201,23 @@ struct GenerationListView: View {
     }
 
     private func selectQueued(_ item: QueuedGenerationItem) {
-        store.selectedQueueItemID = item.id
-        store.selectedSessionID = nil
-        selection = .queuedGeneration(item.id)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            selection = .queuedGeneration(item.id)
+            store.selectedQueueItemID = item.id
+            store.selectedSessionID = nil
+        }
     }
 
     private func selectHistory(_ record: SessionRecord) {
-        selection = .historySession(record.id)
-        store.selectedSessionID = record.id
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            selection = .historySession(record.id)
+            store.selectedSessionID = record.id
+            store.selectedQueueItemID = nil
+        }
     }
 
     private func scrollToPendingSession(using proxy: ScrollViewProxy) {
@@ -354,6 +369,43 @@ private enum GenerationListItem: Identifiable {
         case .session(let record):
             return sessionMarkers[record.id]
         }
+    }
+}
+
+private struct GenerationListSelectableRow<Content: View>: View {
+    let isSelected: Bool
+    let action: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Button(action: action) {
+            content()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                .background(selectionBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(alignment: .leading) {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(selectionAmber)
+                            .frame(width: 4)
+                            .padding(.vertical, 7)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
+        .listRowSeparator(.hidden)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var selectionBackground: Color {
+        isSelected ? selectionAmber.opacity(0.24) : Color.clear
+    }
+
+    private var selectionAmber: Color {
+        Color(red: 0.95, green: 0.55, blue: 0.08)
     }
 }
 
@@ -527,10 +579,10 @@ private struct ScriptSectionCapsule: View {
         Text(marker.displayText)
             .font(.caption2.weight(.semibold))
             .monospacedDigit()
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color(red: 0.72, green: 0.34, blue: 0.02))
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(Color.accentColor.opacity(0.14), in: Capsule())
+            .background(Color(red: 0.95, green: 0.55, blue: 0.08).opacity(0.18), in: Capsule())
             .accessibilityLabel(marker.accessibilityText)
     }
 }
