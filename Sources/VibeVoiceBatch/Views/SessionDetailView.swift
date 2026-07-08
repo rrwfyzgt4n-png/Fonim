@@ -5,12 +5,27 @@ import VibeVoiceBatchCore
 struct SessionDetailView: View {
     @EnvironmentObject private var store: AppStore
     let record: SessionRecord
+    var showsNavigationTitle = true
     @State private var selectedPane: SessionDetailPane = .input
     @State private var loadedLogSessionID: String?
     @State private var loadedLogText = ""
     @State private var isLoadingLog = false
 
     var body: some View {
+        Group {
+            if showsNavigationTitle {
+                content
+                    .navigationTitle(record.id)
+            } else {
+                content
+            }
+        }
+        .task(id: logLoadTaskID) {
+            await loadLogIfNeeded()
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             header
                 .padding()
@@ -40,10 +55,6 @@ struct SessionDetailView: View {
             .padding(.horizontal)
             .padding(.bottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .navigationTitle(record.id)
-        .task(id: logLoadTaskID) {
-            await loadLogIfNeeded()
         }
     }
 

@@ -19,7 +19,10 @@ struct GenerationWorkspaceView: View {
     private var generationDetail: some View {
         switch selection ?? .section(.history) {
         case .section(.history):
-            EditorView()
+            ZStack {
+                EditorView()
+                prewarmedSessionDetail
+            }
         case .queuedGeneration(let itemID):
             if let item = store.queuedGenerations.first(where: { $0.id == itemID }) {
                 QueuedGenerationDetailView(item: item)
@@ -34,6 +37,16 @@ struct GenerationWorkspaceView: View {
             }
         case .section(_):
             EditorView()
+        }
+    }
+
+    @ViewBuilder
+    private var prewarmedSessionDetail: some View {
+        if let session = store.sessions.first {
+            SessionDetailView(record: session, showsNavigationTitle: false)
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 }
