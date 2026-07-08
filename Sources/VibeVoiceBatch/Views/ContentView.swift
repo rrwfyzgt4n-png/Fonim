@@ -207,7 +207,6 @@ struct ContentView: View {
             } label: {
                 Label(playWAVTitle, systemImage: playWAVSystemImage)
             }
-            .keyboardShortcut(" ", modifiers: [])
             .disabled(selectedToolbarSession?.outputURL == nil)
             .help("Play WAV")
 

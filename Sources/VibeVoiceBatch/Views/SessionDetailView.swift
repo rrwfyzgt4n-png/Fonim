@@ -5,21 +5,14 @@ import VibeVoiceBatchCore
 struct SessionDetailView: View {
     @EnvironmentObject private var store: AppStore
     let record: SessionRecord
-    var showsNavigationTitle = true
     @State private var selectedPane: SessionDetailPane = .input
     @State private var loadedLogSessionID: String?
     @State private var loadedLogText = ""
     @State private var isLoadingLog = false
 
     var body: some View {
-        Group {
-            if showsNavigationTitle {
-                content
-                    .navigationTitle(record.id)
-            } else {
-                content
-            }
-        }
+        content
+            .navigationTitle(record.id)
         .task(id: logLoadTaskID) {
             await loadLogIfNeeded()
         }
