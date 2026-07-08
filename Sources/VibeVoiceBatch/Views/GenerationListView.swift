@@ -205,8 +205,6 @@ struct GenerationListView: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             selection = .queuedGeneration(item.id)
-            store.selectedQueueItemID = item.id
-            store.selectedSessionID = nil
         }
     }
 
@@ -215,8 +213,6 @@ struct GenerationListView: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             selection = .historySession(record.id)
-            store.selectedSessionID = record.id
-            store.selectedQueueItemID = nil
         }
     }
 
@@ -245,6 +241,7 @@ private struct GenerationListDisplayModel {
     ) {
         var markersByBatchItemID: [String: ScriptSectionMarker] = [:]
         var markersBySessionID: [String: ScriptSectionMarker] = [:]
+        var sessionIDByBatchItemID: [String: String] = [:]
 
         for batch in batches {
             let total = batch.items.count
@@ -258,6 +255,7 @@ private struct GenerationListDisplayModel {
                 markersByBatchItemID[item.id] = marker
                 if let generationSessionID = item.generationSessionID {
                     markersBySessionID[generationSessionID] = marker
+                    sessionIDByBatchItemID[item.id] = generationSessionID
                 }
             }
         }
@@ -276,20 +274,35 @@ private struct GenerationListDisplayModel {
             .sorted { lhs, rhs in
                 Self.newestQueuedFirst(lhs, rhs)
             }
+        let activeQueuedSessionIDs = Set(activeQueuedItems.compactMap(\.sessionID))
+        let activeQueuedBatchSessionIDs = Set(activeQueuedItems.compactMap { item in
+            item.batchItemID.flatMap { sessionIDByBatchItemID[$0] }
+        })
+        let hiddenSessionIDs = activeQueuedSessionIDs.union(activeQueuedBatchSessionIDs)
         let sortedSessions = sessions.sorted { lhs, rhs in
             Self.newestSessionFirst(lhs, rhs)
         }
+        let visibleSessions = sortedSessions.filter { !hiddenSessionIDs.contains($0.id) }
         self.queuedItems = activeQueuedItems
         self.sessions = sortedSessions
-        self.items = (activeQueuedItems.map(GenerationListItem.queued) + sortedSessions.map(GenerationListItem.session))
+        self.items = (activeQueuedItems.map(GenerationListItem.queued) + visibleSessions.map(GenerationListItem.session))
             .sorted { lhs, rhs in
-                if lhs.sortDate == rhs.sortDate {
+                let lhsMarker = lhs.marker(sessionMarkers: markersBySessionID, queueMarkers: queueMarkers)
+                let rhsMarker = rhs.marker(sessionMarkers: markersBySessionID, queueMarkers: queueMarkers)
+                if Self.shouldPreferBatchSectionOrder(
+                    lhsDate: lhs.sortDate,
+                    rhsDate: rhs.sortDate,
+                    lhsMarker: lhsMarker,
+                    rhsMarker: rhsMarker
+                ) {
                     if let markerOrder = Self.newestBatchSectionFirst(
-                        lhs: lhs.marker(sessionMarkers: markersBySessionID, queueMarkers: queueMarkers),
-                        rhs: rhs.marker(sessionMarkers: markersBySessionID, queueMarkers: queueMarkers)
+                        lhs: lhsMarker,
+                        rhs: rhsMarker
                     ) {
                         return markerOrder
                     }
+                }
+                if lhs.sortDate == rhs.sortDate {
                     return lhs.stableID > rhs.stableID
                 }
                 return lhs.sortDate > rhs.sortDate
@@ -330,6 +343,19 @@ private struct GenerationListDisplayModel {
             return lhs.position > rhs.position
         }
         return nil
+    }
+
+    private static func shouldPreferBatchSectionOrder(
+        lhsDate: Date,
+        rhsDate: Date,
+        lhsMarker: ScriptSectionMarker?,
+        rhsMarker: ScriptSectionMarker?
+    ) -> Bool {
+        guard let lhsMarker, let rhsMarker, lhsMarker.batchID == rhsMarker.batchID else {
+            return false
+        }
+
+        return abs(lhsDate.timeIntervalSince(rhsDate)) < 1
     }
 }
 

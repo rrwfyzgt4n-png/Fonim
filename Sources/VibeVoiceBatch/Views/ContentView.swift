@@ -72,8 +72,10 @@ struct ContentView: View {
                 store.selectedQueueItemID = itemID
                 store.selectedSessionID = nil
             case .historySession(let sessionID):
+                store.selectedQueueItemID = nil
                 store.selectedSessionID = sessionID
             case .section(.history):
+                store.selectedQueueItemID = nil
                 store.selectedSessionID = nil
             case .section(_), .none:
                 break
