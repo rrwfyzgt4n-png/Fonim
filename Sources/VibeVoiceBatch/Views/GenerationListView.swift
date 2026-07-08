@@ -219,7 +219,6 @@ struct GenerationListView: View {
     private func scrollToPendingSession(using proxy: ScrollViewProxy) {
         guard let sessionID = store.pendingScrollSessionID else { return }
         selection = .historySession(sessionID)
-        store.selectedSessionID = sessionID
         withAnimation(.easeInOut(duration: 0.25)) {
             proxy.scrollTo(sessionID, anchor: .center)
         }

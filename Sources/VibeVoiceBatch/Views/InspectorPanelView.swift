@@ -6,6 +6,7 @@ struct InspectorPanelView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
     let selection: WorkstationSelection?
+    let selectedSession: SessionRecord?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -223,7 +224,7 @@ struct InspectorPanelView: View {
 
     @ViewBuilder
     private var lockedSessionGenerationSection: some View {
-        if let session = store.selectedSession {
+        if let session = selectedSession {
             InspectorGroup(title: "Archived Generation") {
                 Text("Archived sessions are read-only. Duplicate as New to reuse these settings.")
                     .font(.caption)
@@ -325,13 +326,9 @@ struct InspectorPanelView: View {
                 InspectorValue(label: "Image", value: store.selectedBackendProfile.dockerImage ?? "Not required")
             }
         case .section(.history), .queuedGeneration:
-            if let session = store.selectedSession {
-                sessionMetadata(session)
-            } else {
-                editorMetadata
-            }
+            editorMetadata
         case .historySession:
-            if let session = store.selectedSession {
+            if let session = selectedSession {
                 sessionMetadata(session)
             } else {
                 editorMetadata

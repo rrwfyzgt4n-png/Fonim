@@ -31,7 +31,7 @@ struct ContentView: View {
 
                 if showInspector {
                     Divider()
-                    InspectorPanelView(selection: selection)
+                    InspectorPanelView(selection: selection, selectedSession: selectedToolbarSession)
                 }
             }
         }
@@ -66,9 +66,6 @@ struct ContentView: View {
             selection = requestedSelection
             store.clearRequestedSelection()
         }
-        .onChange(of: selection) { newValue in
-            syncStoreSelectionAfterPaint(newValue)
-        }
         .onReceive(NotificationCenter.default.publisher(for: .fonimWorkspaceDidChange)) { _ in
             workspaceStore.refresh()
         }
@@ -82,26 +79,6 @@ struct ContentView: View {
             }
         } message: {
             Text(currentAlertMessage)
-        }
-    }
-
-    private func syncStoreSelectionAfterPaint(_ newValue: WorkstationSelection?) {
-        Task { @MainActor in
-            await Task.yield()
-            guard selection == newValue else { return }
-            switch newValue {
-            case .queuedGeneration(let itemID):
-                store.selectedQueueItemID = itemID
-                store.selectedSessionID = nil
-            case .historySession(let sessionID):
-                store.selectedQueueItemID = nil
-                store.selectedSessionID = sessionID
-            case .section(.history):
-                store.selectedQueueItemID = nil
-                store.selectedSessionID = nil
-            case .section(_), .none:
-                break
-            }
         }
     }
 
@@ -213,36 +190,36 @@ struct ContentView: View {
     private var sessionToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
-                if let session = store.selectedSession {
+                if let session = selectedToolbarSession {
                     store.openSessionFolder(session)
                 }
             } label: {
                 Label("Open Folder", systemImage: "folder")
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
-            .disabled(store.selectedSession == nil)
+            .disabled(selectedToolbarSession == nil)
             .help("Open Session Folder")
 
             Button {
-                if let session = store.selectedSession {
+                if let session = selectedToolbarSession {
                     store.playWAV(session)
                 }
             } label: {
                 Label(playWAVTitle, systemImage: playWAVSystemImage)
             }
             .keyboardShortcut(" ", modifiers: [])
-            .disabled(store.selectedSession?.outputURL == nil)
+            .disabled(selectedToolbarSession?.outputURL == nil)
             .help("Play WAV")
 
             Button {
-                if let session = store.selectedSession {
+                if let session = selectedToolbarSession {
                     store.duplicateAsNew(session)
                 }
             } label: {
                 Label("Duplicate", systemImage: "doc.on.doc")
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
-            .disabled(store.selectedSession == nil)
+            .disabled(selectedToolbarSession == nil)
             .help("Duplicate as New")
         }
     }
@@ -366,12 +343,17 @@ struct ContentView: View {
     }
 
     private var playWAVTitle: String {
-        guard let session = store.selectedSession else { return "Play WAV" }
+        guard let session = selectedToolbarSession else { return "Play WAV" }
         return store.isPlaying(session) ? "Stop WAV" : "Play WAV"
     }
 
     private var playWAVSystemImage: String {
-        guard let session = store.selectedSession else { return "play.circle" }
+        guard let session = selectedToolbarSession else { return "play.circle" }
         return store.isPlaying(session) ? "stop.circle" : "play.circle"
+    }
+
+    private var selectedToolbarSession: SessionRecord? {
+        guard case .historySession(let sessionID) = selection else { return nil }
+        return store.session(id: sessionID)
     }
 }
