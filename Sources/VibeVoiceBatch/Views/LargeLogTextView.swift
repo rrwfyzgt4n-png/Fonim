@@ -17,6 +17,7 @@ struct LargeLogTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
         scrollView.backgroundColor = NSColor(calibratedWhite: 0.02, alpha: 1.0)
+        scrollView.contentView.postsBoundsChangedNotifications = true
 
         let textView = NSTextView()
         textView.isEditable = false
@@ -37,6 +38,7 @@ struct LargeLogTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        context.coordinator.startObserving(scrollView: scrollView)
         updateNSView(scrollView, context: context)
         return scrollView
     }
@@ -45,15 +47,56 @@ struct LargeLogTextView: NSViewRepresentable {
         guard let textView = context.coordinator.textView else { return }
         guard context.coordinator.lastText != text else { return }
 
+        let shouldScrollToBottom = autoScrollToBottom && context.coordinator.isFollowingTail
         context.coordinator.lastText = text
         textView.string = text
-        if autoScrollToBottom {
-            textView.scrollRangeToVisible(NSRange(location: (textView.string as NSString).length, length: 0))
+
+        if shouldScrollToBottom {
+            context.coordinator.scrollToBottom()
         }
     }
 
     final class Coordinator {
         weak var textView: NSTextView?
         var lastText = ""
+        var isFollowingTail = true
+        private var scrollObserver: NSObjectProtocol?
+        private var isProgrammaticScroll = false
+
+        deinit {
+            if let scrollObserver {
+                NotificationCenter.default.removeObserver(scrollObserver)
+            }
+        }
+
+        func startObserving(scrollView: NSScrollView) {
+            guard scrollObserver == nil else { return }
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self, weak scrollView] _ in
+                guard let self, let scrollView, !self.isProgrammaticScroll else { return }
+                self.isFollowingTail = self.isNearBottom(scrollView)
+            }
+        }
+
+        func scrollToBottom() {
+            guard let textView else { return }
+            isProgrammaticScroll = true
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                textView.scrollRangeToVisible(NSRange(location: (textView.string as NSString).length, length: 0))
+                self.isFollowingTail = true
+                self.isProgrammaticScroll = false
+            }
+        }
+
+        private func isNearBottom(_ scrollView: NSScrollView) -> Bool {
+            guard let documentView = scrollView.documentView else { return true }
+            let visibleRect = scrollView.contentView.bounds
+            let distanceFromBottom = documentView.bounds.maxY - visibleRect.maxY
+            return distanceFromBottom < 28
+        }
     }
 }
