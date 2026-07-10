@@ -6,6 +6,7 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
     private let backendManager: BackendManager
     private let fileStore: SessionFileStore
     private let runner: any DockerGenerationRunning
+    private let generationEstimator: any VibeVoiceGenerationEstimating
     private let stateQueue = DispatchQueue(label: "local.vibevoice.batch.vibevoice-adapter")
     private var activeJobID: String?
     private var progressByJobID: [String: GenerationProgressSnapshot] = [:]
@@ -15,13 +16,16 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
         projectRoot: URL = AppDefaults.projectRoot,
         backendManager: BackendManager? = nil,
         fileStore: SessionFileStore? = nil,
-        runner: (any DockerGenerationRunning)? = nil
+        runner: (any DockerGenerationRunning)? = nil,
+        generationEstimator: (any VibeVoiceGenerationEstimating)? = nil
     ) {
+        let resolvedFileStore = fileStore ?? SessionFileStore(projectRoot: projectRoot)
         self.profile = profile
         self.projectRoot = projectRoot
         self.backendManager = backendManager ?? BackendManager(projectRoot: projectRoot)
-        self.fileStore = fileStore ?? SessionFileStore(projectRoot: projectRoot)
+        self.fileStore = resolvedFileStore
         self.runner = runner ?? DockerGenerationRunner()
+        self.generationEstimator = generationEstimator ?? VibeVoiceGenerationEstimator(fileStore: resolvedFileStore)
     }
 
     public func healthCheck() async -> BackendHealthReport {
@@ -56,6 +60,7 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
         let startedAt = Date()
         let workspace: GenerationWorkspace
         let ddpmInferenceSteps = job.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
+        let localEstimate = generationEstimator.estimate(for: job, ddpmInferenceSteps: ddpmInferenceSteps)
 
         do {
             workspace = try fileStore.createGenerationSession(
@@ -63,7 +68,9 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
                 voice: job.voiceID,
                 cfgScale: job.settings.cfgScale,
                 ddpmInferenceSteps: ddpmInferenceSteps,
-                now: job.createdAt
+                now: job.createdAt,
+                estimatedGenerationSeconds: localEstimate?.estimatedSeconds,
+                estimatedGenerationSource: localEstimate.map { "\($0.scope), \($0.sampleCount) samples" }
             )
         } catch {
             throw BackendError.generationFailed(
@@ -199,6 +206,14 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
 
         """
 
+        if let estimate = workspace.command.estimatedGenerationSeconds {
+            initialLog += "Projected generation time: \(Self.clock(estimate))"
+            if let source = workspace.command.estimatedGenerationSource {
+                initialLog += " (\(source))"
+            }
+            initialLog += "\n"
+        }
+
         try fileStore.stageInput(job.inputText)
         initialLog += "Staged input.txt for backend runtime.\n"
 
@@ -209,6 +224,11 @@ public final class VibeVoiceDockerAdapter: EngineAdapter {
         initialLog += "\nStarting generation...\n\n"
         try fileStore.replaceLog(initialLog, in: workspace.record.folderURL)
         return initialLog
+    }
+
+    private static func clock(_ seconds: TimeInterval) -> String {
+        let rounded = max(0, Int(seconds.rounded()))
+        return String(format: "%02d:%02d", rounded / 60, rounded % 60)
     }
 
     private func emitProgressIfAvailable(

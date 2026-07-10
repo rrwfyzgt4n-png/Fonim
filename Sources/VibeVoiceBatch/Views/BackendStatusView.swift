@@ -90,7 +90,7 @@ struct BackendStatusView: View {
         let metrics = [
             StatusMetricData(label: "Elapsed", value: elapsedText),
             StatusMetricData(label: "Remaining", value: remainingText),
-            StatusMetricData(label: "Estimated", value: estimatedTotalText),
+            StatusMetricData(label: "Approx.", value: estimatedTotalText),
             StatusMetricData(label: "Runtime", value: runtimeText),
             StatusMetricData(label: "Progress", value: progressText)
         ]

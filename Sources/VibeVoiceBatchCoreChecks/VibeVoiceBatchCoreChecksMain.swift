@@ -18,6 +18,7 @@ struct VibeVoiceBatchCoreChecks {
         try checkMediaRuntimeCatalog()
         try checkParsesLiveProgressAndFinalSummary()
         try checkDockerCommandIncludesDDPMControls()
+        try checkVibeVoiceHistoryEstimator()
         try await checkBackendProfilesAndAdapterContracts()
         try checkBackendStatusSnapshots()
         try checkBackendSetupReport()
@@ -466,6 +467,98 @@ struct VibeVoiceBatchCoreChecks {
             precondition(command.arguments.contains("--ddpm_inference_steps"))
             precondition(command.arguments.contains("8"))
             precondition(command.displayCommand.contains("docker_overrides/realtime_model_inference_from_file.py:/app/demo/realtime_model_inference_from_file.py:ro"))
+
+            let estimatedCommand = DockerCommandBuilder.make(
+                sessionID: "estimated-session",
+                voice: "en-carter_man",
+                cfgScale: "1.8",
+                ddpmInferenceSteps: 8,
+                projectRoot: root,
+                estimatedGenerationSeconds: 123.45,
+                estimatedGenerationSource: "check"
+            )
+            precondition(estimatedCommand.arguments.contains("FONIM_ESTIMATED_GENERATION_SECONDS=123.45"))
+            precondition(estimatedCommand.displayCommand.contains("FONIM_ESTIMATED_GENERATION_SECONDS=123.45"))
+            precondition(estimatedCommand.estimatedGenerationSeconds == 123.45)
+            precondition(estimatedCommand.estimatedGenerationSource == "check")
+        }
+    }
+
+    private static func checkVibeVoiceHistoryEstimator() throws {
+        try withStore { _, store in
+            func addCompletedSample(
+                text: String,
+                voice: String,
+                ddpmInferenceSteps: Int,
+                runtimeSeconds: Double,
+                dockerImage: String = AppDefaults.dockerImage,
+                dockerCommand: String = "python demo/realtime_model_inference_from_file.py --model_path \(AppDefaults.modelPath)"
+            ) throws {
+                let record = try store.createDraft(
+                    text: text,
+                    voice: voice,
+                    cfgScale: "1.8",
+                    ddpmInferenceSteps: ddpmInferenceSteps
+                )
+                var metadata = record.metadata
+                metadata.status = .completed
+                metadata.completedAt = metadata.createdAt.addingTimeInterval(runtimeSeconds)
+                metadata.dockerImage = dockerImage
+                metadata.dockerCommand = dockerCommand
+                metadata.generationTimeSeconds = runtimeSeconds
+                try store.writeMetadata(metadata, in: record.folderURL)
+            }
+
+            try addCompletedSample(
+                text: repeatedWords(10),
+                voice: "en-carter_man",
+                ddpmInferenceSteps: 10,
+                runtimeSeconds: 100
+            )
+            try addCompletedSample(
+                text: repeatedWords(20),
+                voice: "en-carter_man",
+                ddpmInferenceSteps: 10,
+                runtimeSeconds: 200
+            )
+            try addCompletedSample(
+                text: repeatedWords(5),
+                voice: "en-carter_man",
+                ddpmInferenceSteps: 10,
+                runtimeSeconds: 5_000,
+                dockerImage: "Chatterbox service",
+                dockerCommand: "POST /tts"
+            )
+
+            let estimator = VibeVoiceGenerationEstimator(fileStore: store)
+            let job = GenerationJob(
+                inputText: repeatedWords(15),
+                backendID: BackendProfiles.vibeVoiceTTS.id,
+                modelID: AppDefaults.modelPath,
+                voiceID: "en-carter_man",
+                settings: GenerationSettings(cfgScale: "1.8", ddpmInferenceSteps: 10)
+            )
+
+            guard let estimate = estimator.estimate(for: job, ddpmInferenceSteps: 10) else {
+                throw CheckError("Expected VibeVoice local-history estimate")
+            }
+            precondition(estimate.scope == "voice+steps")
+            precondition(estimate.sampleCount == 2)
+            precondition(abs(estimate.estimatedSeconds - 150) < 0.001)
+
+            let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            let statusView = try String(
+                contentsOf: root.appendingPathComponent("Sources/VibeVoiceBatch/Views/BackendStatusView.swift"),
+                encoding: .utf8
+            )
+            let dockerOverride = try String(
+                contentsOf: root.appendingPathComponent("docker_overrides/realtime_model_inference_from_file.py"),
+                encoding: .utf8
+            )
+            precondition(statusView.contains("StatusMetricData(label: \"Approx.\""))
+            precondition(!statusView.contains("StatusMetricData(label: \"Estimated\""))
+            precondition(dockerOverride.contains("FONIM_ESTIMATED_GENERATION_SECONDS"))
+            precondition(dockerOverride.contains("Using Fonim local-history estimate"))
         }
     }
 
@@ -2636,7 +2729,18 @@ struct VibeVoiceBatchCoreChecks {
                 .write(to: root.generatedWAVFile)
         }
 
-        let adapter = VibeVoiceDockerAdapter(projectRoot: root, fileStore: fileStore, runner: runner)
+        let adapter = VibeVoiceDockerAdapter(
+            projectRoot: root,
+            fileStore: fileStore,
+            runner: runner,
+            generationEstimator: FixedVibeVoiceGenerationEstimator(
+                estimate: VibeVoiceGenerationEstimate(
+                    estimatedSeconds: 123.45,
+                    sampleCount: 4,
+                    scope: "check"
+                )
+            )
+        )
         let job = GenerationJob(
             id: "adapter-job",
             createdAt: Date(timeIntervalSince1970: 1_718_171_695),
@@ -2658,6 +2762,7 @@ struct VibeVoiceBatchCoreChecks {
         precondition(record.durationSeconds == 2.0)
         precondition(runner.receivedCommand?.arguments.contains("--speaker_name") == true)
         precondition(runner.receivedCommand?.arguments.contains("en-carter_man") == true)
+        precondition(runner.receivedCommand?.arguments.contains("FONIM_ESTIMATED_GENERATION_SECONDS=123.45") == true)
         precondition(!FileManager.default.fileExists(atPath: root.generatedWAVFile.path))
 
         let sessions = try fileStore.loadSessions()
@@ -2668,6 +2773,8 @@ struct VibeVoiceBatchCoreChecks {
         precondition(session.metadata.audioDurationSeconds == 2.0)
         precondition(session.metadata.rtf == 6.0)
         precondition(session.outputURL?.lastPathComponent == "output.wav")
+        let fullSession = try fileStore.loadRecord(folderURL: session.folderURL)
+        precondition(fullSession.logText.contains("Projected generation time: 02:03 (check, 4 samples)"))
 
         let recoveredFiles = try FileManager.default.contentsOfDirectory(
             at: root.recoveredDirectory,
@@ -3104,6 +3211,10 @@ struct VibeVoiceBatchCoreChecks {
         return try body(root, store)
     }
 
+    private static func repeatedWords(_ count: Int) -> String {
+        (0..<count).map { "word\($0)" }.joined(separator: " ")
+    }
+
     private static func completedOutputRecord(
         store: SessionFileStore,
         text: String,
@@ -3201,6 +3312,14 @@ private final class FakeDockerRunner: DockerGenerationRunning {
 
     func cancel() {
         didCancel = true
+    }
+}
+
+private struct FixedVibeVoiceGenerationEstimator: VibeVoiceGenerationEstimating {
+    let estimate: VibeVoiceGenerationEstimate?
+
+    func estimate(for job: GenerationJob, ddpmInferenceSteps: Int) -> VibeVoiceGenerationEstimate? {
+        estimate
     }
 }
 

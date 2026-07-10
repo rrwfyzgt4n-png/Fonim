@@ -4,6 +4,8 @@ public struct DockerRunCommand: Equatable {
     public let executable: String
     public let arguments: [String]
     public let containerName: String
+    public let estimatedGenerationSeconds: TimeInterval?
+    public let estimatedGenerationSource: String?
 
     public var displayCommand: String {
         ShellQuoting.commandLine(executable: "docker", arguments: arguments)
@@ -16,18 +18,33 @@ public enum DockerCommandBuilder {
         voice: String,
         cfgScale: String,
         ddpmInferenceSteps: Int = AppDefaults.defaultDDPMInferenceSteps,
-        projectRoot: URL = AppDefaults.projectRoot
+        projectRoot: URL = AppDefaults.projectRoot,
+        estimatedGenerationSeconds: TimeInterval? = nil,
+        estimatedGenerationSource: String? = nil
     ) -> DockerRunCommand {
         let containerName = "vibevoice_batch_" + sanitizedContainerComponent(sessionID)
         let executable = resolveDockerExecutable()
+        let normalizedEstimatedGenerationSeconds = estimatedGenerationSeconds.flatMap { $0 > 0 ? $0 : nil }
+        var environmentArguments = [
+            "-e", "OMP_NUM_THREADS=5",
+            "-e", "TOKENIZERS_PARALLELISM=false"
+        ]
+        if let normalizedEstimatedGenerationSeconds {
+            let formattedEstimate = String(
+                format: "%.2f",
+                locale: Locale(identifier: "en_US_POSIX"),
+                normalizedEstimatedGenerationSeconds
+            )
+            environmentArguments.append(contentsOf: ["-e", "FONIM_ESTIMATED_GENERATION_SECONDS=\(formattedEstimate)"])
+        }
+
         let arguments = [
             "run", "--rm", "-it",
             "--name", containerName,
             "--platform", "linux/amd64",
             "--cpus=5",
             "--memory=22g",
-            "-e", "OMP_NUM_THREADS=5",
-            "-e", "TOKENIZERS_PARALLELISM=false",
+        ] + environmentArguments + [
             "-v", "\(projectRoot.outputsDirectory.path):/app/outputs",
             "-v", "\(projectRoot.hfCacheDirectory.path):/root/.cache/huggingface",
             "-v", "\(projectRoot.stagingInputFile.path):/app/input.txt:ro",
@@ -42,7 +59,13 @@ public enum DockerCommandBuilder {
             "--ddpm_inference_steps", "\(ddpmInferenceSteps)",
             "--output_dir", "/app/outputs"
         ]
-        return DockerRunCommand(executable: executable, arguments: arguments, containerName: containerName)
+        return DockerRunCommand(
+            executable: executable,
+            arguments: arguments,
+            containerName: containerName,
+            estimatedGenerationSeconds: normalizedEstimatedGenerationSeconds,
+            estimatedGenerationSource: normalizedEstimatedGenerationSeconds == nil ? nil : estimatedGenerationSource
+        )
     }
 
     private static func resolveDockerExecutable() -> String {

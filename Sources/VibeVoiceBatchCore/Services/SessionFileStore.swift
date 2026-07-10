@@ -106,7 +106,9 @@ public final class SessionFileStore {
         voice: String,
         cfgScale: String,
         ddpmInferenceSteps: Int = AppDefaults.defaultDDPMInferenceSteps,
-        now: Date = Date()
+        now: Date = Date(),
+        estimatedGenerationSeconds: TimeInterval? = nil,
+        estimatedGenerationSource: String? = nil
     ) throws -> GenerationWorkspace {
         try ensureBaseDirectories()
         let sessionID = try makeUniqueSessionID(voice: voice, cfgScale: cfgScale, date: now)
@@ -118,7 +120,9 @@ public final class SessionFileStore {
             voice: voice,
             cfgScale: cfgScale,
             ddpmInferenceSteps: ddpmInferenceSteps,
-            projectRoot: projectRoot
+            projectRoot: projectRoot,
+            estimatedGenerationSeconds: estimatedGenerationSeconds,
+            estimatedGenerationSource: estimatedGenerationSource
         )
 
         try writeString(text, to: folder.appendingPathComponent("input.txt", isDirectory: false))

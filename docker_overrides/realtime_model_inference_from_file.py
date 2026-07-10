@@ -77,6 +77,19 @@ def estimate_generation_seconds(input_tokens, ddpm_steps, text):
     return max(12.0, (token_component + word_component) * ddpm_multiplier)
 
 
+def app_estimated_generation_seconds():
+    raw_value = os.environ.get("FONIM_ESTIMATED_GENERATION_SECONDS")
+    if not raw_value:
+        return None
+    try:
+        seconds = float(raw_value)
+    except ValueError:
+        return None
+    if seconds <= 0:
+        return None
+    return max(12.0, seconds)
+
+
 class VoiceMapper:
     """Maps speaker names to voice file paths."""
 
@@ -290,8 +303,13 @@ def main():
             inputs[k] = v.to(target_device)
 
     input_tokens = inputs["tts_text_ids"].shape[1]
-    estimated_generation_seconds = estimate_generation_seconds(input_tokens, args.ddpm_inference_steps, full_script)
+    app_estimate = app_estimated_generation_seconds()
+    estimated_generation_seconds = app_estimate or estimate_generation_seconds(input_tokens, args.ddpm_inference_steps, full_script)
     print(f"Starting generation with cfg_scale: {args.cfg_scale}, ddpm_inference_steps: {args.ddpm_inference_steps}")
+    if app_estimate:
+        print(f"Using Fonim local-history estimate: {clock(estimated_generation_seconds)}", flush=True)
+    else:
+        print(f"Using VibeVoice runtime estimate: {clock(estimated_generation_seconds)}", flush=True)
     print(
         "Fonim progress: "
         f"phase=starting_generation elapsed=00:00 estimated={clock(estimated_generation_seconds)} progress=0.00%",
