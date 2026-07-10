@@ -62,6 +62,19 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
+ensure_xctrace() {
+  if xcrun xctrace version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local xcode_developer_dir="/Applications/Xcode.app/Contents/Developer"
+  if [ -d "$xcode_developer_dir" ]; then
+    export DEVELOPER_DIR="${DEVELOPER_DIR:-$xcode_developer_dir}"
+  fi
+
+  xcrun xctrace version >/dev/null
+}
+
 case "$MODE" in
   run)
     open_app
@@ -77,13 +90,29 @@ case "$MODE" in
     open_app
     /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
     ;;
+  --profile|profile)
+    ensure_xctrace
+    open_app
+    sleep 1
+    TRACE_OUTPUT="${TRACE_OUTPUT:-$DIST_DIR/${APP_NAME}-time-profile-$(date +%Y%m%d_%H%M%S).trace}"
+    PROFILE_TIME_LIMIT="${PROFILE_TIME_LIMIT:-20s}"
+    rm -rf "$TRACE_OUTPUT"
+    xcrun xctrace record \
+      --quiet \
+      --template "Time Profiler" \
+      --attach "$APP_NAME" \
+      --time-limit "$PROFILE_TIME_LIMIT" \
+      --output "$TRACE_OUTPUT" \
+      --no-prompt
+    echo "Trace saved: $TRACE_OUTPUT"
+    ;;
   --verify|verify)
     open_app
     sleep 1
     pgrep -x "$APP_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--profile|--verify]" >&2
     exit 2
     ;;
 esac
