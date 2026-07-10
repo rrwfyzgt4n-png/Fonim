@@ -107,7 +107,10 @@ struct SessionDetailView: View {
                 copyToPasteboard(currentLogText)
             }
 
-            LargeLogTextView(text: logDisplayText)
+            LargeLogTextView(
+                text: logDisplayText,
+                scrollToBottomTrigger: "\(record.id)-\(selectedPane.rawValue)-\(loadedLogSessionID ?? "")"
+            )
                 .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }

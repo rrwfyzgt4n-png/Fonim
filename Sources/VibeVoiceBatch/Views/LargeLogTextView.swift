@@ -4,6 +4,7 @@ import SwiftUI
 struct LargeLogTextView: NSViewRepresentable {
     var text: String
     var autoScrollToBottom = true
+    var scrollToBottomTrigger = ""
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -45,11 +46,16 @@ struct LargeLogTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
-        guard context.coordinator.lastText != text else { return }
+        let didChangeText = context.coordinator.lastText != text
+        let didChangeTrigger = context.coordinator.lastScrollToBottomTrigger != scrollToBottomTrigger
+        guard didChangeText || didChangeTrigger else { return }
 
-        let shouldScrollToBottom = autoScrollToBottom && context.coordinator.isFollowingTail
-        context.coordinator.lastText = text
-        textView.string = text
+        let shouldScrollToBottom = autoScrollToBottom && (context.coordinator.isFollowingTail || didChangeTrigger)
+        context.coordinator.lastScrollToBottomTrigger = scrollToBottomTrigger
+        if didChangeText {
+            context.coordinator.lastText = text
+            textView.string = text
+        }
 
         if shouldScrollToBottom {
             context.coordinator.scrollToBottom()
@@ -59,6 +65,7 @@ struct LargeLogTextView: NSViewRepresentable {
     final class Coordinator {
         weak var textView: NSTextView?
         var lastText = ""
+        var lastScrollToBottomTrigger = ""
         var isFollowingTail = true
         private var scrollObserver: NSObjectProtocol?
         private var isProgrammaticScroll = false

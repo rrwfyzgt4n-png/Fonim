@@ -275,14 +275,19 @@ private struct GenerationListDisplayModel {
             .sorted { lhs, rhs in
                 Self.newestQueuedFirst(lhs, rhs)
             }
-        let activeQueuedSessionIDs = Set(activeQueuedItems.compactMap(\.sessionID))
-        let activeQueuedBatchSessionIDs = Set(activeQueuedItems.compactMap { item in
-            item.batchItemID.flatMap { sessionIDByBatchItemID[$0] }
-        })
-        let hiddenSessionIDs = activeQueuedSessionIDs.union(activeQueuedBatchSessionIDs)
         let sortedSessions = sessions.sorted { lhs, rhs in
             Self.newestSessionFirst(lhs, rhs)
         }
+        var hiddenSessionIDs = Set(activeQueuedItems.compactMap(\.sessionID))
+        let activeQueuedBatchSessionIDs = Set(activeQueuedItems.compactMap { item in
+            item.batchItemID.flatMap { sessionIDByBatchItemID[$0] }
+        })
+        hiddenSessionIDs.formUnion(activeQueuedBatchSessionIDs)
+        hiddenSessionIDs.formUnion(sortedSessions.compactMap { session in
+            activeQueuedItems.contains { queued in
+                Self.isLikelySameActiveGeneration(session: session, queued: queued)
+            } ? session.id : nil
+        })
         let visibleSessions = sortedSessions.filter { !hiddenSessionIDs.contains($0.id) }
         self.queuedItems = activeQueuedItems
         self.sessions = sortedSessions
@@ -336,6 +341,21 @@ private struct GenerationListDisplayModel {
             return lhs.id > rhs.id
         }
         return lhs.metadata.createdAt > rhs.metadata.createdAt
+    }
+
+    private static func isLikelySameActiveGeneration(
+        session: SessionRecord,
+        queued: QueuedGenerationItem
+    ) -> Bool {
+        guard queued.status == .running, session.metadata.status == .running else { return false }
+        guard session.metadata.voice == queued.voice else { return false }
+        guard session.metadata.cfgScale == queued.cfgScale else { return false }
+        let sessionSteps = session.metadata.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
+        guard sessionSteps == queued.ddpmInferenceSteps else { return false }
+        guard session.inputText.trimmedOrNil == queued.sourceText.trimmedOrNil else { return false }
+
+        let queueStart = queued.startedAt ?? queued.createdAt
+        return abs(session.metadata.createdAt.timeIntervalSince(queueStart)) < 90
     }
 
     private static func newestBatchSectionFirst(lhs: ScriptSectionMarker?, rhs: ScriptSectionMarker?) -> Bool? {
