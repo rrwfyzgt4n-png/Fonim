@@ -285,6 +285,7 @@ struct InspectorPanelView: View {
     @ViewBuilder
     private var lockedSessionGenerationSection: some View {
         if let session = selectedSession {
+            let recipe = SessionRecipeSnapshot(session: session)
             InspectorGroup(title: "Archived Generation") {
                 Text("Archived sessions are read-only. Duplicate as New to reuse these settings.")
                     .font(.caption)
@@ -296,6 +297,55 @@ struct InspectorPanelView: View {
                 InspectorValue(label: "Steps", value: session.metadata.ddpmInferenceSteps.map(String.init) ?? "--")
                 InspectorValue(label: "Backend", value: backendDisplayName(for: session))
                 InspectorValue(label: "Output", value: session.outputURL?.lastPathComponent ?? "No WAV")
+            }
+
+            InspectorGroup(title: "Recipe") {
+                if let recipe {
+                    if let preset = matchingSessionGenerationPreset(recipe) {
+                        InspectorValue(label: "Preset", value: preset.displayName)
+                    } else {
+                        InspectorValue(label: "Preset", value: "No saved recipe match")
+                    }
+
+                    InspectorValue(label: "Backend", value: backendDisplayName(forBackendID: recipe.backendID))
+                    InspectorValue(label: "Model", value: recipe.modelID ?? "Not stored")
+                    InspectorVoiceValue(label: "Voice", voiceID: recipe.voiceID)
+                    InspectorValue(label: "CFG", value: recipe.cfgScale)
+                    InspectorValue(label: "Steps", value: "\(recipe.ddpmInferenceSteps)")
+
+                    if recipe.modelID == nil {
+                        Text("This session does not store enough model information to save an exact generation recipe.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            store.duplicateAsNew(session)
+                        } label: {
+                            Label("Duplicate as New", systemImage: "doc.on.doc")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .help("Load this session into a new unsaved editor.")
+
+                        Button {
+                            saveSessionGenerationRecipe(recipe)
+                        } label: {
+                            Label("Save Recipe", systemImage: "plus")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(recipe.modelID == nil)
+                        .help(recipe.modelID == nil ? "This session is missing its model identifier." : "Save this session's recoverable generation settings as a preset.")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else {
+                    Text("This session does not contain enough generation metadata to reconstruct a preset.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         } else {
             InspectorGroup(title: "Archived Generation") {
@@ -629,6 +679,19 @@ struct InspectorPanelView: View {
         }
     }
 
+    private func matchingSessionGenerationPreset(_ recipe: SessionRecipeSnapshot) -> NarrationGenerationPreset? {
+        guard let modelID = recipe.modelID else { return nil }
+        return workspaceStore.generationPresets.first { preset in
+            preset.backendID == recipe.backendID &&
+                preset.modelID == modelID &&
+                preset.voiceID == recipe.voiceID &&
+                preset.settings.cfgScale == recipe.cfgScale &&
+                (preset.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps) == recipe.ddpmInferenceSteps &&
+                preset.outputFormat == recipe.outputFormat &&
+                preset.settings.extraParameters.isEmpty
+        }
+    }
+
     private func generationPresetMenuTitle(_ preset: NarrationGenerationPreset) -> String {
         let voice = preset.voiceID.map { VoiceDisplayFormatter.displayText(for: $0) } ?? "Current voice"
         return "\(preset.displayName) - \(backendDisplayName(forBackendID: preset.backendID)) - \(voice)"
@@ -657,6 +720,81 @@ struct InspectorPanelView: View {
             selectedGenerationPresetID = preset.id
             store.statusMessage = "Saved generation preset: \(preset.displayName)"
         }
+    }
+
+    private func saveSessionGenerationRecipe(_ recipe: SessionRecipeSnapshot) {
+        guard let modelID = recipe.modelID else { return }
+        if let preset = workspaceStore.saveGenerationPreset(
+            backendID: recipe.backendID,
+            modelID: modelID,
+            voiceID: recipe.voiceID,
+            cfgScale: recipe.cfgScale,
+            ddpmInferenceSteps: recipe.ddpmInferenceSteps,
+            outputFormat: recipe.outputFormat,
+            extraParameters: [:]
+        ) {
+            selectedGenerationPresetID = preset.id
+            store.statusMessage = "Saved generation preset from session: \(preset.displayName)"
+        }
+    }
+}
+
+private struct SessionRecipeSnapshot {
+    let backendID: String
+    let modelID: String?
+    let voiceID: String
+    let cfgScale: String
+    let ddpmInferenceSteps: Int
+    let outputFormat: AudioOutputFormat
+
+    init?(session: SessionRecord) {
+        guard let backendID = Self.inferBackendID(from: session) else { return nil }
+        self.backendID = backendID
+        modelID = Self.inferModelID(from: session, backendID: backendID)
+        voiceID = session.metadata.voice
+        cfgScale = session.metadata.cfgScale
+        ddpmInferenceSteps = session.metadata.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
+        outputFormat = .wav
+    }
+
+    private static func inferBackendID(from session: SessionRecord) -> String? {
+        let haystack = "\(session.metadata.dockerImage) \(session.metadata.dockerCommand)".lowercased()
+        if haystack.contains(AppDefaults.dockerImage.lowercased()) ||
+            haystack.contains(AppDefaults.modelPath.lowercased()) ||
+            haystack.contains("realtime_model_inference_from_file") {
+            return BackendProfiles.vibeVoiceTTS.id
+        }
+        if haystack.contains("kokoro") {
+            return BackendProfiles.kokoroTTS.id
+        }
+        if haystack.contains("chatterbox") {
+            return BackendProfiles.chatterboxTTS.id
+        }
+        return nil
+    }
+
+    private static func inferModelID(from session: SessionRecord, backendID: String) -> String? {
+        if let modelPath = value(after: "--model_path", in: session.metadata.dockerCommand) {
+            return modelPath
+        }
+        if session.metadata.dockerCommand.contains(AppDefaults.modelPath) {
+            return AppDefaults.modelPath
+        }
+        if backendID == BackendProfiles.vibeVoiceTTS.id {
+            return AppDefaults.modelPath
+        }
+        if backendID == BackendProfiles.kokoroTTS.id {
+            return BackendProfiles.kokoroTTS.requiredModels.first?.id
+        }
+        return nil
+    }
+
+    private static func value(after flag: String, in command: String) -> String? {
+        let parts = command.split(separator: " ").map(String.init)
+        guard let index = parts.firstIndex(of: flag), parts.indices.contains(index + 1) else {
+            return nil
+        }
+        return parts[index + 1].trimmedOrNil
     }
 }
 
