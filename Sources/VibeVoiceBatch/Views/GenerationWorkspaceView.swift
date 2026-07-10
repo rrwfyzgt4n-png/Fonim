@@ -23,12 +23,18 @@ struct GenerationWorkspaceView: View {
         case .queuedGeneration(let itemID):
             if let item = store.queuedGenerations.first(where: { $0.id == itemID }) {
                 QueuedGenerationDetailView(item: item)
+                    .onAppear {
+                        FonimTelemetry.detailAppeared(kind: "queued", id: item.id)
+                    }
             } else {
                 EditorView()
             }
         case .historySession(let sessionID):
             if let session = store.session(id: sessionID) {
                 SessionDetailView(record: session)
+                    .onAppear {
+                        FonimTelemetry.detailAppeared(kind: "history", id: session.id)
+                    }
             } else {
                 MissingHistorySelectionView(sessionID: sessionID)
             }
@@ -70,11 +76,13 @@ private struct QueuedGenerationDetailView: View {
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
 
-                Text(item.sourceText)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                LargePlainTextView(
+                    text: item.sourceText,
+                    placeholder: "No input text saved.",
+                    telemetryKind: "queued-input"
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .frame(maxWidth: .infinity, minHeight: 260)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .topLeading)

@@ -13,9 +13,12 @@ struct SessionDetailView: View {
     var body: some View {
         content
             .navigationTitle(record.id)
-        .task(id: logLoadTaskID) {
-            await loadLogIfNeeded()
-        }
+            .onChange(of: selectedPane) { pane in
+                FonimTelemetry.detailPaneChanged(sessionID: record.id, pane: pane.rawValue)
+            }
+            .task(id: logLoadTaskID) {
+                await loadLogIfNeeded()
+            }
     }
 
     private var content: some View {
@@ -88,13 +91,13 @@ struct SessionDetailView: View {
                 copyToPasteboard(record.inputText)
             }
 
-            ScrollView {
-                Text(record.inputText.isEmpty ? "No input text saved." : record.inputText)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-            }
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            LargePlainTextView(
+                text: record.inputText,
+                placeholder: "No input text saved.",
+                telemetryKind: "session-input"
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -150,6 +153,7 @@ struct SessionDetailView: View {
         let requestedSessionID = record.id
         isLoadingLog = true
         let logURL = record.logURL
+        FonimTelemetry.sessionLogLoadStarted(sessionID: requestedSessionID)
         let text = await Task.detached(priority: .utility) {
             (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
         }.value
@@ -158,6 +162,7 @@ struct SessionDetailView: View {
         loadedLogSessionID = requestedSessionID
         loadedLogText = text
         isLoadingLog = false
+        FonimTelemetry.sessionLogLoadFinished(sessionID: requestedSessionID, characterCount: text.count)
     }
 
     private var metadataPane: some View {
@@ -166,14 +171,14 @@ struct SessionDetailView: View {
                 copyToPasteboard(record.metadataJSON)
             }
 
-            ScrollView {
-                Text(record.metadataJSON)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-            }
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            LargePlainTextView(
+                text: record.metadataJSON,
+                placeholder: "No metadata saved.",
+                style: .metadata,
+                telemetryKind: "session-metadata"
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

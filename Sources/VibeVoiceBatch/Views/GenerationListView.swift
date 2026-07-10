@@ -201,6 +201,7 @@ struct GenerationListView: View {
     }
 
     private func selectQueued(_ item: QueuedGenerationItem) {
+        FonimTelemetry.selectedGeneration(kind: "queued", id: item.id)
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -209,6 +210,7 @@ struct GenerationListView: View {
     }
 
     private func selectHistory(_ record: SessionRecord) {
+        FonimTelemetry.selectedGeneration(kind: "history", id: record.id)
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
