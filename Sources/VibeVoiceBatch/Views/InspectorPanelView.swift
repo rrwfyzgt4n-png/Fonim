@@ -5,6 +5,7 @@ struct InspectorPanelView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var workspaceStore: WorkspaceStore
+    @State private var selectedGenerationPresetID = ""
     let selection: WorkstationSelection?
     let selectedSession: SessionRecord?
 
@@ -68,14 +69,19 @@ struct InspectorPanelView: View {
             case .section(.voices):
                 voiceLibraryInspectorContent
             case .section(.presets):
+                generationPresetSection
                 generationSection
                 backendSection
                 exportSection
                 metadataSection
-            case .section(.history), .queuedGeneration:
+            case .section(.history):
+                generationPresetSection
                 generationSection
                 backendSection
                 exportSection
+                metadataSection
+            case .queuedGeneration(let itemID):
+                queuedGenerationRecipeSection(itemID)
                 metadataSection
             case .historySession:
                 lockedSessionGenerationSection
@@ -222,6 +228,60 @@ struct InspectorPanelView: View {
         }
     }
 
+    private var generationPresetSection: some View {
+        InspectorGroup(title: "Recipe") {
+            Picker("Preset", selection: generationPresetBinding) {
+                Text("Current Settings").tag("")
+                ForEach(workspaceStore.generationPresets) { preset in
+                    Text(generationPresetMenuTitle(preset)).tag(preset.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(workspaceStore.generationPresets.isEmpty)
+            .help("Choose a saved generation recipe. Press Apply to use it for the current editor.")
+
+            if workspaceStore.generationPresets.isEmpty {
+                Text("No generation presets are available yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let preset = selectedInspectorGenerationPreset {
+                InspectorValue(label: "Selected", value: preset.displayName)
+                InspectorVoiceValue(label: "Voice", voiceID: preset.voiceID ?? store.selectedVoice)
+                InspectorValue(label: "Backend", value: backendDisplayName(forBackendID: preset.backendID))
+                InspectorValue(label: "Model", value: preset.modelID)
+            } else if let matchingPreset = matchingCurrentGenerationPreset {
+                InspectorValue(label: "Matched", value: matchingPreset.displayName)
+            } else {
+                Text("Current settings are not linked to a saved recipe.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    applySelectedGenerationPreset()
+                } label: {
+                    Label("Apply Preset", systemImage: "checkmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(selectedInspectorGenerationPreset == nil)
+                .help("Apply the selected generation recipe to the current editor defaults.")
+
+                Button {
+                    saveCurrentGenerationRecipe()
+                } label: {
+                    Label("Save Recipe", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .help("Save the current backend, model, voice, output, and inference settings as a generation preset.")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
     @ViewBuilder
     private var lockedSessionGenerationSection: some View {
         if let session = selectedSession {
@@ -240,6 +300,31 @@ struct InspectorPanelView: View {
         } else {
             InspectorGroup(title: "Archived Generation") {
                 InspectorValue(label: "State", value: "No session selected")
+            }
+        }
+    }
+
+    private func queuedGenerationRecipeSection(_ itemID: String) -> some View {
+        InspectorGroup(title: "Queued Recipe") {
+            if let item = store.queuedGenerations.first(where: { $0.id == itemID }) {
+                Text("This queued generation is already committed. Duplicate it as New to edit these settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                InspectorValue(label: "Status", value: item.status.displayName)
+                InspectorVoiceValue(label: "Voice", voiceID: item.voice)
+                InspectorValue(label: "Backend", value: backendDisplayName(forBackendID: item.backendID))
+                InspectorValue(label: "Model", value: item.modelID)
+                InspectorValue(label: "CFG", value: item.cfgScale)
+                InspectorValue(label: "Steps", value: "\(item.ddpmInferenceSteps)")
+                InspectorValue(label: "Words", value: "\(TextMetrics.wordCount(in: item.sourceText))")
+                InspectorValue(label: "Elapsed", value: SessionFormatters.duration(item.elapsedSeconds))
+                if let remaining = item.estimatedRemainingSeconds {
+                    InspectorValue(label: "Remaining", value: SessionFormatters.duration(remaining))
+                }
+            } else {
+                InspectorValue(label: "State", value: "No queued generation selected")
             }
         }
     }
@@ -513,6 +598,65 @@ struct InspectorPanelView: View {
             get: { store.selectedVoice },
             set: { store.selectVoice($0) }
         )
+    }
+
+    private var generationPresetBinding: Binding<String> {
+        Binding(
+            get: {
+                workspaceStore.generationPresets.contains(where: { $0.id == selectedGenerationPresetID })
+                    ? selectedGenerationPresetID
+                    : ""
+            },
+            set: { selectedGenerationPresetID = $0 }
+        )
+    }
+
+    private var selectedInspectorGenerationPreset: NarrationGenerationPreset? {
+        guard !selectedGenerationPresetID.isEmpty else { return nil }
+        return workspaceStore.generationPresets.first { $0.id == selectedGenerationPresetID }
+    }
+
+    private var matchingCurrentGenerationPreset: NarrationGenerationPreset? {
+        let currentParameters = settingsStore.settings.generationExtraParameters(for: store.selectedBackendProfile)
+        return workspaceStore.generationPresets.first { preset in
+            preset.backendID == store.selectedBackendProfile.id &&
+                preset.modelID == store.selectedModelID &&
+                preset.voiceID == store.selectedVoice &&
+                preset.settings.cfgScale == store.cfgScale &&
+                preset.settings.ddpmInferenceSteps == store.ddpmInferenceSteps &&
+                preset.outputFormat == settingsStore.settings.exportFormat &&
+                preset.settings.extraParameters == currentParameters
+        }
+    }
+
+    private func generationPresetMenuTitle(_ preset: NarrationGenerationPreset) -> String {
+        let voice = preset.voiceID.map { VoiceDisplayFormatter.displayText(for: $0) } ?? "Current voice"
+        return "\(preset.displayName) - \(backendDisplayName(forBackendID: preset.backendID)) - \(voice)"
+    }
+
+    private func backendDisplayName(forBackendID backendID: String) -> String {
+        BackendProfiles.all.first { $0.id == backendID }?.displayName ?? backendID
+    }
+
+    private func applySelectedGenerationPreset() {
+        guard let preset = selectedInspectorGenerationPreset else { return }
+        store.applyGenerationPreset(preset)
+    }
+
+    private func saveCurrentGenerationRecipe() {
+        let parameters = settingsStore.settings.generationExtraParameters(for: store.selectedBackendProfile)
+        if let preset = workspaceStore.saveGenerationPreset(
+            backendID: store.selectedBackendProfile.id,
+            modelID: store.selectedModelID,
+            voiceID: store.selectedVoice,
+            cfgScale: store.cfgScale,
+            ddpmInferenceSteps: store.ddpmInferenceSteps,
+            outputFormat: settingsStore.settings.exportFormat,
+            extraParameters: parameters
+        ) {
+            selectedGenerationPresetID = preset.id
+            store.statusMessage = "Saved generation preset: \(preset.displayName)"
+        }
     }
 }
 

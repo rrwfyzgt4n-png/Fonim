@@ -34,6 +34,8 @@ struct QueuedGenerationItem: Identifiable, Equatable {
     let id: String
     let createdAt: Date
     let sourceText: String
+    let backendID: String
+    let modelID: String
     let voice: String
     let cfgScale: String
     let ddpmInferenceSteps: Int
@@ -61,6 +63,8 @@ struct QueuedGenerationItem: Identifiable, Equatable {
         id = job.id
         createdAt = job.createdAt
         sourceText = job.inputText
+        backendID = job.backendID
+        modelID = job.modelID
         voice = job.voiceID
         cfgScale = job.settings.cfgScale
         ddpmInferenceSteps = job.settings.ddpmInferenceSteps ?? AppDefaults.defaultDDPMInferenceSteps
