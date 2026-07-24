@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/fonim-project-image.svg" alt="Fonim — local narration workstation" width="880">
+  <img src="docs/image.png" alt="Fonim — local narration workstation" width="880">
 </p>
 
 <h1 align="center">Fonim</h1>
