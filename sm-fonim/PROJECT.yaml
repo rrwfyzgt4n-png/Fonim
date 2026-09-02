@@ -1,0 +1,14 @@
+schema: stringmaster/v1
+project_id: fonim
+display_name: Fonim
+description: Native macOS workstation for local, reproducible multi-backend text-to-speech production.
+source_repository: rrwfyzgt4n-png/Fonim
+default_branch: main
+product_authority: Étienne Mailhot
+control_authority: ChatGPT
+allowed_executors:
+  - codex
+  - claude-code
+  - other
+lifecycle: active
+created_at: "2026-09-02T02:00:00-04:00"
