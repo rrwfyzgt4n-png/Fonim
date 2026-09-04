@@ -1,13 +1,13 @@
 ---
 schema: stringmaster/v1
-work_order_id: WO-2026-09-04-001
+work_order_id: WO-2026-09-04-002
 work_order_kind: single
 execution_mode: read-only
 project_id: fonim
-state_revision: 2
+state_revision: 3
 executor: codex
-recommended_model: gpt-5.6-codex
-reasoning_effort: low
+recommended_model: gpt-5.6-terra
+reasoning_effort: medium
 spending_class: S1
 status: READY
 base_head: 62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6
@@ -16,14 +16,17 @@ maximum_full_test_runs: 0
 maximum_evidence_runs: 0
 progress_narration: prohibited
 architecture_changes: prohibited
-created_at: "2026-09-04T17:31:00-04:00"
+created_at: "2026-09-04T18:07:00-04:00"
 ---
 
 # Objective
 
-Run one minimal read-only external-project turn to prove the currently accepted Remote dispatcher/conductor path can still claim a request, launch the installed StringMaster conductor, launch Codex, close normally, and publish canonical REPORT/RECEIPT evidence.
+Run one exact-model read-only Remote conductor canary using the same Codex model/effort tuple as the current Incline lane:
 
-This is an infrastructure canary only. It is not Fonim product work.
+- model: `gpt-5.6-terra`
+- reasoning effort: `medium`
+
+This distinguishes a host/global Codex/Remote problem from an Incline-specific admission/state problem.
 
 # Task
 
@@ -31,8 +34,9 @@ From the prepared read-only worktree at exact base `62de6488c7c7ddd3ae1d942eb9b9
 
 - inspect the repository top level;
 - read `README.md` if present;
-- report whether the repository is readable and the prepared HEAD equals the assigned base;
-- make no changes.
+- confirm prepared HEAD equals the assigned base;
+- make no changes;
+- return an ordinary concise completion summary.
 
 # Constraints
 
@@ -42,5 +46,3 @@ Do not run tests.
 Do not use network access.
 Do not inspect host-global dispatcher state.
 Do not perform product analysis beyond the minimal readability/base check.
-
-Return the normal normalized read-only report and stop.
