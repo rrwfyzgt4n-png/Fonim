@@ -1,36 +1,44 @@
 ---
 schema: stringmaster/v1
 project_id: fonim
-revision: 4
+revision: 5
 source_repository: rrwfyzgt4n-png/Fonim
 active_branch: main
 verified_remote_head: 62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6
 reported_local_head: null
 verification_status: verified
-stage: ACCEPTED
-active_transition: null
-active_work_order: null
-executor: null
-model_class: null
-spending_class: null
+stage: READY
+active_transition: remote-project-local-cutover-canary
+active_work_order: WO-2026-09-07-001
+executor: codex
+model_class: gpt-5.6-terra
+spending_class: S1
 blocked_by: null
-updated_at: "2026-09-04T21:23:00-04:00"
+updated_at: "2026-09-07T16:37:30-04:00"
 ---
 
-# Accepted baseline
+# Accepted product baseline
 
-Accepted Fonim product source remains exact pre-control commit `62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6`.
+Fonim product source remains:
 
-# Remote conductor canary result
+`62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6`
 
-The temporary infrastructure canary is complete.
+# Current canary
 
-`TR-fonim-2026-09-04-003` produced canonical `TURN-2026-09-04-002` / `RUN-2026-09-04-002` with receipt result `COMPLETED` using Codex `gpt-5.6-terra` at medium effort.
+Work order:
 
-The run was read-only, clean-no-change, and made no product-source changes.
+`WO-2026-09-07-001`
 
-This evidence was collected only to diagnose StringMaster Remote behavior during the separate Incline investigation.
+Project-local preauthorization draft:
 
-# Current state
+`sm-fonim/turn-requests/draft/TR-fonim-2026-09-07-001.yaml`
 
-No active Fonim transition or work order.
+This is a StringMaster infrastructure canary only. No Fonim product source change, test, build, or acceptance is authorized.
+
+# Phone gate
+
+Before private submission, product authority must use the installed successor Shortcut to select Fonim and Authorize Turn, reach the final review for exact request `TR-fonim-2026-09-07-001`, and Cancel.
+
+Reaching that review is operator evidence that the host projection, Draft Reader access, exact seven-field validation, and private duplicate preflight all succeeded without creating a request.
+
+Only a later explicit Authorize action may create the private request.
