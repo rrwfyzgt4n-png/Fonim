@@ -1,44 +1,49 @@
 ---
 schema: stringmaster/v1
 project_id: fonim
-revision: 5
+revision: 6
 source_repository: rrwfyzgt4n-png/Fonim
 active_branch: main
 verified_remote_head: 62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6
 reported_local_head: null
 verification_status: verified
-stage: READY
-active_transition: remote-project-local-cutover-canary
-active_work_order: WO-2026-09-07-001
-executor: codex
-model_class: gpt-5.6-terra
-spending_class: S1
+stage: ACCEPTED
+active_transition: null
+active_work_order: null
+executor: null
+model_class: null
+spending_class: null
 blocked_by: null
-updated_at: "2026-09-07T16:37:30-04:00"
+updated_at: "2026-09-07T19:55:00-04:00"
 ---
 
 # Accepted product baseline
 
-Fonim product source remains:
+Fonim product source remains unchanged:
 
 `62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6`
 
-# Current canary
+# Completed infrastructure canary
 
-Work order:
+Project-local Remote request:
 
-`WO-2026-09-07-001`
+`TR-fonim-2026-09-07-001`
 
-Project-local preauthorization draft:
+Canonical evidence:
 
-`sm-fonim/turn-requests/draft/TR-fonim-2026-09-07-001.yaml`
+- `TURN-2026-09-07-001`;
+- `RUN-2026-09-07-001`;
+- result `COMPLETED`;
+- `clean-no-change`;
+- changed paths `[]`;
+- no transport failure.
 
-This is a StringMaster infrastructure canary only. No Fonim product source change, test, build, or acceptance is authorized.
+The canary is accepted as StringMaster infrastructure evidence only.
 
-# Phone gate
+No Fonim product change or product acceptance was implied.
 
-Before private submission, product authority must use the installed successor Shortcut to select Fonim and Authorize Turn, reach the final review for exact request `TR-fonim-2026-09-07-001`, and Cancel.
+# Request lifecycle
 
-Reaching that review is operator evidence that the host projection, Draft Reader access, exact seven-field validation, and private duplicate preflight all succeeded without creating a request.
+`TR-fonim-2026-09-07-001` is permanently spent.
 
-Only a later explicit Authorize action may create the private request.
+Its consumed project-local draft has been removed from the active draft directory.
