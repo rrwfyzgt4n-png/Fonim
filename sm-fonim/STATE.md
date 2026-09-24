@@ -1,20 +1,20 @@
 ---
 schema: stringmaster/v1
 project_id: fonim
-revision: 6
+revision: 7
 source_repository: rrwfyzgt4n-png/Fonim
 active_branch: main
 verified_remote_head: 62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6
 reported_local_head: null
 verification_status: verified
-stage: ACCEPTED
-active_transition: null
-active_work_order: null
+stage: READY
+active_transition: stringmaster-v1-6-remote-canary-r7
+active_work_order: WO-2026-09-24-001
 executor: null
 model_class: null
-spending_class: null
+spending_class: S1
 blocked_by: null
-updated_at: "2026-09-07T19:55:00-04:00"
+updated_at: "2026-09-24T04:56:02-04:00"
 ---
 
 # Accepted product baseline
@@ -23,27 +23,20 @@ Fonim product source remains unchanged:
 
 `62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6`
 
-# Completed infrastructure canary
+# Active StringMaster v1.6 infrastructure canary
 
-Project-local Remote request:
+WO-2026-09-24-001 is a conductor-only evidence turn used solely to validate the deployed StringMaster v1.6 Remote path.
 
-`TR-fonim-2026-09-07-001`
+It must:
 
-Canonical evidence:
+- use exact accepted Fonim source `62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6`;
+- make no Fonim product or control mutation during execution;
+- launch no coding executor;
+- run one bounded read-only Git identity/cleanliness evidence command;
+- produce no candidate branch.
 
-- `TURN-2026-09-07-001`;
-- `RUN-2026-09-07-001`;
-- result `COMPLETED`;
-- `clean-no-change`;
-- changed paths `[]`;
-- no transport failure.
+Preauthorized single-use Remote request:
 
-The canary is accepted as StringMaster infrastructure evidence only.
+`TR-fonim-2026-09-24-001`
 
-No Fonim product change or product acceptance was implied.
-
-# Request lifecycle
-
-`TR-fonim-2026-09-07-001` is permanently spent.
-
-Its consumed project-local draft has been removed from the active draft directory.
+The request may be submitted at most once. Completion is StringMaster infrastructure evidence only and does not imply Fonim product acceptance.

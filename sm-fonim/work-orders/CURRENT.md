@@ -1,0 +1,57 @@
+---
+schema: stringmaster/v1
+work_order_id: WO-2026-09-24-001
+work_order_kind: single
+execution_mode: evidence
+project_id: fonim
+state_revision: 7
+executor: null
+recommended_model: null
+spending_class: S1
+status: READY
+base_head: 62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6
+write_roots: []
+maximum_full_test_runs: 0
+maximum_evidence_runs: 1
+evidence_argv:
+  - /bin/sh
+  - -c
+  - set -eu; test "$(/usr/bin/git rev-parse HEAD)" = "62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6"; test -z "$(/usr/bin/git status --porcelain)"; printf '%s\n' V1_6_REMOTE_CANARY_PASS
+progress_narration: prohibited
+architecture_changes: prohibited
+created_at: "2026-09-24T04:56:02-04:00"
+---
+
+# Objective
+
+Run one ordinary external-project Remote canary through the deployed StringMaster v1.6 runtime.
+
+# Required behavior
+
+- use exact accepted Fonim product source `62de6488c7c7ddd3ae1d942eb9b9802b5a0056b6`;
+- use conductor-only evidence mode with no coding executor;
+- execute the declared evidence command exactly once;
+- verify the prepared repository HEAD is the accepted Fonim source and the worktree is clean;
+- make no source, test, control, configuration, credential, or external-service mutation;
+- create no source branch or candidate;
+- run no repository test suite.
+
+Expected evidence output:
+
+`V1_6_REMOTE_CANARY_PASS`
+
+# Purpose
+
+A successful turn proves the deployed v1.6 path across:
+
+`project-local draft -> phone review/authorization -> private transport -> Remote preflight/admission -> conductor-only evidence -> canonical REPORT/RECEIPT`
+
+This is StringMaster infrastructure evidence only. It does not alter or accept Fonim product behavior.
+
+# Request authority
+
+Exactly one project-local Remote request is preauthorized:
+
+`TR-fonim-2026-09-24-001`
+
+It may be authorized at most once. If phone submission is ambiguous after authorization, do not authorize it again.
